@@ -1,0 +1,159 @@
+# agentbuddy — build and publish desktop installers on a tag push.
+#
+# Each platform builds the console (web/) into web/dist, which is embedded into
+# the Rust binary at compile time (rust-embed), then runs `tauri build`. Tauri
+# yields the native installer for the host OS; we additionally wrap the bare
+# executable in a portable archive so users get both an installer and a
+# no-install download.
+#
+# Resulting release assets (per version V):
+#   linux-x86_64.tar.gz      portable, x86_64 Linux
+#   amd64.deb                native installer, x86_64 Linux
+#   macos-aarch64.tar.gz     portable, Apple Silicon macOS (.app)
+#   aarch64.dmg              native installer, Apple Silicon macOS
+#   windows-x86_64.zip       portable, x86_64 Windows
+#   x64.msi                  native installer, x86_64 Windows
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x86_64
+            bundles: deb
+          - os: macos-latest
+            platform: macos
+            arch: aarch64
+            bundles: dmg
+          - os: windows-latest
+            platform: windows
+            arch: x86_64
+            bundles: msi
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Linux build dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev build-essential curl wget file
+
+      - name: Build console (embedded into the binary)
+        working-directory: web
+        run: |
+          bun install
+          bun run build
+          test -f dist/index.html || { echo "console build produced no index.html"; exit 1; }
+
+      - name: Stamp version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          if [ -n "$VERSION" ]; then
+            sed -i.bak -E 's/("version":[[:space:]]*")[^"]*(")/\1'"$VERSION"'\2/' \
+              desktop/src-tauri/tauri.conf.json && rm -f desktop/src-tauri/tauri.conf.json.bak
+            sed -i.bak -E 's/^(version = ")[^"]*(")/\1'"$VERSION"'\2/' \
+              desktop/src-tauri/Cargo.toml && rm -f desktop/src-tauri/Cargo.toml.bak
+          fi
+
+      - name: Build desktop app
+        working-directory: desktop
+        run: |
+          bun install
+          bun run build -- --bundles ${{ matrix.bundles }}
+
+      - name: Package artifacts (Linux)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/out"; mkdir -p "$OUT"
+          BIN="desktop/src-tauri/target/release/agentbuddy"
+          DEB=$(ls desktop/src-tauri/target/release/bundle/deb/*.deb | head -n1)
+          cp "$DEB" "$OUT/agentbuddy-amd64-${VERSION}.deb"
+          tar -czf "$OUT/agentbuddy-linux-x86_64-${VERSION}.tar.gz" -C "$(dirname "$BIN")" agentbuddy
+
+      - name: Package artifacts (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/out"; mkdir -p "$OUT"
+          APP=$(ls -d desktop/src-tauri/target/release/bundle/macos/*.app | head -n1)
+          DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -n1)
+          cp "$DMG" "$OUT/agentbuddy-aarch64-${VERSION}.dmg"
+          tar -czf "$OUT/agentbuddy-macos-aarch64-${VERSION}.tar.gz" -C "$(dirname "$APP")" "$(basename "$APP")"
+
+      - name: Package artifacts (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $OUT = "$env:GITHUB_WORKSPACE/out"
+          New-Item -ItemType Directory -Force -Path $OUT | Out-Null
+          $EXE = "desktop/src-tauri/target/release/agentbuddy.exe"
+          $MSI = (Get-ChildItem desktop/src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1).FullName
+          Copy-Item $MSI "$OUT/agentbuddy-x64-${env:VERSION}.msi"
+          Compress-Archive -Path $EXE -DestinationPath "$OUT/agentbuddy-windows-x86_64-${env:VERSION}.zip"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentbuddy-${{ matrix.platform }}-${{ matrix.arch }}
+          path: out
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: List assets
+        run: ls -lh release-assets
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
