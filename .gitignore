@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+bun.lockb
+
+# Build artefacts
+web/dist/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+backend/static/
+
+# Rust
+*.rs.bk
+*.pdb
+
+# Coverage / test output
+coverage.out
+coverage/
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local environment
+.env
+.env.local
+*.local

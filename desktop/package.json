@@ -1,0 +1,16 @@
+{
+  "name": "agentbuddy-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tauri v2 desktop shell for agentbuddy: connects to an agenthub server and opens the workbench.",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "icons": "tauri icon ../assets/app-icon.png",
+    "make-icon": "bun scripts/make-icon.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@tauri-apps/plugin-notification": "^2.0.0"
+  }
+}
