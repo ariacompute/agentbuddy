@@ -17,12 +17,13 @@
 name: release
 
 on:
-  push:
-    tags: ['v*']
-  workflow_dispatch:
+  release:
+    types: [published]
 
+# One publish at a time: a newer release cancels an in-progress one so a
+# release's assets are never a mix of two runs.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: true
 
 permissions:
@@ -158,6 +159,10 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          # ARIACOMPUTE_TOKEN is a PAT with release-write scope; it is used here
+          # to attach the built assets to the GitHub release (the deprecated
+          # agentbuddy workflow used the same secret as GITHUB_TOKEN).
+          token: ${{ secrets.ARIACOMPUTE_TOKEN }}
           files: release-assets/*
           draft: false
           prerelease: false
