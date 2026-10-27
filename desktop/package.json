@@ -7,7 +7,8 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "icons": "tauri icon ../assets/app-icon.png",
-    "make-icon": "bun scripts/make-icon.mjs"
+    "make-icon": "bun scripts/make-icon.mjs",
+    "stamp": "bun scripts/stamp.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
