@@ -103,3 +103,24 @@
 103. [ ] `.github/workflows/release.yml`：三平台矩阵
 104. [ ] `README.md` / `README_cn.md` 收尾
 105. [ ] `requirements.md` / `AGENTS.md` 与实现对齐复核
+
+## M8 — eMudhra / emSign 证书私钥泄露响应（2026-10）
+
+背景：eMudhra(emSign) 8 张中间 CA 私钥极弱（P-384 私钥标量 <256），可被反推伪造任意域名证书；
+Bun / Rust(webpki-roots) 等自带信任库需升级。agentbuddy 无后端、无容器，风险面集中在
+bun 构建/测试运行时与桌面端（Rust/Tauri）对 agenthub 服务端的出向 TLS。
+
+### 1. 前端 / 桌面脚本（Bun）
+- `web/package.json` 与 `desktop/package.json`：新增 `engines.bun >=1.4.4`，约束 bun 运行时版本
+  （Bun 1.4.4 修复其 TLS 信任库）。本仓无 Docker 镜像，bun 版本以本地/CI 运行时为准。
+- 本仓无 Go / Node / Python 参与构建或运行时信任库，无需相应升级。
+
+### 2. 桌面端（Rust / Tauri，reqwest + rustls）
+- `desktop/src-tauri/Cargo.toml`：显式固定 `webpki-roots = "1.0.10"`（Rust 信任库在 1.0.10 移除
+  emSign 根；桌面环回代理对 agenthub 服务端的 SSE/HTTP 出向校验依赖它）。本仓此前无 `Cargo.lock`，
+  首次构建须解析到 ≥1.0.10。
+
+### 3. 检测与验证
+- 无容器 CA bundle 可扫；验证改为：`bun --version` 须 ≥1.4.4；桌面构建后
+  `cargo tree -i webpki-roots`（或 `cargo update -p webpki-roots`）确认 ≥1.0.10。
+- 站点证书（部署用 Let's Encrypt）不受影响，无需重签。

@@ -10,9 +10,9 @@
 `agenthub` 服务端，从而复用 agenthub 的认证、A2A 编排、注册中心与任务状态机。
 
 - 后端（别人的）：`agenthub`（Go 1.27 + PostgreSQL）。本仓库 **不 import** agenthub，只经 HTTP 对话。
-- 前端：Vue 3.5 + Vite 5（**bun 1.4** 运行时，弃用 npm/Node）；八屏工作台；**13 种语言**；
+- 前端：Vue 3.5 + Vite 5（**bun 1.4.4+** 运行时，弃用 npm/Node）；八屏工作台；**13 种语言**；
   **纯黑/白/灰单色**；无 UI 组件库、无 CSS 框架，样式全部手写于单个 `web/src/style.css`。
-- 桌面外壳：`desktop/src-tauri`（**Rust + Tauri v2**），**不含后端、不含数据库**，用环回反向代理把
+- 桌面外壳：`desktop/src-tauri`（**Rust + Tauri v2**，出向 TLS 由 rustls + webpki-roots ≥1.0.10 校验），**不含后端、不含数据库**，用环回反向代理把
   同一份工作台对着用户指定的服务端打开；外壳自有文案同样 13 语。
 
 ## 架构（两端协作）

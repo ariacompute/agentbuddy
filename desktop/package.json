@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Tauri v2 desktop shell for agentbuddy: connects to an agenthub server and opens the workbench.",
+  "engines": {
+    "bun": ">=1.4.4"
+  },
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
