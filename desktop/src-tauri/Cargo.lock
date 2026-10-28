@@ -23,6 +23,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tokio",
  "url",
+ "webpki-roots",
 ]
 
 [[package]]
