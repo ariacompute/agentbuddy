@@ -1422,6 +1422,11 @@ audio {
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
+  text-align: center;
+}
+
+.login-brand h1 {
+  font-size: 20px;
 }
 
 .login-brand .tag {

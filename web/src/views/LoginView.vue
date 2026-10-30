@@ -54,8 +54,7 @@ onMounted(() => {
       <div class="login-brand">
         <BrandMark :size="44" />
         <div>
-          <h1 style="font-size:20px">{{ t('loginTitle') }}</h1>
-          <p class="tag muted">{{ t('loginSubtitle') }}</p>
+          <h1>{{ t('loginTitle') }}</h1>
         </div>
       </div>
 
