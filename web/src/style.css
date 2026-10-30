@@ -1454,7 +1454,7 @@ audio {
 
 .login-version {
   text-align: center;
-  margin-top: 8px;
+  margin-top: 12px;
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--text-3);
