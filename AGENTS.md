@@ -78,8 +78,10 @@ desktop/
   **禁止整体超时**（仅 `CONNECT_TIMEOUT = 10s`）。
 - **Cookie 重写**：丢 `Secure` / `Domain` / 原 `Path`，`SameSite=None` → `Lax`，补 `; Path=/`；
   保留 `HttpOnly`。
-- **关闭行为**：`CloseRequested` → `api.prevent_close()` + `window.hide()`；
-  **仅托盘「退出」走 `app.exit(0)`**。
+- **关闭行为**：`CloseRequested` 时读取 `config.background`——为 `true`（默认）则
+  `api.prevent_close()` + `window.hide()`（保留在托盘运行）；为 `false` 则放行关闭，
+  应用随之退出（外壳无其他窗口）。**仅托盘「退出」恒走 `app.exit(0)`**。
+  该偏好由 `/__shell/config` 落盘，连接页与工作台「设置」页均可改。
 - **内嵌前端为 `../../web/dist`**：`build.rs` 保证目录存在（`rust-embed` 目录缺失会编译失败）。
 - **外壳文案 13 语**：`src-tauri/src/i18n/copy.rs`，语言代码集必须与 `web/src/lib/languages.js` 一致。
 - **测试**：`cd desktop/src-tauri && cargo test`。

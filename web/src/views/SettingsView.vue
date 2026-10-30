@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useCopy, useLang, setLang } from '../lib/use-copy.js'
 import { LANGUAGES } from '../lib/languages.js'
-import { checkHealth } from '../lib/api.js'
+import { checkHealth, request } from '../lib/api.js'
 
 const { t } = useCopy('settings')
 const lang = useLang()
@@ -17,15 +17,32 @@ const server = ref('')
 const version = ref('')
 const build = ref('')
 
+// The resident / notification preferences decide what the shell does after the
+// window closes, so they live in the desktop shell's own config (written through
+// /__shell/config) — not in the workbench's localStorage. localStorage is only a
+// fallback for when the workbench is opened outside the shell (e.g. vite dev),
+// where there is no tray to act on the preference anyway.
+function readLocal() {
+  try {
+    return JSON.parse(window.localStorage.getItem(KEY) || '{}')
+  } catch (e) { return {} }
+}
+
 onMounted(async () => {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(KEY) || '{}')
+    const cfg = await request('/__shell/config')
+    background.value = cfg.background ?? true
+    notify.value = cfg.notifyEnabled ?? true
+    quiet.value = cfg.notifyQuietMinutes ?? 0
+  } catch (e) {
+    const saved = readLocal()
     background.value = saved.background ?? true
     notify.value = saved.notify ?? true
     quiet.value = saved.quiet ?? 0
-    voiceInput.value = saved.voiceInput ?? true
-    themeLight.value = saved.theme === 'light'
-  } catch (e) { /* ignore */ }
+  }
+  const local = readLocal()
+  voiceInput.value = local.voiceInput ?? true
+  themeLight.value = local.theme === 'light'
   try {
     const h = await checkHealth()
     server.value = h.server || ''
@@ -34,14 +51,29 @@ onMounted(async () => {
   } catch (e) { /* ignore */ }
 })
 
-function save() {
-  window.localStorage.setItem(KEY, JSON.stringify({
-    background: background.value,
-    notify: notify.value,
-    quiet: quiet.value,
-    voiceInput: voiceInput.value,
-    theme: themeLight.value ? 'light' : 'dark',
-  }))
+function saveLocal() {
+  const local = readLocal()
+  local.theme = themeLight.value ? 'light' : 'dark'
+  local.voiceInput = voiceInput.value
+  // Mirror the shell-managed flags so the dev fallback reflects the latest choice.
+  local.background = background.value
+  local.notify = notify.value
+  local.quiet = quiet.value
+  window.localStorage.setItem(KEY, JSON.stringify(local))
+}
+
+async function save() {
+  saveLocal()
+  try {
+    await request('/__shell/config', {
+      method: 'POST',
+      body: JSON.stringify({
+        background: background.value,
+        notify_enabled: notify.value,
+        notify_quiet_minutes: quiet.value,
+      }),
+    })
+  } catch (e) { /* not running inside the desktop shell */ }
 }
 
 function reset() {

@@ -51,14 +51,20 @@ pub fn run() {
             tray::build(&handle, &initial)?;
             app.on_menu_event(tray::on_menu_event);
 
-            // Closing the window parks the app in the tray; only the tray's own
-            // Quit ends it.
+            // Closing the window either parks it in the tray (when the user kept
+            // "run in the background" on) or lets it close — which ends the app,
+            // because the shell has no other window to fall back on. The
+            // preference lives in the shell config and can change while the window
+            // is open, so it is read at close time rather than captured once.
             if let Some(window) = app.get_webview_window("main") {
                 let parked = window.clone();
+                let close_config = shared.clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = parked.hide();
+                        if close_config.blocking_read().background {
+                            api.prevent_close();
+                            let _ = parked.hide();
+                        }
                     }
                 });
             }

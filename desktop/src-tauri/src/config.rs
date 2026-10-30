@@ -18,7 +18,7 @@ use crate::i18n;
 
 /// The persisted shape. `server_url` empty means "not configured yet", which is
 /// what sends the shell to the connection page.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AppConfig {
     #[serde(default)]
     pub server_url: String,
@@ -27,9 +27,10 @@ pub struct AppConfig {
     /// Empty means "follow the system language".
     #[serde(default)]
     pub lang: String,
-    /// When true (the default once the user opts in), closing the window keeps the
-    /// app running in the tray instead of quitting.
-    #[serde(default)]
+    /// When true (the default), closing the window keeps the app running in the
+    /// tray instead of quitting. The connection / settings page can turn this
+    /// off, in which case closing the window ends the app.
+    #[serde(default = "default_true")]
     pub background: bool,
     /// Whether OS notifications may be shown by the webview via `/__shell/notify`.
     #[serde(default)]
@@ -38,6 +39,23 @@ pub struct AppConfig {
     /// 0 means "never quiet".
     #[serde(default)]
     pub notify_quiet_minutes: u16,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        AppConfig {
+            server_url: String::new(),
+            accept_invalid_certs: false,
+            lang: String::new(),
+            background: true,
+            notify_enabled: false,
+            notify_quiet_minutes: 0,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Shared between the tray (which reads it for menu labels) and the proxy
@@ -229,9 +247,9 @@ mod tests {
     }
 
     #[test]
-    fn background_and_notification_default_off() {
+    fn background_defaults_to_running_in_tray() {
         let config = AppConfig::default();
-        assert!(!config.background);
+        assert!(config.background, "closing must park in the tray by default");
         assert!(!config.notify_enabled);
         assert_eq!(config.notify_quiet_minutes, 0);
     }
