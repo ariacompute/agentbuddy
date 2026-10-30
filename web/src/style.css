@@ -1397,6 +1397,18 @@ audio {
   z-index: 10;
 }
 
+/* Both controls shrink to one compact, equal footprint (height-matched). */
+.login-head .lang-select {
+  min-height: 32px;
+  height: 32px;
+  width: auto;
+}
+
+.login-head .btn-icon {
+  width: 32px;
+  height: 32px;
+}
+
 .login-card {
   width: min(420px, 100%);
   display: flex;
