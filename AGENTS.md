@@ -58,7 +58,9 @@ desktop/
 - **文案**：`src/lib/copy/*-copy.js`，13 语（`en zh zh-TW es fr de it ru ja ko pt ar hi`）。
   `use-copy.js` 的 `resolve()` 用 `{...copy.en, ...copy[lang]}` 浅合并 + **en 兜底**。
   **禁止在模板里硬编码自然语言**。
-- **主题**：`:root` 为暗色默认，`[data-theme='light']` 在文件末尾**成对**翻转同一批令牌。
+- **主题**：`:root` 为暗色基础值，`[data-theme='light']` 在文件末尾**成对**翻转同一批令牌；
+  **默认主题为 light**（无存储偏好时），由 `web/index.html` 预绘制脚本与 `ThemeToggle` 设定
+  `document.documentElement.dataset.theme='light'`，`agentbuddy.theme` 持久用户选择。
   新增颜色必须两处都写，禁止硬编码色值。
 - **单色禁令**：UI 不得出现任何有彩色相，一律落在 `#000 ↔ #fff` 明度轴；
   `tests/style.spec.js` 自动校验（hex 三通道相等 + rgb/hsl 中性 + 色相词黑名单）。

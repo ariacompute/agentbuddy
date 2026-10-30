@@ -42,7 +42,7 @@ onMounted(async () => {
   }
   const local = readLocal()
   voiceInput.value = local.voiceInput ?? true
-  themeLight.value = local.theme === 'light'
+  themeLight.value = local.theme !== 'dark'
   try {
     const h = await checkHealth()
     server.value = h.server || ''
@@ -82,7 +82,7 @@ function reset() {
   notify.value = true
   quiet.value = 0
   voiceInput.value = true
-  themeLight.value = false
+  themeLight.value = true
   save()
 }
 </script>

@@ -5,17 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
       // Resolve the theme before the first paint so the shell never flashes the
-      // wrong grey scale: an explicit choice wins, otherwise follow the OS.
+      // wrong grey scale: an explicit choice wins, otherwise default to light.
       try {
         var stored = window.localStorage.getItem('agentbuddy.theme')
         document.documentElement.dataset.theme =
-          stored === 'light' || stored === 'dark'
-            ? stored
-            : window.matchMedia('(prefers-color-scheme: light)').matches
-              ? 'light'
-              : 'dark'
+          stored === 'light' || stored === 'dark' ? stored : 'light'
       } catch (error) {
-        document.documentElement.dataset.theme = 'dark'
+        document.documentElement.dataset.theme = 'light'
       }
     </script>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any" />

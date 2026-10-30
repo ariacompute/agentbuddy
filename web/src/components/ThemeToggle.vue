@@ -6,7 +6,7 @@ const KEY = 'agentbuddy.theme'
 const isLight = ref(false)
 
 function read() {
-  const v = (typeof window !== 'undefined' && window.localStorage.getItem(KEY)) || 'dark'
+  const v = (typeof window !== 'undefined' && window.localStorage.getItem(KEY)) || 'light'
   isLight.value = v === 'light'
   apply()
 }

@@ -10,6 +10,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>agentbuddy</title>
+    <script>
+      // Resolve the theme before first paint so the connection page never
+      // flashes the dark base: an explicit choice wins, otherwise default light.
+      try {
+        var s = window.localStorage.getItem('agentbuddy.theme')
+        document.documentElement.dataset.theme =
+          s === 'light' || s === 'dark' ? s : 'light'
+      } catch (e) {
+        document.documentElement.dataset.theme = 'light'
+      }
+    </script>
     <style>
       :root {
         --bg: #0a0a0a;
@@ -24,20 +35,21 @@
         --on-sheen: #0a0a0a;
         color-scheme: dark;
       }
-      @media (prefers-color-scheme: light) {
-        :root {
-          --bg: #fafafa;
-          --panel: #ffffff;
-          --raise: #f2f2f2;
-          --line: #e5e5e5;
-          --line-strong: #cfcfcf;
-          --ink: #161616;
-          --ink-soft: #5c5c5c;
-          --ink-faint: #8c8c8c;
-          --sheen: #161616;
-          --on-sheen: #ffffff;
-          color-scheme: light;
-        }
+      /* Light is the default theme; chosen via the toggle and persisted in
+         agentbuddy.theme (shared with the workbench). data-theme is set before
+         first paint so the page never flashes the dark base. */
+      [data-theme='light'] {
+        --bg: #fafafa;
+        --panel: #ffffff;
+        --raise: #f2f2f2;
+        --line: #e5e5e5;
+        --line-strong: #cfcfcf;
+        --ink: #161616;
+        --ink-soft: #5c5c5c;
+        --ink-faint: #8c8c8c;
+        --sheen: #161616;
+        --on-sheen: #ffffff;
+        color-scheme: light;
       }
       * {
         box-sizing: border-box;
@@ -98,12 +110,10 @@
         box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.12);
         color: var(--ink);
       }
-      @media (prefers-color-scheme: light) {
-        .brand-mark {
-          background: linear-gradient(135deg, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.02));
-          border-color: rgba(0, 0, 0, 0.34);
-          box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.06);
-        }
+      [data-theme='light'] .brand-mark {
+        background: linear-gradient(135deg, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.02));
+        border-color: rgba(0, 0, 0, 0.34);
+        box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.06);
       }
       .brand-name {
         font-size: 15px;
@@ -267,9 +277,37 @@
       [hidden] {
         display: none !important;
       }
+      .theme-toggle {
+        position: fixed;
+        inset-block-start: 16px;
+        inset-inline-end: 16px;
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        color: var(--ink);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background 140ms ease, border-color 140ms ease;
+      }
+      .theme-toggle:hover {
+        background: var(--raise);
+      }
+      .theme-toggle:focus-visible {
+        outline: 2px solid var(--ink);
+        outline-offset: 2px;
+      }
+      .theme-toggle svg {
+        width: 17px;
+        height: 17px;
+      }
     </style>
   </head>
   <body>
+    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Theme"></button>
     <main class="wrap">
       <header class="brand">
         <div class="brand-mark" aria-hidden="true">
@@ -376,6 +414,28 @@
 
       const el = (id) => document.getElementById(id)
       const t = (key) => (boot.tables[lang] && boot.tables[lang][key]) || boot.tables.en[key] || ''
+
+      // Theme toggle: mirrors the workbench's choice via agentbuddy.theme.
+      const THEME_KEY = 'agentbuddy.theme'
+      const SUN_SVG =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>'
+      const MOON_SVG =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>'
+      const themeBtn = el('theme-toggle')
+      function paintTheme() {
+        const light = document.documentElement.dataset.theme === 'light'
+        themeBtn.innerHTML = light ? MOON_SVG : SUN_SVG
+      }
+      function setTheme(next) {
+        document.documentElement.dataset.theme = next
+        try {
+          window.localStorage.setItem(THEME_KEY, next)
+        } catch (e) {}
+        paintTheme()
+      }
+      themeBtn.onclick = () =>
+        setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light')
+      paintTheme()
 
       function applyLanguage() {
         document.documentElement.lang = lang
