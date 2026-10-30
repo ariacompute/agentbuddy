@@ -472,6 +472,17 @@
         window.location.href = '/'
       }
 
+      // Persist the resident / notification preferences the moment they change, so
+      // closing the window (without clicking Connect) still honours them. Only the
+      // toggled fields are sent, so the server URL is left untouched.
+      async function savePrefs() {
+        await post('/__shell/config', {
+          background: el('background').checked,
+          notify_enabled: el('notify').checked,
+          notify_quiet_minutes: Number(el('quiet').value || 0),
+        })
+      }
+
       function render() {
         applyLanguage()
         if (boot.page === 'about') {
@@ -492,6 +503,9 @@
         el('later').hidden = !!boot.configured
         el('later').onclick = () => post('/__shell/hide')
         el('connect').onclick = connect
+        el('background').onchange = savePrefs
+        el('notify').onchange = savePrefs
+        el('quiet').onchange = savePrefs
         document.addEventListener('keydown', (event) => {
           if (event.key === 'Enter' && event.target === el('server')) connect()
           if (event.key === 'Escape') window.location.href = '/'
