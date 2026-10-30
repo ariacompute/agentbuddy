@@ -86,6 +86,9 @@ desktop/
   该偏好由 `/__shell/config` 落盘，连接页与工作台「设置」页均可改。
 - **内嵌前端为 `../../web/dist`**：`build.rs` 保证目录存在（`rust-embed` 目录缺失会编译失败）。
 - **外壳文案 13 语**：`src-tauri/src/i18n/copy.rs`，语言代码集必须与 `web/src/lib/languages.js` 一致。
+- **托盘菜单语言跟随应用**：Rust 无法读取浏览器 `localStorage`，故工作台在 `setLang` 时把
+  `agentbuddy.lang` 经 `/__shell/config` 推送到外壳 `config.lang`，托盘据此重建（`tray::refresh`）；
+  连接页 `connect()` 同样会同步。即托盘语言 = 应用的 `agentbuddy.lang`，而非外壳独立设置。
 - **测试**：`cd desktop/src-tauri && cargo test`。
 
 ### 服务端（agenthub，改动需谨慎）

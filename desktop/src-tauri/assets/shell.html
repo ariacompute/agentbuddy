@@ -151,9 +151,6 @@
         outline: none;
         transition: border-color 140ms ease;
       }
-      select.input {
-        font-family: inherit;
-      }
       .input::placeholder {
         color: var(--ink-faint);
       }
@@ -319,11 +316,6 @@
           </span>
         </label>
 
-        <label class="field">
-          <span class="label" id="label-language"></span>
-          <select id="language" class="input"></select>
-        </label>
-
         <div class="divider"></div>
 
         <label class="check">
@@ -372,7 +364,10 @@
     </script>
     <script>
       const boot = window.__SHELL__ || { page: 'connect', lang: 'en', tables: {}, languages: [] }
-      let lang = boot.lang || 'en'
+      // Follow the workbench's language (agentbuddy.lang) instead of the shell's own
+      // config; fall back to the injected boot.lang, then English.
+      let lang =
+        window.localStorage.getItem('agentbuddy.lang') || boot.lang || 'en'
 
       const el = (id) => document.getElementById(id)
       const t = (key) => (boot.tables[lang] && boot.tables[lang][key]) || boot.tables.en[key] || ''
@@ -383,7 +378,6 @@
         el('label-server').textContent = t('fieldServer')
         el('label-insecure').textContent = t('fieldInsecure')
         el('note-insecure').textContent = t('fieldInsecureNote')
-        el('label-language').textContent = t('fieldLanguage')
         el('label-background').textContent = t('settingsBackground')
         el('note-background').textContent = t('settingsBackgroundNote')
         el('label-notify').textContent = t('settingsNotify')
@@ -510,20 +504,6 @@
           if (event.key === 'Enter' && event.target === el('server')) connect()
           if (event.key === 'Escape') window.location.href = '/'
         })
-      }
-
-      const select = el('language')
-      for (const [code, name] of boot.languages) {
-        const option = document.createElement('option')
-        option.value = code
-        option.textContent = name
-        select.appendChild(option)
-      }
-      select.value = lang
-      select.onchange = () => {
-        lang = select.value
-        applyLanguage()
-        setStatus('', '')
       }
 
       render()

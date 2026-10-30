@@ -61,6 +61,15 @@ export function setLang(next) {
     window.localStorage.setItem(STORAGE_KEY, lang)
     document.documentElement.lang = lang
     document.documentElement.dir = isRTL(lang) ? 'rtl' : 'ltr'
+    // Keep the desktop shell's tray menu in sync with the app language.
+    // agentbuddy.lang lives in browser storage, which Rust cannot read directly,
+    // so the workbench pushes it to the shell config the tray is built from.
+    // Fails silently outside the desktop shell (no /__shell endpoint).
+    fetch('/__shell/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lang }),
+    }).catch(() => {})
   }
   return lang
 }
