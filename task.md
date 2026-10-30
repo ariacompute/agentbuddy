@@ -141,3 +141,6 @@ bun 构建/测试运行时与桌面端（Rust/Tauri）对 agenthub 服务端的�
 - [x] desktop/src-tauri/src/proxy/static_files.rs: `shell_page` boot `version` now uses `app_version_stamp()` (the same `vX.Y.Z@<7-char commit>`), so the About page's "版本" matches the login page; dropped the redundant Build row.
 - [x] desktop/src-tauri/assets/shell.html: removed the Build row (template + JS assignment) from the About card.
 - [x] desktop/src-tauri/src/proxy/mod.rs: added `about_page_version_matches_the_login_stamp` test.
+- [x] desktop/src-tauri/build.rs: derive `AGENTBUDDY_COMMIT` at build time via `git rev-parse --short=7 HEAD` (emitted with `cargo:rustc-env`), honoring a CI-supplied `AGENTBUDDY_COMMIT` when present; fixes the version stamp always reading `unknown`.
+- [x] Makefile: drop the redundant/buggy `AGENTBUDDY_COMMIT=$(COMMIT)` forwarding — it only applied to `cd`, so cargo never received it; build.rs now owns the stamp.
+- [x] desktop/src-tauri/src/lib.rs: document that `COMMIT` comes from `build.rs` (git or env), `unknown` only as a last resort.

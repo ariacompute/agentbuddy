@@ -17,9 +17,11 @@ pub mod notify;
 pub mod proxy;
 pub mod tray;
 
-/// Stamped in by the release workflow so an installer reports the tag it came
-/// from; `unknown` for a local build.
+/// The crate version, used by the `vX.Y.Z@<7-char commit>` stamp.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The build commit, 7-char short hash. Derived at build time by `build.rs`
+/// from git (or `AGENTBUDDY_COMMIT` if the CI supplies one); `unknown` only
+/// when neither is available.
 pub const COMMIT: &str = match option_env!("AGENTBUDDY_COMMIT") {
     Some(commit) => commit,
     None => "unknown",

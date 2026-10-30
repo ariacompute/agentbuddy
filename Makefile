@@ -10,7 +10,6 @@ WEB   := web
 DESK  := desktop
 
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo 0.1.0)
-COMMIT  ?= $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo unknown)
 
 .PHONY: help
 help: ## List the targets.
@@ -44,19 +43,19 @@ desktop-install: ## Install the Tauri CLI.
 
 .PHONY: desktop-dev
 desktop-dev: desktop-install web-build icons ## Run the shell against the freshly built console.
-	AGENTBUDDY_COMMIT=$(COMMIT) cd $(DESK) && $(BUN) run dev
+	cd $(DESK) && $(BUN) run dev
 
 .PHONY: desktop-build
 desktop-build: desktop-install web-build icons ## Produce installers for the host platform.
-	AGENTBUDDY_COMMIT=$(COMMIT) cd $(DESK) && $(BUN) run build
+	cd $(DESK) && $(BUN) run build
 
 .PHONY: desktop-test
 desktop-test: desktop-install ## Rust unit tests (proxy, config, i18n).
-	AGENTBUDDY_COMMIT=$(COMMIT) cd $(DESK)/src-tauri && cargo test
+	cd $(DESK)/src-tauri && cargo test
 
 .PHONY: desktop-check
 desktop-check: ## cargo check without bundling (fast feedback in CI).
-	AGENTBUDDY_COMMIT=$(COMMIT) cd $(DESK)/src-tauri && cargo check --all-targets
+	cd $(DESK)/src-tauri && cargo check --all-targets
 
 .PHONY: icons
 icons: desktop-install ## Re-derive every icon size from assets/app-icon.png.
