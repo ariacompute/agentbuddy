@@ -142,6 +142,7 @@ bun 构建/测试运行时与桌面端（Rust/Tauri）对 agenthub 服务端的�
 - [x] desktop/src-tauri/assets/shell.html: removed the Build row (template + JS assignment) from the About card.
 - [x] desktop/src-tauri/src/proxy/mod.rs: added `about_page_version_matches_the_login_stamp` test.
 - [x] desktop/src-tauri/build.rs: derive `AGENTBUDDY_COMMIT` at build time via `git rev-parse --short=7 HEAD` (emitted with `cargo:rustc-env`), honoring a CI-supplied `AGENTBUDDY_COMMIT` when present; fixes the version stamp always reading `unknown`.
+- [x] desktop/src-tauri/build.rs: re-run the build script on commit changes (`cargo:rerun-if-changed` on `.git/HEAD` and the resolved ref) so the stamped commit does not go stale after a new `git commit` (cargo cached `cargo:rustc-env`, freezing `crate::COMMIT` at an old hash).
 - [x] Makefile: drop the redundant/buggy `AGENTBUDDY_COMMIT=$(COMMIT)` forwarding — it only applied to `cd`, so cargo never received it; build.rs now owns the stamp.
 - [x] desktop/src-tauri/src/lib.rs: document that `COMMIT` comes from `build.rs` (git or env), `unknown` only as a last resort.
 - [x] desktop/src-tauri/src/proxy/static_files.rs: wrap the injected version assignment in `<script>` (the missing wrapper rendered it as literal text `window.__AGENTBUDDY_VERSION__ = ...;` on the login dialog); injection now yields `<script>window.__AGENTBUDDY_VERSION__ = "vX.Y.Z@<7-char commit>";</script>` before `</body>`.
