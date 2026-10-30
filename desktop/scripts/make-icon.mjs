@@ -3,10 +3,13 @@
 // `tauri icon` is the real path when rsvg / ImageMagick / PIL are present, but a
 // from-scratch build (CI, a minimal laptop) has none of those. This script writes
 // the exact PNG set Tauri's bundler expects, in pure greyscale, so the build never
-// blocks on a system image tool. It draws a rounded square with a hairline border
-// and the agentbuddy glyph — no hue anywhere, matching the app's monochrome rule.
+// blocks on a system image tool. It draws the same Aria Compute "A" mark as the
+// login page (web/src/components/BrandMark.vue): a rounded-square tile carrying a
+// stylised "A" — a diagonal stroke, a ring and a vertical stem. No hue anywhere,
+// matching the app's monochrome rule.
 //
 // Output: ../src-tauri/icons/{32x32.png,128x128.png,128x128@2x.png,icon.ico,icon.icns}
+//         plus the 1024px master at ../assets/app-icon.png for `tauri icon`.
 //
 // Usage: bun scripts/make-icon.mjs   (or: node scripts/make-icon.mjs)
 
@@ -96,57 +99,62 @@ function encodePng(rgba, size) {
 
 // ---- pure greyscale glyph drawing ----
 
-function mix(a, b, t) {
-  return Math.round(a + (b - a) * t);
+// The mark is rasterised in BrandMark's viewBox units (1..63, a 62x62 canvas) so
+// the app icon is pixel-for-pixel the same geometry as the login page badge:
+// rounded-square tile (rx=18), then three "A" strokes — a diagonal (width 8),
+// a ring (width 6) and a vertical stem (width 6), all round-capped.
+
+const VB = 62; // viewBox extent
+const FEATHER = 0.35; // anti-alias edge width, in viewBox units
+const TILE_INK = 0x18; // near-black tile
+const GLYPH_INK = 0xf2; // light "A" ink (dark-theme badge contrast)
+
+function clamp01(t) {
+  return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
+// Coverage from a signed distance: 1 fully inside, 0 fully outside, smooth edge.
+function coverage(d) {
+  return clamp01(0.5 - d / FEATHER);
+}
+
+// Signed distance to the rounded-square tile (rx=18 in the SVG).
+function distTile(vx, vy) {
+  const c = 1 + VB / 2;
+  const half = VB / 2 - 18;
+  const qx = Math.abs(vx - c) - half;
+  const qy = Math.abs(vy - c) - half;
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - 18;
+}
+
+function distSegment(vx, vy, ax, ay, bx, by) {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const t = clamp01(((vx - ax) * abx + (vy - ay) * aby) / (abx * abx + aby * aby));
+  return Math.hypot(vx - (ax + abx * t), vy - (ay + aby * t));
+}
+
+// Signed distance to the "A" strokes (negative = ink). Round caps/joins come
+// free from the segment/ring distance fields, matching stroke-linecap="round".
+function distGlyph(vx, vy) {
+  const diagonal = distSegment(vx, vy, 12, 53, 23, 11) - 4; // stroke-width 8
+  const ring = Math.abs(Math.hypot(vx - 41, vy - 37) - 11) - 3; // stroke-width 6
+  const stem = distSegment(vx, vy, 51, 54, 51, 27) - 3; // stroke-width 6
+  return Math.min(diagonal, ring, stem);
 }
 
 // Returns [r,g,b,a] for one pixel. Greyscale only: r=g=b.
 function paint(x, y, size) {
-  const u = x / (size - 1);
-  const v = y / (size - 1);
+  const scale = size / VB;
+  const vx = (x + 0.5) / scale + 1;
+  const vy = (y + 0.5) / scale + 1;
 
-  // Rounded-square tile background: a soft diagonal wash from #161616 to #2a2a2a.
-  const inset = size * 0.16;
-  const radius = size * 0.22;
-  const dx = Math.min(x, size - 1 - x) - inset;
-  const dy = Math.min(y, size - 1 - y) - inset;
-  const inside = dx >= 0 && dy >= 0 && Math.hypot(Math.min(dx - radius, 0), Math.min(dy - radius, 0)) <= 0;
-  if (!inside) return [0, 0, 0, 0];
+  const tile = coverage(distTile(vx, vy));
+  if (tile <= 0) return [0, 0, 0, 0];
 
-  const wash = mix(0x16, 0x2a, u * 0.6 + v * 0.4);
-  let r = wash;
-  let g = wash;
-  let b = wash;
-
-  // Hairline border just inside the rounded edge.
-  const borderDist = Math.min(dx, dy);
-  if (borderDist < size * 0.012) {
-    const edge = mix(0x66, 0x99, u);
-    r = g = b = edge;
-  }
-
-  // The agentbuddy glyph: a central node ring with four satellites, drawn in a
-  // lighter grey so it reads on the dark tile.
-  const cx = (size - 1) / 2;
-  const cy = (size - 1) / 2;
-  const nodeR = size * 0.13;
-  const sat = size * 0.3;
-  const dCenter = Math.hypot(x - cx, y - cy);
-  const ring = Math.abs(dCenter - nodeR);
-  const ink = mix(0xc8, 0xff, (u + v) / 2);
-  let glyph = -1;
-  if (ring < size * 0.022) glyph = 1; // central ring
-  if (dCenter < size * 0.05) glyph = 1; // central dot
-  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-    const px = cx + sx * sat;
-    const py = cy + sy * sat;
-    if (Math.hypot(x - px, y - py) < size * 0.03) glyph = 1;
-  }
-  if (glyph === 1) {
-    r = g = b = ink;
-  }
-
-  return [r, g, b, 255];
+  const ink = coverage(distGlyph(vx, vy));
+  const g = Math.round(TILE_INK + (GLYPH_INK - TILE_INK) * ink);
+  return [g, g, g, Math.round(255 * tile)];
 }
 
 function makeIcon(size) {

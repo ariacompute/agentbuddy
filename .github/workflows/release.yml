@@ -97,6 +97,7 @@ jobs:
         working-directory: desktop
         run: |
           bun install
+          bun run icons   # derive desktop/src-tauri/icons from assets/app-icon.png (git-ignored)
           bun run build -- --bundles ${{ matrix.bundles }}
 
       - name: Package artifacts (Linux)

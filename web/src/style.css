@@ -48,6 +48,11 @@
   --grade-skill: #666666;
   --grade-cli: #454545;
 
+  /* Brand badge (Aria Compute "A" mark): light tile on the dark app, dark ink.
+     The login page and sidebar reuse the same mark agenthub ships. */
+  --brand-badge-bg: #f5f5f5;
+  --brand-badge-fg: #0d0d0d;
+
   --radius: 14px;
   --radius-sm: 10px;
   --radius-lg: 20px;
@@ -103,6 +108,10 @@
   --grade-mcp: #4a4a4a;
   --grade-skill: #666666;
   --grade-cli: #8a8a8a;
+
+  /* Brand badge inverts for the light app: dark tile, light ink. */
+  --brand-badge-bg: #0d0d0d;
+  --brand-badge-fg: #f5f5f5;
 }
 
 html,

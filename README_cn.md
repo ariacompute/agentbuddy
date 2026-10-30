@@ -21,11 +21,17 @@ make desktop-dev  # 用刚构建好的控制台启动外壳
 make build        # 控制台 + 当前平台的安装包
 ```
 
-也可逐步执行：
+也可完全用 bun 逐步构建（不依赖 make）。Tauri 图标由
+`desktop/assets/app-icon.png` 派生，位于 `desktop/src-tauri/icons/`
+（该目录已被 git 忽略，属构建产物，见 `.gitignore`），因此在执行
+`tauri build` / `tauri dev` 前需先运行 `bun run icons`：
 
 ```bash
-cd web && bun install && bun run build      # 构建 web/dist，编译期嵌入二进制
-cd desktop && bun install && bun run build  # 针对当前平台执行 tauri build
+cd web && bun install && bun run build  # 构建 web/dist，编译期嵌入二进制
+cd desktop && bun install
+bun run icons                           # 从 assets/app-icon.png 派生 Tauri 图标
+bun run build                           # 针对当前平台执行 tauri build
+# bun run dev                           # 开发模式同样需先运行 bun run icons
 ```
 
 ## 测试

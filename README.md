@@ -23,11 +23,17 @@ make desktop-dev  # run the shell against the freshly built console
 make build        # console + a host-platform installer
 ```
 
-Or step by step:
+Or build step by step with bun only (no `make`). The Tauri icons are derived
+from `desktop/assets/app-icon.png` and live under `desktop/src-tauri/icons/`
+(git-ignored build artefacts — see `.gitignore`), so run `bun run icons`
+before `tauri build` / `tauri dev`:
 
 ```bash
-cd web && bun install && bun run build      # builds web/dist, embedded into the binary
-cd desktop && bun install && bun run build  # tauri build for the host platform
+cd web && bun install && bun run build  # build web/dist, embedded into the binary
+cd desktop && bun install
+bun run icons                           # derive Tauri icons from assets/app-icon.png
+bun run build                           # tauri build for the host platform
+# bun run dev                           # dev mode also needs `bun run icons` first
 ```
 
 ## Test

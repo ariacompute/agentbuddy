@@ -5,6 +5,7 @@ import { useAuthStore } from '../lib/auth-store.js'
 import { useWorkbenchStore } from '../lib/workbench-store.js'
 import { useCopy } from '../lib/use-copy.js'
 import { LayoutDashboard, MessagesSquare, ListChecks, Network, Radio, Plug, Settings as Cog } from 'lucide-vue-next'
+import BrandMark from './BrandMark.vue'
 
 const { t } = useCopy('shell')
 const auth = useAuthStore()
@@ -26,7 +27,7 @@ const links = computed(() => [
 <template>
   <aside class="sidebar" :data-collapsed="collapsed" :collapsed="collapsed">
     <div class="brand">
-      <div class="avatar" style="width:34px;height:34px;border-radius:9px">AB</div>
+      <BrandMark :size="34" />
       <div v-if="!collapsed">
         <div class="name">AgentBuddy</div>
         <div class="tag">{{ t('brandTagline') }}</div>

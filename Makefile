@@ -43,11 +43,11 @@ desktop-install: ## Install the Tauri CLI.
 	cd $(DESK) && $(BUN) install
 
 .PHONY: desktop-dev
-desktop-dev: desktop-install web-build ## Run the shell against the freshly built console.
+desktop-dev: desktop-install web-build icons ## Run the shell against the freshly built console.
 	cd $(DESK) && $(BUN) run dev
 
 .PHONY: desktop-build
-desktop-build: desktop-install web-build ## Produce installers for the host platform.
+desktop-build: desktop-install web-build icons ## Produce installers for the host platform.
 	cd $(DESK) && $(BUN) run build
 
 .PHONY: desktop-test

@@ -7,9 +7,9 @@
     "bun": ">=1.4.4"
   },
   "scripts": {
-    "dev": "tauri dev",
-    "build": "tauri build",
-    "icons": "tauri icon ../assets/app-icon.png",
+    "dev": "bun run make-icon && tauri dev",
+    "build": "bun run make-icon && tauri build",
+    "icons": "tauri icon ./assets/app-icon.png",
     "make-icon": "bun scripts/make-icon.mjs",
     "stamp": "bun scripts/stamp.mjs"
   },

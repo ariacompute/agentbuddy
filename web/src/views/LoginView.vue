@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../lib/auth-store.js'
 import { useCopy } from '../lib/use-copy.js'
 import { errorMessage } from '../lib/errors.js'
+import BrandMark from '../components/BrandMark.vue'
 
 const { t } = useCopy('shell')
 const auth = useAuthStore()
@@ -38,7 +39,7 @@ onMounted(() => auth.loadConfig())
   <div class="login-shell">
     <div class="login-card card">
       <div class="login-brand">
-        <div class="avatar" style="width:46px;height:46px;border-radius:12px;font-size:18px">AB</div>
+        <BrandMark :size="44" />
         <div>
           <h1 style="font-size:20px">{{ t('loginTitle') }}</h1>
           <p class="tag muted">{{ t('loginSubtitle') }}</p>
