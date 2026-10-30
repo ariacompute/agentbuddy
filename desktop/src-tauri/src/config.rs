@@ -33,7 +33,8 @@ pub struct AppConfig {
     #[serde(default = "default_true")]
     pub background: bool,
     /// Whether OS notifications may be shown by the webview via `/__shell/notify`.
-    #[serde(default)]
+    /// Enabled by default so the app surfaces alerts out of the box.
+    #[serde(default = "default_true")]
     pub notify_enabled: bool,
     /// Suppress OS notifications for this many minutes after the user goes quiet.
     /// 0 means "never quiet".
@@ -48,7 +49,7 @@ impl Default for AppConfig {
             accept_invalid_certs: false,
             lang: String::new(),
             background: true,
-            notify_enabled: false,
+            notify_enabled: true,
             notify_quiet_minutes: 0,
         }
     }
@@ -250,7 +251,7 @@ mod tests {
     fn background_defaults_to_running_in_tray() {
         let config = AppConfig::default();
         assert!(config.background, "closing must park in the tray by default");
-        assert!(!config.notify_enabled);
+        assert!(config.notify_enabled, "OS notifications must be on by default");
         assert_eq!(config.notify_quiet_minutes, 0);
     }
 
