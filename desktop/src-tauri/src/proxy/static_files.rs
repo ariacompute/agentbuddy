@@ -82,9 +82,10 @@ fn render_console_index(file: &EmbeddedFile) -> String {
     )
 }
 
-/// The desktop shell's `vX.Y.Z@<7-char commit>` stamp. `VERSION` is the crate
-/// version (no `v` prefix); the commit comes from `AGENTBUDDY_COMMIT` at build
-/// time and falls back to `unknown` for local builds (see `crate::COMMIT`).
+/// The desktop shell's `vX.Y.Z@<7-char commit>` stamp. `VERSION` is the build
+/// version derived from the latest git tag (no `v` prefix; see `crate::VERSION`);
+/// the commit comes from `AGENTBUDDY_COMMIT` at build time and falls back to
+/// `unknown` for local builds (see `crate::COMMIT`).
 fn app_version_stamp() -> String {
     let commit = &crate::COMMIT[..crate::COMMIT.len().min(7)];
     format!("v{}@{}", crate::VERSION, commit)

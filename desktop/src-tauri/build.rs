@@ -5,6 +5,7 @@ fn main() {
     // recompiled and the old hash stays baked into `crate::COMMIT`).
     watch_git();
     stamp_commit();
+    stamp_version();
     tauri_build::build()
 }
 
@@ -49,6 +50,36 @@ fn git_commit() -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
+}
+
+/// Stamp the build version so the UI reports the real release tag, not the
+/// (often stale) `Cargo.toml` package version. A CI-provided `AGENTBUDDY_VERSION`
+/// wins; otherwise derive it from the latest git tag (`git describe --tags
+/// --abbrev=0`); `Cargo.toml`'s version is only a fallback when git or its tags
+/// are unavailable (e.g. a shallow CI checkout with no tags fetched).
+fn stamp_version() {
+    let version = std::env::var("AGENTBUDDY_VERSION")
+        .ok()
+        .map(|v| strip_v(&v))
+        .filter(|v| !v.is_empty())
+        .or_else(git_version)
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+    println!("cargo:rustc-env=AGENTBUDDY_VERSION={version}");
+}
+
+/// Latest tag name, with a leading `v`/`V` removed so the stamp keeps its single
+/// `v` prefix from `app_version_stamp`.
+fn git_version() -> Option<String> {
+    git_output(&["describe", "--tags", "--abbrev=0"]).map(|tag| strip_v(&tag))
+}
+
+fn strip_v(value: &str) -> String {
+    let trimmed = value.trim();
+    trimmed
+        .strip_prefix('v')
+        .or_else(|| trimmed.strip_prefix('V'))
+        .unwrap_or(trimmed)
+        .to_string()
 }
 
 fn git_output(args: &[&str]) -> Option<String> {

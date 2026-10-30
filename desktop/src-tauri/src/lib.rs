@@ -17,8 +17,14 @@ pub mod notify;
 pub mod proxy;
 pub mod tray;
 
-/// The crate version, used by the `vX.Y.Z@<7-char commit>` stamp.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The build version, used by the `vX.Y.Z@<7-char commit>` stamp. Derived at
+/// build time from the latest git tag (see `build.rs` / `AGENTBUDDY_VERSION`), so
+/// it tracks the real release tag instead of the `Cargo.toml` package version;
+/// falls back to `CARGO_PKG_VERSION` when git or its tags are unavailable.
+pub const VERSION: &str = match option_env!("AGENTBUDDY_VERSION") {
+    Some(v) if !v.is_empty() => v,
+    _ => env!("CARGO_PKG_VERSION"),
+};
 /// The build commit, 7-char short hash. Derived at build time by `build.rs`
 /// from git (or `AGENTBUDDY_COMMIT` if the CI supplies one); `unknown` only
 /// when neither is available.
