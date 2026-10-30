@@ -5,6 +5,8 @@ import { useAuthStore } from '../lib/auth-store.js'
 import { useCopy } from '../lib/use-copy.js'
 import { errorMessage } from '../lib/errors.js'
 import BrandMark from '../components/BrandMark.vue'
+import LanguageSwitcher from '../components/LanguageSwitcher.vue'
+import ThemeToggle from '../components/ThemeToggle.vue'
 
 const { t } = useCopy('shell')
 const auth = useAuthStore()
@@ -37,6 +39,10 @@ onMounted(() => auth.loadConfig())
 
 <template>
   <div class="login-shell">
+    <div class="login-head">
+      <LanguageSwitcher />
+      <ThemeToggle />
+    </div>
     <div class="login-card card">
       <div class="login-brand">
         <BrandMark :size="44" />

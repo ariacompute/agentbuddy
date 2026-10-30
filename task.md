@@ -104,6 +104,13 @@
 104. [ ] `README.md` / `README_cn.md` 收尾
 105. [ ] `requirements.md` / `AGENTS.md` 与实现对齐复核
 
+## M9 — 登录页右上角语言 / 主题切换（2026-10）
+
+- [x] `web/src/views/LoginView.vue`：新增 `.login-head`，放入 `LanguageSwitcher` 与 `ThemeToggle`（落点 F1.6）
+- [x] `web/src/components/LanguageSwitcher.vue`：移除硬编码 `aria-label="Language"`，改用 `t('langLabel')`（shell 文案 13 语已齐备）
+- [x] `web/src/style.css`：新增 `.login-head`（绝对定位右上角，`inset-inline-end`/`inset-block-start` 兼容 RTL）
+- [x] 校验：`bun run build` 通过；`bun run test` 179 用例全绿（含 `style.spec.js` 单色守卫、`copy-fallback.spec.js` 13 语完整性）
+
 ## M8 — eMudhra / emSign 证书私钥泄露响应（2026-10）
 
 背景：eMudhra(emSign) 8 张中间 CA 私钥极弱（P-384 私钥标量 <256），可被反推伪造任意域名证书；

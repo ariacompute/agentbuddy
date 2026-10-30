@@ -32,6 +32,7 @@
 | F1.3 | 登录/注册/OAuth（提供方由 `GET /api/auth/config` 决定，无凭据的提供方不渲染） |
 | F1.4 | 会话为 agenthub 的 HttpOnly Cookie；前端所有请求 `credentials: 'include'` |
 | F1.5 | 路由守卫：`/login` 之外均需登录；权限不足转 `/workspace` |
+| F1.6 | 登录页右上角提供「语言切换」与「light/dark 主题切换」；二者复用 `LanguageSwitcher` / `ThemeToggle`（与 `Topbar` 同一套组件），主题经 `agentbuddy.theme` localStorage 持久、语言经 `agentbuddy.lang` 持久并镜像到 `<html lang|dir>` |
 
 ### F2 Agent 工作台
 

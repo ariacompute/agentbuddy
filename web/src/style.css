@@ -1380,10 +1380,21 @@ audio {
 /* ------------------------------------------------------------------ login */
 
 .login-shell {
+  position: relative;
   display: grid;
   place-items: center;
   min-height: 100%;
   padding: 24px;
+}
+
+.login-head {
+  position: absolute;
+  inset-block-start: 16px;
+  inset-inline-end: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 10;
 }
 
 .login-card {
