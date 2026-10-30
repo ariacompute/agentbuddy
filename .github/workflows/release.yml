@@ -86,6 +86,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "AGENTBUDDY_VERSION=$VERSION" >> "$GITHUB_ENV"
           if [ -n "$VERSION" ]; then
             sed -i.bak -E 's/("version":[[:space:]]*")[^"]*(")/\1'"$VERSION"'\2/' \
               desktop/src-tauri/tauri.conf.json && rm -f desktop/src-tauri/tauri.conf.json.bak
