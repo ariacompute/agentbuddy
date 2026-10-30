@@ -74,9 +74,11 @@ fn console_index(file: &EmbeddedFile) -> Response {
 /// bytes out of an `axum::body::Body`.
 fn render_console_index(file: &EmbeddedFile) -> String {
     let stamp = app_version_stamp();
+    // Wrapped in a <script> so the browser executes the assignment (setting the
+    // global the login view reads) instead of rendering it as visible text.
     String::from_utf8_lossy(&file.data).replace(
         APP_VERSION_INJECT_AT,
-        &format!("window.__AGENTBUDDY_VERSION__ = {stamp:?};</body>"),
+        &format!("<script>window.__AGENTBUDDY_VERSION__ = {stamp:?};</script></body>"),
     )
 }
 

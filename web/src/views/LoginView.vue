@@ -86,6 +86,8 @@ onMounted(() => {
         </button>
       </form>
 
+      <div class="login-version" v-if="appVersion">{{ appVersion }}</div>
+
       <div class="divider">{{ t('loginOAuth') }}</div>
 
       <div class="oauth-row">
@@ -106,7 +108,5 @@ onMounted(() => {
         {{ mode === 'signup' ? t('loginToggleSignIn') : t('loginToggleSignUp') }}
       </button>
     </div>
-
-    <div class="login-version" v-if="appVersion">{{ appVersion }}</div>
   </div>
 </template>
