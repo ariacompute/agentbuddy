@@ -145,4 +145,4 @@ bun 构建/测试运行时与桌面端（Rust/Tauri）对 agenthub 服务端的�
 - [x] Makefile: drop the redundant/buggy `AGENTBUDDY_COMMIT=$(COMMIT)` forwarding — it only applied to `cd`, so cargo never received it; build.rs now owns the stamp.
 - [x] desktop/src-tauri/src/lib.rs: document that `COMMIT` comes from `build.rs` (git or env), `unknown` only as a last resort.
 - [x] desktop/src-tauri/src/proxy/static_files.rs: wrap the injected version assignment in `<script>` (the missing wrapper rendered it as literal text `window.__AGENTBUDDY_VERSION__ = ...;` on the login dialog); injection now yields `<script>window.__AGENTBUDDY_VERSION__ = "vX.Y.Z@<7-char commit>";</script>` before `</body>`.
-- [x] web/src/views/LoginView.vue + web/src/style.css: show the version at the bottom of the whole login card (the box with the "登录以使用你的智能体" title), centered.
+- [x] web/src/views/LoginView.vue + web/src/style.css: show the version in the bottom-left corner of the login screen (absolute, pinned to the viewport bottom-left; moved out of the login card).

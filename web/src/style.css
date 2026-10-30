@@ -1453,8 +1453,10 @@ audio {
 }
 
 .login-version {
-  text-align: center;
-  margin-top: 12px;
+  position: absolute;
+  inset-block-end: 12px;
+  inset-inline-start: 12px;
+  text-align: left;
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--text-3);
