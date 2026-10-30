@@ -44,19 +44,19 @@ desktop-install: ## Install the Tauri CLI.
 
 .PHONY: desktop-dev
 desktop-dev: desktop-install web-build icons ## Run the shell against the freshly built console.
-	cd $(DESK) && $(BUN) run dev
+	AGENTBUDDY_COMMIT=$(COMMIT) cd $(DESK) && $(BUN) run dev
 
 .PHONY: desktop-build
 desktop-build: desktop-install web-build icons ## Produce installers for the host platform.
-	cd $(DESK) && $(BUN) run build
+	AGENTBUDDY_COMMIT=$(COMMIT) cd $(DESK) && $(BUN) run build
 
 .PHONY: desktop-test
 desktop-test: desktop-install ## Rust unit tests (proxy, config, i18n).
-	cd $(DESK)/src-tauri && cargo test
+	AGENTBUDDY_COMMIT=$(COMMIT) cd $(DESK)/src-tauri && cargo test
 
 .PHONY: desktop-check
 desktop-check: ## cargo check without bundling (fast feedback in CI).
-	cd $(DESK)/src-tauri && cargo check --all-targets
+	AGENTBUDDY_COMMIT=$(COMMIT) cd $(DESK)/src-tauri && cargo check --all-targets
 
 .PHONY: icons
 icons: desktop-install ## Re-derive every icon size from assets/app-icon.png.

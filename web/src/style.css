@@ -1440,6 +1440,17 @@ audio {
   background: var(--stroke-1);
 }
 
+.login-version {
+  position: absolute;
+  inset-block-end: 16px;
+  inset-inline: 0;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 /* -------------------------------------------------------------- responsive */
 
 @media (max-width: 1439px) {

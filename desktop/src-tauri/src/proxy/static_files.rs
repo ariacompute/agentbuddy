@@ -14,6 +14,11 @@ use crate::i18n;
 /// Marker the Rust side replaces with the boot object for `shell.html`.
 pub const BOOT_MARKER: &str = "/*__SHELL_BOOT__*/";
 
+/// The closing body tag is the anchor for the app version injection: it survives
+/// the Vue build's HTML minifier (unlike an HTML comment) and the inline script
+/// it is replaced with still runs before the deferred module script mounts Vue.
+pub const APP_VERSION_INJECT_AT: &str = "</body>";
+
 /// The workbench, built by `web` into `web/dist` and embedded here so the app is
 /// a single artefact with no bundled directory to lose.
 ///
@@ -34,17 +39,58 @@ struct Shell;
 pub fn serve_console(path: &str, lang: &str) -> Response {
     let rel = path.trim_start_matches('/');
     let rel = if rel.is_empty() { "index.html" } else { rel };
-    if let Some(file) = Console::get(rel) {
-        return file_response(rel, &file);
+    let (served, file) = if let Some(file) = Console::get(rel) {
+        (rel, file)
+    } else if let Some(file) = Console::get("index.html") {
+        // SPA fallback: a client route that is not a real file resolves to the
+        // app shell, so it gets the same version stamp as the root.
+        ("index.html", file)
+    } else {
+        return console_missing(lang);
+    };
+    if served == "index.html" {
+        return console_index(&file);
     }
-    match Console::get("index.html") {
-        Some(file) => file_response("index.html", &file),
-        None => console_missing(lang),
-    }
+    file_response(served, &file)
+}
+
+/// Serves the workbench's `index.html` with the desktop shell's own version
+/// stamp injected, so the login screen can show it the way the shell's own
+/// about page shows `boot.version`. The Vue bundle is a single
+/// build with no per-build metadata, so the stamp is written here from the
+/// constants the crate was compiled with.
+fn console_index(file: &EmbeddedFile) -> Response {
+    let html = render_console_index(file);
+    HttpResponse::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/html; charset=utf-8")
+        .header(CACHE_CONTROL, "no-cache")
+        .body(Body::from(html.into_bytes()))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// Builds the console `index.html` with the app version stamp injected. Kept
+/// separate from the response wrapper so it can be unit-tested without prying
+/// bytes out of an `axum::body::Body`.
+fn render_console_index(file: &EmbeddedFile) -> String {
+    let stamp = app_version_stamp();
+    String::from_utf8_lossy(&file.data).replace(
+        APP_VERSION_INJECT_AT,
+        &format!("window.__AGENTBUDDY_VERSION__ = {stamp:?};</body>"),
+    )
+}
+
+/// The desktop shell's `vX.Y.Z@<7-char commit>` stamp. `VERSION` is the crate
+/// version (no `v` prefix); the commit comes from `AGENTBUDDY_COMMIT` at build
+/// time and falls back to `unknown` for local builds (see `crate::COMMIT`).
+fn app_version_stamp() -> String {
+    let commit = &crate::COMMIT[..crate::COMMIT.len().min(7)];
+    format!("v{}@{}", crate::VERSION, commit)
 }
 
 /// Renders `shell.html` with the shell's copy injected, so the page carries no
-/// translations of its own and can never drift from Rust.
+/// translations of its own and can never drift from Rust. The about page's
+/// version row reuses `app_version_stamp()` so it matches the login screen.
 pub fn shell_page(page: &str, config: &crate::config::AppConfig) -> Response {
     let Some(file) = Shell::get("shell.html") else {
         return (StatusCode::INTERNAL_SERVER_ERROR, "the shell page is missing").into_response();
@@ -61,8 +107,7 @@ pub fn shell_page(page: &str, config: &crate::config::AppConfig) -> Response {
     let boot = json!({
         "page": page,
         "lang": lang,
-        "version": crate::VERSION,
-        "commit": crate::COMMIT,
+        "version": app_version_stamp(),
         "serverUrl": config.server_url,
         "insecure": config.accept_invalid_certs,
         "background": config.background,
@@ -108,4 +153,40 @@ fn console_missing(lang: &str) -> Response {
         i18n::translate(lang, "consoleMissing"),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The stamp is the crate version with a `v` prefix and the build commit
+    /// trimmed to seven characters — `vX.Y.Z@<7-char commit>`.
+    #[test]
+    fn stamps_version_with_short_commit() {
+        // Independent of the real COMMIT/VERSION so the assertion is stable.
+        let version = "1.0.0";
+        let commit = "abcdef1234567890";
+        let stamp = format!("v{}@{}", version, &commit[..7.min(commit.len())]);
+        assert_eq!(stamp, "v1.0.0@abcdef1");
+    }
+
+    /// The console's index.html carries the version assignment so the login
+    /// screen can render it.
+    #[test]
+    fn injects_app_version_into_index_html() {
+        if Console::get("index.html").is_none() {
+            eprintln!("skipping: web/dist has not been built");
+            return;
+        }
+        let file = Console::get("index.html").unwrap();
+        let html = render_console_index(&file);
+        assert!(
+            html.contains("window.__AGENTBUDDY_VERSION__"),
+            "the app version stamp is missing from index.html"
+        );
+        assert!(
+            html.contains(&app_version_stamp()),
+            "the injected stamp does not match app_version_stamp()"
+        );
+    }
 }

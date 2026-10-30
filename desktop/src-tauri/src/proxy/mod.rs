@@ -286,6 +286,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn about_page_version_matches_the_login_stamp() {
+        let proxy = proxy_with(AppConfig::default()).await;
+        let resp = reqwest::get(format!("{}/__shell/about", proxy.url)).await.unwrap();
+        assert_eq!(resp.status(), 200);
+        let body = resp.text().await.unwrap();
+        // The about page reuses the same stamp the login screen renders.
+        let commit = &crate::COMMIT[..crate::COMMIT.len().min(7)];
+        let stamp = format!("v{}@{}", crate::VERSION, commit);
+        assert!(
+            body.contains(&stamp),
+            "the about page version should match the login stamp {stamp}"
+        );
+    }
+
+    #[tokio::test]
     async fn refuses_api_calls_while_unconfigured() {
         let proxy = proxy_with(AppConfig::default()).await;
         let resp = reqwest::get(format!("{}/api/resources", proxy.url)).await.unwrap();

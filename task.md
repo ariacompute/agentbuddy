@@ -131,3 +131,13 @@ bun 构建/测试运行时与桌面端（Rust/Tauri）对 agenthub 服务端的�
 - 无容器 CA bundle 可扫；验证改为：`bun --version` 须 ≥1.4.4；桌面构建后
   `cargo tree -i webpki-roots`（或 `cargo update -p webpki-roots`）确认 ≥1.0.10。
 - 站点证书（部署用 Let's Encrypt）不受影响，无需重签。
+
+## MX — Login page version stamp
+
+- [x] desktop/src-tauri/src/proxy/static_files.rs: inject window.__AGENTBUDDY_VERSION__ (X.Y.Z@<7-char commit>) into the console index.html at the closing body tag; adds app_version_stamp() and render_console_index(); unit tests for both.
+- [x] web/src/views/LoginView.vue: read window.__AGENTBUDDY_VERSION__ and render it in a footer (hidden when absent, e.g. plain web dev).
+- [x] web/src/style.css: .login-version style (monochrome, token-based, absolute bottom-center).
+- [x] Makefile: pass AGENTBUDDY_COMMIT (derived from `git rev-parse --short=7 HEAD` in the Makefile) to desktop-build/dev/check/test so the real 7-char commit is stamped (falls back to `unknown`).
+- [x] desktop/src-tauri/src/proxy/static_files.rs: `shell_page` boot `version` now uses `app_version_stamp()` (the same `vX.Y.Z@<7-char commit>`), so the About page's "版本" matches the login page; dropped the redundant Build row.
+- [x] desktop/src-tauri/assets/shell.html: removed the Build row (template + JS assignment) from the About card.
+- [x] desktop/src-tauri/src/proxy/mod.rs: added `about_page_version_matches_the_login_stamp` test.

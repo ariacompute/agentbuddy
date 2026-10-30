@@ -359,7 +359,6 @@
       <section class="card" id="about-card" hidden>
         <dl class="rows">
           <div class="row"><dt id="label-version"></dt><dd id="value-version"></dd></div>
-          <div class="row"><dt id="label-build"></dt><dd id="value-build"></dd></div>
           <div class="row"><dt id="label-server-about"></dt><dd id="value-server"></dd></div>
         </dl>
         <div class="actions">
@@ -392,7 +391,6 @@
         el('label-quiet').textContent = t('settingsQuiet')
         el('note-quiet').textContent = t('settingsQuietNote')
         el('label-version').textContent = t('aboutVersion')
-        el('label-build').textContent = t('aboutBuild')
         el('label-server-about').textContent = t('aboutServer')
         el('back').textContent = t('trayOpen')
         el('later').textContent = t('actionLater')
@@ -480,7 +478,6 @@
           el('form-card').hidden = true
           el('about-card').hidden = false
           el('value-version').textContent = boot.version
-          el('value-build').textContent = boot.commit
           el('value-server').textContent = boot.serverUrl || '—'
           el('back').onclick = () => {
             window.location.href = '/'

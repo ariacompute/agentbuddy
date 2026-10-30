@@ -18,6 +18,10 @@ const password = ref('')
 const confirm = ref('')
 const displayName = ref('')
 const errorCode = ref(null)
+// The desktop shell stamps its own version (`vX.Y.Z@<7-char commit>`) into
+// index.html at request time; in a plain web build the global is absent and the
+// footer simply stays hidden.
+const appVersion = ref('')
 
 const canSubmit = computed(() => {
   if (!email.value || !password.value) return false
@@ -34,7 +38,10 @@ async function submit() {
   else errorCode.value = res.code
 }
 
-onMounted(() => auth.loadConfig())
+onMounted(() => {
+  auth.loadConfig()
+  appVersion.value = window.__AGENTBUDDY_VERSION__ || ''
+})
 </script>
 
 <template>
@@ -99,5 +106,7 @@ onMounted(() => auth.loadConfig())
         {{ mode === 'signup' ? t('loginToggleSignIn') : t('loginToggleSignUp') }}
       </button>
     </div>
+
+    <div class="login-version" v-if="appVersion">{{ appVersion }}</div>
   </div>
 </template>
