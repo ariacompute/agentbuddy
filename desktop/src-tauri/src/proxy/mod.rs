@@ -451,4 +451,48 @@ mod tests {
         assert_eq!(resp["ok"], false);
         assert_eq!(resp["reason"], "disabled");
     }
+
+    #[tokio::test]
+    async fn clamps_quiet_minutes_to_a_sane_ceiling() {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-quiet-{}", port_stamp()));
+        let store = Arc::new(ConfigStore::new(dir.clone()));
+        let proxy = start_inner(
+            Arc::new(tokio::sync::RwLock::new(AppConfig::default())),
+            store.clone(),
+            None,
+        )
+        .await
+        .unwrap();
+        let client = reqwest::Client::new();
+        let saved: serde_json::Value = client
+            .post(format!("{}/__shell/config", proxy.url))
+            .json(&serde_json::json!({ "notify_quiet_minutes": 5000 }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(saved["ok"], true);
+        // The stored preference is capped so a stray large value stays meaningful.
+        assert_eq!(store.load().notify_quiet_minutes, 1440);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn connection_test_rejects_an_empty_url() {
+        let proxy = proxy_with(AppConfig::default()).await;
+        let client = reqwest::Client::new();
+        let resp: serde_json::Value = client
+            .post(format!("{}/__shell/test", proxy.url))
+            .json(&serde_json::json!({ "server_url": "" }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(resp["ok"], false);
+        assert_eq!(resp["reason"], "empty");
+    }
 }

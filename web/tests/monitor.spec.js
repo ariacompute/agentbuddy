@@ -88,3 +88,74 @@ describe('ActivityMonitor', () => {
     m.stop()
   })
 })
+
+describe('ActivityMonitor subscription upkeep', () => {
+  beforeEach(() => {
+    getWorkspace.mockReset()
+    listTasks.mockReset()
+    subscribeTaskEvents.mockReset()
+    subscribeTaskEvents.mockReturnValue({ close: vi.fn() })
+  })
+
+  it('only opens streams for in-flight tasks', async () => {
+    getWorkspace.mockResolvedValue({ agents: [] })
+    listTasks.mockResolvedValue({
+      tasks: [
+        { id: 'working', status: { state: 'working' } },
+        { id: 'parked', status: { state: 'input-required' } },
+        { id: 'done', status: { state: 'completed' } },
+      ],
+    })
+    const store = makeStore()
+    const m = new ActivityMonitor(store, { visible: () => true })
+    m.start()
+    await flush()
+    expect(m.subscriptions.has('working')).toBe(true)
+    expect(m.subscriptions.has('parked')).toBe(true)
+    expect(m.subscriptions.has('done')).toBe(false)
+    m.stop()
+  })
+
+  it('opens nothing when there are no in-flight tasks', async () => {
+    getWorkspace.mockResolvedValue({ agents: [] })
+    listTasks.mockResolvedValue({ tasks: [{ id: 'done', status: { state: 'failed' } }] })
+    const store = makeStore()
+    const m = new ActivityMonitor(store, { visible: () => true })
+    m.start()
+    await flush()
+    expect(m.subscriptions.size).toBe(0)
+    m.stop()
+  })
+
+  it('_onStatus merges the update and closes the stream on a terminal state', () => {
+    const store = makeStore()
+    store.tasks = [{ id: 't1', status: { state: 'working' } }]
+    const close = vi.fn()
+    const m = new ActivityMonitor(store)
+    m.subscriptions.set('t1', { close, lastSeen: Date.now() })
+    m._onStatus('t1', { id: 't1', status: { state: 'completed' }, foo: 'bar' })
+    expect(store.tasks[0].foo).toBe('bar')
+    expect(store.tasks[0].status).toEqual({ state: 'completed' })
+    expect(close).toHaveBeenCalled()
+    expect(m.subscriptions.has('t1')).toBe(false)
+  })
+
+  it('_onStatus keeps the stream for a non-terminal state', () => {
+    const store = makeStore()
+    store.tasks = [{ id: 't1', status: { state: 'working' } }]
+    const close = vi.fn()
+    const m = new ActivityMonitor(store)
+    m.subscriptions.set('t1', { close, lastSeen: Date.now() })
+    m._onStatus('t1', { id: 't1', status: { state: 'working' } })
+    expect(close).not.toHaveBeenCalled()
+    expect(m.subscriptions.has('t1')).toBe(true)
+  })
+
+  it('_touch refreshes the lastSeen timestamp', () => {
+    const m = new ActivityMonitor(makeStore())
+    const close = vi.fn()
+    m.subscriptions.set('t1', { close, lastSeen: 1000 })
+    m._touch('t1')
+    expect(m.subscriptions.get('t1').lastSeen).toBeGreaterThan(1000)
+  })
+})

@@ -96,9 +96,19 @@
 
 ## M7 — 测试与发布
 
-100. [ ] `web/tests/`：languages / copy-fallback / enums-copy / use-copy / errors / api /
-          monitor / notifications / voice / connector-policy / **style（单色守卫）**
-101. [ ] `desktop/src-tauri` Rust 单测（proxy、config、i18n）
+100. [x] `web/tests/`：languages / copy-fallback / enums-copy / use-copy / errors / api /
+       monitor / notifications / voice / connector-policy / **style（单色守卫）**
+       - 新增 `auth-store.spec.js`（Pinia getters/actions）、`workbench-store.spec.js`
+         （ingestTask 通知决策、refresh*/approve/reject、getters）、`use-dismiss.spec.js`
+         （自动消失计时）；扩展 `api.spec.js`（auth/workspace/threads/tasks/resources/
+         speech + SSE 订阅构建器）、`use-copy.spec.js`（useCopy/useLang/label 助手/
+         setLang 镜像 `<html>`）、`monitor.spec.js`（订阅同步与状态处理）。
+       - 总用例 179 → **234** 全绿（`bun run test`）。
+101. [x] `desktop/src-tauri` Rust 单测（proxy、config、i18n、static_files）：在 `proxy/mod.rs`
+       的端到端测试新增 `clamps_quiet_minutes_to_a_sane_ceiling` 与
+       `connection_test_rejects_an_empty_url`；`cargo check --tests` 通过。
+       - 注：本机测试二进制因 Tauri 原生依赖的 DLL 入口缺失
+         （`STATUS_ENTRYPOINT_NOT_FOUND`）无法启动，属环境问题，与测试代码无关。
 102. [ ] agenthub `go build` + `go vet` + `go test -race ./...`
 103. [ ] `.github/workflows/release.yml`：三平台矩阵
 104. [ ] `README.md` / `README_cn.md` 收尾
