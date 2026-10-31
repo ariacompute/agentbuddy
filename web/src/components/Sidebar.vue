@@ -59,7 +59,6 @@ const links = computed(() => [
 
     <div class="sidebar-foot" v-if="!collapsed">
       <div>{{ auth.user?.displayName || auth.user?.email }}</div>
-      <div>{{ t('ownerBadge') }}: {{ auth.isOwner ? t('online') : t('offline') }}</div>
       <div v-if="appVersion" class="sidebar-version">{{ appVersion }}</div>
     </div>
   </aside>
