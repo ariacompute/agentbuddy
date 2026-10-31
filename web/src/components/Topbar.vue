@@ -45,10 +45,10 @@ const title = computed(() => {
       {{ workbench.offline ? t('offline') : t('online') }}
     </span>
     <span class="spacer" />
-    <NotificationCenter />
     <LanguageSwitcher />
+    <NotificationCenter />
     <ThemeToggle />
-    <button class="btn-ghost btn-icon" :aria-label="t('accountSignOut')" @click="signOut">
+    <button class="btn-icon" :aria-label="t('accountSignOut')" @click="signOut">
       <LogOut :size="17" />
     </button>
   </header>
