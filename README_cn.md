@@ -11,6 +11,12 @@
 - Agent、会话线程、任务追踪、审批（HITL 挂起/恢复）、通道（Slack / Teams / Telegram / SMS
   webhook）、连接器（按策略放行的动作），以及语音（录音 → 转写 → 委派）。
 
+## 快照
+
+工作台首页 —— 你可达的每个智能体、它们正在做的事、以及等待你处理的事项：
+
+![agentbuddy 工作台](workbench_cn.png)
+
 ## 开发
 
 前置依赖：[bun](https://bun.sh) 1.4+ 与 Rust 工具链（edition 2021）。

@@ -13,6 +13,13 @@ interconnection platform.
   (Slack / Teams / Telegram / SMS webhooks), connectors (policy-gated actions),
   and voice (record → transcribe → delegate).
 
+## Snapshot
+
+The Workbench home screen — every agent you can reach, what they are doing,
+and what is waiting on you:
+
+![agentbuddy workbench](workbench.png)
+
 ## Develop
 
 Prerequisites: [bun](https://bun.sh) 1.4+ and a Rust toolchain (edition 2021).
