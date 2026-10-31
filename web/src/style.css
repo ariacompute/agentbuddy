@@ -333,6 +333,14 @@ pre,
   color: var(--text-3);
 }
 
+.sidebar-version {
+  margin-top: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+}
+
 /* ------------------------------------------------------------------ topbar */
 
 .topbar {

@@ -24,12 +24,12 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="app-shell" v-if="auth.signedIn">
+  <div class="shell" v-if="auth.signedIn">
     <Sidebar />
-    <div class="app-main">
+    <div class="main">
       <Topbar />
       <ConnectionBanner />
-      <main class="app-content">
+      <main class="content">
         <router-view />
       </main>
     </div>

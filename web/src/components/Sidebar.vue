@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../lib/auth-store.js'
 import { useWorkbenchStore } from '../lib/workbench-store.js'
@@ -12,6 +12,14 @@ const auth = useAuthStore()
 const workbench = useWorkbenchStore()
 const route = useRoute()
 const collapsed = ref(false)
+
+// The desktop shell stamps its own version (`vX.Y.Z@<7-char commit>`) into
+// index.html at request time; in a plain web build the global is absent and the
+// footer version simply stays hidden. Same source/format as LoginView.
+const appVersion = ref('')
+onMounted(() => {
+  appVersion.value = window.__AGENTBUDDY_VERSION__ || ''
+})
 
 const links = computed(() => [
   { to: '/', label: t('navWorkspace'), icon: LayoutDashboard, badge: 0 },
@@ -49,6 +57,7 @@ const links = computed(() => [
     <div class="sidebar-foot" v-if="!collapsed">
       <div>{{ auth.user?.displayName || auth.user?.email }}</div>
       <div>{{ t('ownerBadge') }}: {{ auth.isOwner ? t('online') : t('offline') }}</div>
+      <div v-if="appVersion" class="sidebar-version">{{ appVersion }}</div>
     </div>
   </aside>
 </template>
