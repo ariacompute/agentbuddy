@@ -35,6 +35,7 @@
 | F1.4 | 会话为 agenthub 的 HttpOnly Cookie；前端所有请求 `credentials: 'include'` |
 | F1.5 | 路由守卫：`/login` 之外均需登录；权限不足转 `/workspace` |
 | F1.6 | 登录页右上角提供「语言切换」与「light/dark 主题切换」；二者复用 `LanguageSwitcher` / `ThemeToggle`（与 `Topbar` 同一套组件），主题经 `agentbuddy.theme` localStorage 持久、语言经 `agentbuddy.lang` 持久并镜像到 `<html lang|dir>` |
+| F1.7 | 会话跨应用重启保持：环回代理把上游 session cookie 落盘（`session.json`，与 `config.json` 同目录、仅当前用户可读、按 `server` 归属），并在启动/切换服务端时还原进代理的 `reqwest::Jar`；登出或 cookie 过期时清跌落盘副本。落盘的是会话令牌（等同 bearer），须 owner-only |
 
 ### F2 Agent 工作台
 
@@ -291,3 +292,4 @@
 14. 技能/知识库（F14）：`kind=skill` 资源可管理版本/共享；知识库查询返回 mock 片段（`knowledge_unavailable` 时降级）。
 15. 协作共享空间（F12）：会话内 `@mention` 派活与 Agent 自主认领均落 `thread_messages`（`origin` 标记来源）。
 16. 富结果（F15）：带证据的建议以会话消息卡片呈现，单色与 13 语文案完整。
+17. 会话持久化（F1.7）：登录后完全退出应用再启动，自动以已登录态进入工作台（session cookie 落盘还原），无需重新登录；登出后落盘副本被清除，重启回到登录页。

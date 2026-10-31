@@ -150,6 +150,19 @@ impl From<serde_json::Error> for ConfigError {
     }
 }
 
+/// The persisted shape of `session.json`. It mirrors the upstream session
+/// cookie the loopback proxy replays on launch so a relaunch of the shell
+/// resumes the agenthub session instead of forcing a fresh login.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SessionFile {
+    /// The server the cookie belongs to, so it is never replayed to a
+    /// different server after the user re-points the shell.
+    server: String,
+    /// The `Cookie` header value the proxy's jar currently holds, or empty
+    /// once the session is cleared (logout / expiry).
+    cookie: String,
+}
+
 /// Reads and writes `config.json` in one directory.
 #[derive(Debug, Clone)]
 pub struct ConfigStore {
@@ -163,6 +176,49 @@ impl ConfigStore {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    fn session_path(&self) -> PathBuf {
+        let mut path = self.path.clone();
+        path.set_file_name("session.json");
+        path
+    }
+
+    /// Saves (or, when `cookie` is empty, clears) the session tied to `server`.
+    ///
+    /// The session lives in `session.json` next to `config.json`, owner-only,
+    /// because it is a bearer-equivalent token for the configured agenthub.
+    pub fn save_session(&self, server: &str, cookie: &str) -> Result<(), ConfigError> {
+        let path = self.session_path();
+        if cookie.is_empty() {
+            if path.exists() {
+                let _ = fs::remove_file(&path);
+            }
+            return Ok(());
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let text = serde_json::to_string(&SessionFile {
+            server: server.to_string(),
+            cookie: cookie.to_string(),
+        })?;
+        fs::write(&path, text)?;
+        restrict_to_owner(&path);
+        Ok(())
+    }
+
+    /// Returns the saved session cookie for `server`, or `None` when there is
+    /// none or it was saved for a different server.
+    pub fn load_session_cookie(&self, server: &str) -> Option<String> {
+        let path = self.session_path();
+        let text = fs::read_to_string(&path).ok()?;
+        let file: SessionFile = serde_json::from_str(&text).ok()?;
+        if file.server == server && !file.cookie.is_empty() {
+            Some(file.cookie)
+        } else {
+            None
+        }
     }
 
     /// Missing or unreadable config is not an error: it means "first run".

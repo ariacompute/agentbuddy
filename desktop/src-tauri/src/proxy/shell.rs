@@ -84,6 +84,15 @@ async fn save_config(state: &ProxyState, req: Request) -> Response {
                 Err(_) => return failure("invalid", StatusCode::BAD_REQUEST),
             }
         };
+        // The saved session belongs to whichever server we are leaving; never
+        // replay it to a different one. If the new server already has a stored
+        // session, resume it in the jar so the switch is seamless.
+        if url != config.server_url {
+            let _ = state.store.save_session(&config.server_url, "");
+            if !url.is_empty() {
+                crate::proxy::seed_jar_from_store(&state.jar, &state.store, &url);
+            }
+        }
         config.server_url = url;
     }
     if let Some(insecure) = payload.accept_invalid_certs {

@@ -16,6 +16,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use reqwest::cookie::Jar;
+use url::Url;
+
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::response::Response;
@@ -50,6 +53,11 @@ pub struct ProxyState {
     pub self_url: String,
     /// `None` only in tests, which drive the proxy without a window.
     pub app: Option<tauri::AppHandle>,
+    /// The cookie jar the proxy forwards on every upstream request. It is the
+    /// authority on the current agenthub session (the WebView's own cookie
+    /// header is dropped before forwarding), so it is persisted to disk and
+    /// re-seeded on launch to survive an app restart.
+    pub jar: Arc<Jar>,
 }
 
 pub struct ProxyHandle {
@@ -90,13 +98,18 @@ async fn start_inner(
     app: Option<tauri::AppHandle>,
 ) -> Result<ProxyHandle, ProxyError> {
     let jar = Arc::new(reqwest::cookie::Jar::default());
-    let clients = forward::Clients::new(jar).map_err(ProxyError::Client)?;
+    // Resume the previous session so a relaunch does not force a fresh login:
+    // the saved cookie is replayed into the jar for the configured server.
+    if let Some(server) = config.read().await.server_url() {
+        seed_jar_from_store(&jar, &store, &server);
+    }
+    let clients = forward::Clients::new(jar.clone()).map_err(ProxyError::Client)?;
 
     let listener = TcpListener::bind("127.0.0.1:0").await.map_err(ProxyError::Bind)?;
     let port = listener.local_addr().map_err(ProxyError::Bind)?.port();
     let url = format!("http://127.0.0.1:{port}");
 
-    let state = ProxyState { clients, config, store, self_url: url.clone(), app };
+    let state = ProxyState { clients, config, store, self_url: url.clone(), app, jar };
     let router = Router::new().fallback(dispatch).with_state(state);
     let task = tokio::spawn(async move {
         if let Err(err) = axum::serve(listener, router).await {
@@ -145,6 +158,24 @@ pub fn is_remote_path(path: &str) -> bool {
 /// What the console gets when it calls an endpoint with no server configured.
 pub fn not_configured() -> Response {
     forward::upstream_json(StatusCode::SERVICE_UNAVAILABLE, "server_not_configured")
+}
+
+/// Replays the saved session cookie for `server` into `jar`.
+///
+/// The jar holds the agenthub session, so restoring it on launch (or when the
+/// shell is re-pointed at a server) is what keeps the user signed in across an
+/// app restart instead of dropping them back to the login page.
+pub fn seed_jar_from_store(jar: &Arc<Jar>, store: &ConfigStore, server: &str) {
+    if let Some(cookie) = store.load_session_cookie(server) {
+        if let Ok(url) = Url::parse(server) {
+            for part in cookie.split(';') {
+                let part = part.trim();
+                if !part.is_empty() {
+                    jar.add_cookie_str(part, &url);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -494,5 +525,85 @@ mod tests {
             .unwrap();
         assert_eq!(resp["ok"], false);
         assert_eq!(resp["reason"], "empty");
+    }
+
+    /// A stand-in agenthub that issues a session cookie on `/api/login` and
+    /// reports on `/api/ping` the `Cookie` header it actually received — which is
+    /// how the test proves the proxy's jar carried the session upstream.
+    async fn spawn_session_server() -> (String, Arc<std::sync::Mutex<Option<String>>>) {
+        use axum::http::header::{COOKIE, SET_COOKIE};
+        use axum::routing::get;
+
+        let seen = Arc::new(std::sync::Mutex::new(None));
+        let seen_for_ping = seen.clone();
+        let app = axum::Router::new()
+            .route(
+                "/api/login",
+                get(|| async {
+                    ([(SET_COOKIE, "sid=ABC; Path=/; HttpOnly".to_string())], "ok")
+                }),
+            )
+            .route(
+                "/api/ping",
+                get(move |headers: axum::http::HeaderMap| async move {
+                    let cookie = headers
+                        .get(COOKIE)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or("")
+                        .to_string();
+                    *seen_for_ping.lock().unwrap() = Some(cookie.clone());
+                    cookie
+                }),
+            );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (format!("http://127.0.0.1:{port}"), seen)
+    }
+
+    /// The desktop shell must keep the user signed in across an app restart.
+    /// `start_inner` is what runs on every launch, so two successive launches
+    /// that share one on-disk store must carry the same session cookie upstream.
+    #[tokio::test]
+    async fn resumes_the_session_after_a_restart() {
+        let (server, seen) = spawn_session_server().await;
+        let dir = std::env::temp_dir().join(format!("agentbuddy-session-{}", port_stamp()));
+        let store = Arc::new(ConfigStore::new(dir.clone()));
+        let config = || Arc::new(tokio::sync::RwLock::new(AppConfig {
+            server_url: server.clone(),
+            ..Default::default()
+        }));
+
+        // First launch: log in (sets the cookie) and let it persist to disk.
+        let proxy1 = start_inner(config(), store.clone(), None).await.unwrap();
+        let client = reqwest::Client::new();
+        let first = client
+            .get(format!("{}/api/login", proxy1.url))
+            .send()
+            .await
+            .unwrap();
+        assert!(first.status().is_success());
+        // The persistence write is offloaded to a detached thread; give it a beat.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Second launch, same store — like the user quitting and reopening the app.
+        let proxy2 = start_inner(config(), store.clone(), None).await.unwrap();
+        let echoed = client
+            .get(format!("{}/api/ping", proxy2.url))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert_eq!(echoed, "sid=ABC", "the session cookie must survive a restart");
+
+        // And the persisted file must not replay a cookie to a different server.
+        let other = seen.clone();
+        assert!(store.load_session_cookie(&server).is_some());
+        assert!(store.load_session_cookie("https://elsewhere.example.com").is_none());
+        drop(other);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

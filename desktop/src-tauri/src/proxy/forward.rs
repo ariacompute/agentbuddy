@@ -19,7 +19,7 @@ use axum::extract::Request;
 use axum::http::header::{HeaderName, HeaderValue};
 use axum::http::{Response as HttpResponse, StatusCode};
 use axum::response::{IntoResponse, Response};
-use reqwest::cookie::Jar;
+use reqwest::cookie::{CookieStore, Jar};
 use url::Url;
 
 use super::{ProxyState, CONNECT_TIMEOUT, MAX_REQUEST_BODY};
@@ -113,6 +113,12 @@ pub async fn forward(state: &ProxyState, req: Request) -> Response {
 }
 
 fn build_response(state: &ProxyState, resp: reqwest::Response, base: &str) -> Response {
+    // A Set-Cookie from the server means the session changed (login, refresh,
+    // or logout): mirror it to disk so the next launch resumes where this one
+    // left off. Skipped when the server is not configured yet.
+    if resp.headers().contains_key(reqwest::header::SET_COOKIE) {
+        persist_session(state, base);
+    }
     let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let mut builder = HttpResponse::builder().status(status);
     if let Some(headers) = builder.headers_mut() {
@@ -143,6 +149,41 @@ fn build_response(state: &ProxyState, resp: reqwest::Response, base: &str) -> Re
     builder
         .body(Body::from_stream(resp.bytes_stream()))
         .unwrap_or_else(|_| upstream_json(StatusCode::BAD_GATEWAY, "response_unbuildable"))
+}
+
+/// Mirrors the current agenthub session to disk so a later launch can resume it.
+///
+/// The proxy's jar — not the WebView, whose cookie header is dropped upstream —
+/// is the authority on the session, so we copy whatever the jar currently holds
+/// for the server. When the cookie is cleared (logout or expiry) the jar returns
+/// nothing and we drop the saved copy instead. The write is offloaded to a
+/// detached thread because `build_response` runs on the proxy's request path.
+fn persist_session(state: &ProxyState, base: &str) {
+    if base.is_empty() {
+        return;
+    }
+    let Ok(url) = Url::parse(base) else {
+        return;
+    };
+    match state.jar.cookies(&url) {
+        Some(value) => {
+            if let Ok(cookie) = value.to_str() {
+                let store = state.store.clone();
+                let base = base.to_string();
+                let cookie = cookie.to_string();
+                std::thread::spawn(move || {
+                    let _ = store.save_session(&base, &cookie);
+                });
+            }
+        }
+        None => {
+            let store = state.store.clone();
+            let base = base.to_string();
+            std::thread::spawn(move || {
+                let _ = store.save_session(&base, "");
+            });
+        }
+    }
 }
 
 /// The upstream URL for one console request: the configured base plus the path

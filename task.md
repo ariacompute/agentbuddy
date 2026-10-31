@@ -212,3 +212,20 @@ bun 构建/测试运行时与桌面端（Rust/Tauri）对 agenthub 服务端的�
 - 单色 + 13 语 + RTL + 无障碍：`style.spec.js` 与 `copy-fallback.spec.js` 均通过。
 - F16 仅标注为 agenthub 服务端能力（JWT/实例互联），客户端未新增账号/联邦逻辑。
 - 深层能力（RAG / 真实调度 / 真实计算机控制）一律 mock + `TODO(real)`，未引入子进程/网络依赖。
+
+## M12 — 会话跨重启持久化（bug fix，2026-10）
+
+背景：登录后完全退出应用再启动仍进入登录页、需重新登录。根因：环回代理把会话保存在自身内存的
+`reqwest::Jar`（forward.rs 在转发前丢弃 WebView 的 `cookie` 头，因 WebView 源是随机 `127.0.0.1` 端口，
+而 cookie 属于服务端域名），`Jar` 随进程退出销毁；下次启动 `Jar` 为空 → 上游 401 → 前端 `whoami` 失败 →
+登录页。随机端口与 WebView cookie 持久化并非关键（真正携带会话的是代理的 `Jar`）。
+
+- [x] `desktop/src-tauri/src/config.rs`：`ConfigStore` 新增 `save_session` / `load_session_cookie`，落 `session.json`（与 `config.json` 同目录，`restrict_to_owner` 限权，按 `server` 归属，防跨服务端重放）
+- [x] `desktop/src-tauri/src/proxy/mod.rs`：`ProxyState` 增加 `jar` 字段；新增 `seed_jar_from_store`；`start_inner` 启动时为已配置服务端还原落盘会话
+- [x] `desktop/src-tauri/src/proxy/forward.rs`：`build_response` 检测到上游 `Set-Cookie` 时调用 `persist_session`——把 `Jar` 当前会话异步写盘；登出/过期（`Jar` 中无 cookie）时清跌落盘副本
+- [x] `desktop/src-tauri/src/proxy/shell.rs`：`save_config` 切换 `server_url` 时清掉旧服务端会话，并还原新服务端已存会话
+- [x] `desktop/src-tauri/src/proxy/mod.rs`：新增集成测试 `resumes_the_session_after_a_restart`（两个共享同一 store 的代理实例验证会话跨「重启」存活）
+- [x] `cargo check --all-targets` 通过（无 warning/error）
+
+注：本机测试二进制仍因 Tauri 原生依赖 DLL 入口缺失（`STATUS_ENTRYPOINT_NOT_FOUND`）无法启动（与 M7 同款
+环境问题，与本次测试代码无关），故测试仅编译验证通过、逻辑对齐既有会话测试。
