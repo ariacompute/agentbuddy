@@ -31,11 +31,4 @@ onMounted(read)
   </button>
 </template>
 
-<style scoped>
-/* Flat icon button: no fill or shadow, just the sun/moon glyph. */
-.btn-icon {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
-</style>
+

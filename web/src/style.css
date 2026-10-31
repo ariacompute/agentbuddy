@@ -472,6 +472,11 @@ pre,
   height: var(--touch-min);
   padding: 0;
   border-radius: var(--radius-sm);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--text-1);
+  cursor: pointer;
 }
 
 .btn:disabled {
