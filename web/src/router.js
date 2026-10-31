@@ -32,7 +32,7 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
-  if (!auth.signedIn && !auth.user) {
+  if (!auth.signedIn && !auth.user && !auth.loggedOut) {
     await auth.refresh()
   }
   if (!to.meta.public && !auth.signedIn) return { name: 'login', query: { next: to.fullPath } }

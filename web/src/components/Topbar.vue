@@ -15,6 +15,11 @@ const workbench = useWorkbenchStore()
 const route = useRoute()
 const router = useRouter()
 
+async function signOut() {
+  await auth.logout()
+  router.push('/login')
+}
+
 const title = computed(() => {
   const name = route.name || ''
   const map = {
@@ -43,7 +48,7 @@ const title = computed(() => {
     <NotificationCenter />
     <LanguageSwitcher />
     <ThemeToggle />
-    <button class="btn-ghost btn-icon" :aria-label="t('accountSignOut')" @click="auth.logout(); router.push('/login')">
+    <button class="btn-ghost btn-icon" :aria-label="t('accountSignOut')" @click="signOut">
       <LogOut :size="17" />
     </button>
   </header>

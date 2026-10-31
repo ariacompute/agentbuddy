@@ -23,6 +23,7 @@ export const useAuthStore = defineStore('auth', {
     refreshError: null,
     errorCode: null,
     busy: false,
+    loggedOut: false,
   }),
 
   getters: {
@@ -55,6 +56,7 @@ export const useAuthStore = defineStore('auth', {
         // agenthub renders the user's name as `name`; the UI elsewhere reads
         // `displayName`, so normalise it here once.
         this.user = u ? { ...u, displayName: u.displayName || u.name } : null
+        this.loggedOut = false
       } catch (error) {
         // Not signed in, or server unreachable: treat as anonymous.
         this.user = null
@@ -101,6 +103,7 @@ export const useAuthStore = defineStore('auth', {
         console.error('agentbuddy: logout failed', error)
       }
       this.user = null
+      this.loggedOut = true
     },
   },
 })
