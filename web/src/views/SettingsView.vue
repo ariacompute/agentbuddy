@@ -30,11 +30,15 @@ function readLocal() {
 }
 
 onMounted(async () => {
+  let cfg = null
   try {
-    const cfg = await request('/__shell/config')
+    cfg = await request('/__shell/config')
     background.value = cfg.background ?? true
     notify.value = cfg.notifyEnabled ?? true
     quiet.value = cfg.notifyQuietMinutes ?? 0
+    // The connected server is the shell's configured upstream — agenthub's
+    // /healthz does not report its own URL, so we read it from the shell.
+    server.value = cfg.serverUrl || ''
   } catch (e) {
     const saved = readLocal()
     background.value = saved.background ?? true
@@ -47,7 +51,6 @@ onMounted(async () => {
   applyTheme()
   try {
     const h = await checkHealth()
-    server.value = h.server || ''
     version.value = h.version || t('unknown')
     build.value = h.commit || t('unknown')
   } catch (e) { /* ignore */ }
