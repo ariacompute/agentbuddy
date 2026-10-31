@@ -5,9 +5,11 @@ import { useCopy } from '../lib/use-copy.js'
 import { enumLabel } from '../lib/use-copy.js'
 import { createChannel, updateChannel, deleteChannel, retryDelivery } from '../lib/api.js'
 import ChannelCard from '../components/ChannelCard.vue'
+import BaseDialog from '../components/BaseDialog.vue'
 import { Plus, X } from 'lucide-vue-next'
 
 const { t } = useCopy('channel')
+const { t: ts } = useCopy('shell')
 const workbench = useWorkbenchStore()
 const showForm = ref(false)
 const errorCode = ref(null)
@@ -83,47 +85,44 @@ onMounted(() => workbench.refreshChannels())
       </div>
     </div>
 
-    <div v-if="showForm" class="modal" @click.self="showForm = false">
-      <div class="modal-card card">
-        <div class="card-head">
-          <strong>{{ t('newChannel') }}</strong>
-          <button class="btn-icon btn-sm" @click="showForm = false"><X :size="16" /></button>
-        </div>
-        <div class="stack">
-          <div class="field">
-            <label>{{ t('fieldName') }}</label>
-            <input v-model="form.name" />
-          </div>
-          <div class="field">
-            <label>{{ t('fieldType') }}</label>
-            <select v-model="form.kind">
-              <option v-for="ty in types" :key="ty" :value="ty">{{ enumLabel('channelType', ty) }}</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>{{ t('fieldThread') }}</label>
-            <input v-model="form.threadId" :placeholder="'thread id'" />
-          </div>
-          <div class="field">
-            <label>{{ t('fieldSigningKeyEnv') }}</label>
-            <input v-model="form.signingKeyEnv" />
-            <p class="muted" style="font-size:11px">{{ t('fieldSigningKeyEnvNote') }}</p>
-          </div>
-          <div v-if="form.kind === 'sms'" class="field">
-            <label>{{ t('fieldDestination') }}</label>
-            <input v-model="form.destination" />
-            <p class="muted" style="font-size:11px">{{ t('fieldDestinationNote') }}</p>
-          </div>
-          <div class="field">
-            <label>{{ t('fieldParticipants') }}</label>
-            <input v-model="form.participants" :placeholder="'agent-a, agent-b'" />
-          </div>
-          <div v-if="errorCode" class="banner"><span>{{ errorCode }}</span></div>
-          <div class="row" style="justify-content:flex-end">
-            <button class="btn btn-primary btn-sm" :disabled="saving" @click="save">{{ t('newChannel') }}</button>
-          </div>
-        </div>
+    <BaseDialog
+      v-model="showForm"
+      :title="t('newChannel')"
+      :close-label="ts('actionClose')"
+    >
+      <div class="field">
+        <label>{{ t('fieldName') }}</label>
+        <input v-model="form.name" />
       </div>
-    </div>
+      <div class="field">
+        <label>{{ t('fieldType') }}</label>
+        <select v-model="form.kind">
+          <option v-for="ty in types" :key="ty" :value="ty">{{ enumLabel('channelType', ty) }}</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>{{ t('fieldThread') }}</label>
+        <input v-model="form.threadId" :placeholder="'thread id'" />
+      </div>
+      <div class="field">
+        <label>{{ t('fieldSigningKeyEnv') }}</label>
+        <input v-model="form.signingKeyEnv" />
+        <p class="muted" style="font-size:11px">{{ t('fieldSigningKeyEnvNote') }}</p>
+      </div>
+      <div v-if="form.kind === 'sms'" class="field">
+        <label>{{ t('fieldDestination') }}</label>
+        <input v-model="form.destination" />
+        <p class="muted" style="font-size:11px">{{ t('fieldDestinationNote') }}</p>
+      </div>
+      <div class="field">
+        <label>{{ t('fieldParticipants') }}</label>
+        <input v-model="form.participants" :placeholder="'agent-a, agent-b'" />
+      </div>
+      <div v-if="errorCode" class="banner"><span>{{ errorCode }}</span></div>
+      <template #footer>
+        <button class="btn btn-ghost btn-sm" :disabled="saving" @click="showForm = false">{{ ts('actionCancel') }}</button>
+        <button class="btn btn-primary btn-sm" :disabled="saving" @click="save">{{ ts('actionCreate') }}</button>
+      </template>
+    </BaseDialog>
   </div>
 </template>
