@@ -18,8 +18,10 @@
 
 - **现有**：`/api/auth/*`、`/api/resources*`、`/api/tasks*`、`/api/threads*`、`/api/workspace`、
   `/api/export/*`、`/a2a`、`/healthz`、`/.well-known/agent.json`。
-- **本轮新增**（见 §4）：`/api/channels*`、`/api/connectors*`、`POST /api/threads/{id}/audio`，
-  以及 `registry.Entry.persona` 字段。
+- **上一轮已落地**（供参照）：`/api/channels*`、`/api/connectors*`、`POST /api/threads/{id}/audio`，
+  以及 `registry.Entry.persona` 列（`013_persona.sql`）。
+- **本轮（F10–F16）新增**（见 §4）：`/api/computers*`（Agent 计算机，F11）、`/api/schedules*`（目标调度，F13），
+  并扩展 `registry.Entry.persona` 角色字段（F10）；新增 `computers` / `schedules` / `knowledge` 表（`017`–`019`）。
 
 ## 2. 功能需求
 
@@ -113,6 +115,75 @@
 | F9.2 | 技能册：`kind=skill` + capabilities |
 | F9.3 | 预算：由 `/api/tasks` 派生（任务数、状态分布、产物字节、span 时长），固定展示「派生估算，非真实计费」 |
 
+## 2B. 融合标杆项目的扩展特性（F10–F16）
+
+> 下列特性提取自 OpenDots / openmuse / openbot / Octop / openagents / Velozity 六个项目的可借鉴能力，
+> agentbuddy 作为纯桌面客户端，agenthub 作为唯一服务端（执行/编排/通道/语音）。真实第三方对接首版为
+> 确定性 mock，边界一律标 `TODO(real)`；不新增权限码，全部复用 `tasks:*` / `resources:*`。
+
+### F10 Agent 角色与人格（Persona / MBTI）
+
+| 编号 | 需求 | 借鉴来源 |
+|---|---|---|
+| F10.1 | 新增「新建/编辑 Agent」流程：名称、显示名、头衔、角色指令（system prompt）、MBTI 人格模板（16 型 + 互动测验）、头像 | OpenDots Dots、Octop 专家 + MBTI、Velozity AI Workforce |
+| F10.2 | 角色数据持久化于 `registry.Entry.persona`（013 已加 `persona JSONB` 列），结构扩展为 `{role, instruction, mbti, avatar_ref, title}` | — |
+| F10.3 | 客户端经 `POST/PUT /api/resources` 写入/更新角色字段；列表经 `GET /api/resources` 按 `kind` 分组展示 | — |
+| F10.4 | 工作台（F2）与 Threads（F3）按 persona 渲染 Agent 头像/头衔/人格标签，单色下以文本标签区分 | — |
+
+### F11 Agent 计算机 / Computer Use
+
+| 编号 | 需求 | 借鉴来源 |
+|---|---|---|
+| F11.1 | 新增「Agent 计算机」视图：共享浏览器、Shell 终端、屏幕镜像三类面板 | OpenDots Dot Computers、openmuse Agent Computer、openbot Computer Use、Octop Browser AI+ / 远程桌面 |
+| F11.2 | 服务端经 adapter 承接：复用 `kind=cli`（Shell）/ `kind=mcp`（浏览器自动化），或新增 `/api/computers`（见 §4.1） | — |
+| F11.3 | 首版为**确定性 mock 适配器**：浏览器/Shell/屏幕返回静态占位与脚本化回放，真实桌面控制标 `TODO(real)`（不引入子进程/网络） | openbot `cua-driver`、Octop CDP 远程桌面 |
+| F11.4 | 人工接管：mock 阶段提供「接管」开关（仅 UI 态），真实接管待 `TODO(real)` | openmuse takeover console、OpenDots 人工接管 |
+
+### F12 Agent 间协作与共享空间
+
+| 编号 | 需求 | 借鉴来源 |
+|---|---|---|
+| F12.1 | 增强 F3 Threads：同一会话内 Agent 可见彼此消息并协作；`@mention` 显式派活（F3.2 已有）或 Agent 按 `input-required` 自主认领 | openagents Workspace、openbot Shared Channels |
+| F12.2 | 共享文件：会话内上传/下载代码、文档、产物，落 `thread_assets`（复用 artifacts 机制） | openagents 共享文件 |
+| F12.3 | 共享浏览器动作可见：Agent 的计算机操作（F11）以消息类型回显于会话，全员可读 | openagents 共享浏览器 |
+| F12.4 | Agent-to-Agent 消息：消息 `origin` 扩展为含 `agent:<id>` 来源标记（`thread_messages.origin` 015 已加列） | openbot Agent-to-Agent |
+
+### F13 目标与主动调度
+
+| 编号 | 需求 | 借鉴来源 |
+|---|---|---|
+| F13.1 | 新增「目标 / 周期任务」：目标描述 + 触发器（自然语言或斜杠命令）+ 周期（cron 表达式或间隔） | openmuse Goals、Octop Cron、OpenDots 后台回合、openbot Routines |
+| F13.2 | 服务端复用 hub task 状态机推进；调度元数据落 `schedules` 表（见 §4.3 `017_schedules.sql`） | — |
+| F13.3 | 首版为 **mock 调度器**：本地内存 ticker 触发，不依赖外部 cron 服务；真实 APScheduler 式调度标 `TODO(real)` | Octop APScheduler |
+| F13.4 | 主动推送：触发后生成会话消息/任务并走 F5 通知；失败指数退避 | openmuse 退避告警、Octop 主动推送 |
+
+### F14 技能与知识库
+
+| 编号 | 需求 | 借鉴来源 |
+|---|---|---|
+| F14.1 | `kind=skill` 资源扩展：版本号、是否共享、依赖；客户端经 `GET/PUT /api/resources` 管理 | openbot Local Skills、Octop 自我进化 |
+| F14.2 | 技能自动蒸馏（规划）：将完成任务对话蒸馏为可复用技能，**首版仅记录触发点**，真实蒸馏标 `TODO(real)` | Octop 自我进化、openbot 自动蒸馏 |
+| F14.3 | per-agent 知识库（Company Brain）：`knowledge` 表存储向量/文本切片，检索经 mock RAG 返回确定性片段；真实嵌入/检索标 `TODO(real)` | Octop Company Brain、Velozity Company Brain |
+| F14.4 | 知识库与 persona 绑定（F10.2），在 Threads 委派时作为上下文注入 | — |
+
+### F15 建议与富结果
+
+| 编号 | 需求 | 借鉴来源 |
+|---|---|---|
+| F15.1 | 富结果卡片：消息/产物以结构化卡片渲染（文本/文件/音频/浏览器截图/表单），复用 F4.2 artifacts 卡片 | OpenDots CopilotKit Cards、openmuse 内联卡片 |
+| F15.2 | 主动建议（Ideas）：基于会话上下文生成带**来源证据**的建议，用户可编辑/接受/驳回 | openmuse Ideas |
+| F15.3 | 建议以普通会话消息形态呈现（单色、文本标签），不引入额外浮层；证据以引用块展示 | — |
+
+### F16 多用户 / 团队与云协作（服务端能力，客户端仅消费）
+
+| 编号 | 需求 | 借鉴来源 |
+|---|---|---|
+| F16.1 | 多用户/团队：由 agenthub 服务端提供账号与隔离（JWT 等），agentbuddy 客户端**不内置账号体系**，仅消费 `GET /api/auth/me` 与权限 | Octop 多用户、云协作 |
+| F16.2 | 云协作 / 实例互联：由 agenthub 服务端承担，客户端经既有 `/api` 端点读取跨实例专家/会话，不在客户端实现联邦 | openagents Network、Octop 云协作 |
+| F16.3 | 客户端职责限定为：按服务端返回的可见资源渲染，不缓存跨用户状态 | — |
+
+---
+
 ## 3. 非功能需求
 
 | 编号 | 需求 |
@@ -142,27 +213,47 @@
 | GET | `/api/connectors/{id}/actions` | `resources:read` | 动作历史 |
 | POST | `/api/connectors/{id}/actions` | `resources:write` | 执行动作（ask → park） |
 | POST | `/api/threads/{id}/audio` | `tasks:write` | 语音上传（multipart） |
+| GET | `/api/computers` | `resources:read` | Agent 计算机会话列表（F11） |
+| POST | `/api/computers` | `resources:write` | 新建计算机会话（browser/shell/screen） |
+| GET | `/api/computers/{id}` | `resources:read` | 计算机会话详情 + 最近动作回显 |
+| GET | `/api/schedules` | `tasks:read` | 目标/周期任务列表（F13） |
+| POST | `/api/schedules` | `tasks:write` | 新建目标/周期任务 |
+| PUT | `/api/schedules/{id}` | `tasks:write` | 启停/编辑调度 |
+| DELETE | `/api/schedules/{id}` | `tasks:write` | 删除调度 |
+
+> **F10 / F12 / F14 复用既有端点**：角色字段走 `POST/PUT /api/resources`（扩展 `persona`）、协作走
+> `GET/POST /api/threads*`（`origin` 015 已加列）、技能走既有 `kind=skill` 资源，**不新增端点**；知识库
+> （F14.3）首版经 `persona` 内的 `knowledge_ref` 关联，真实 RAG 检索标 `TODO(real)`。
 
 > **不新增权限码**：全部复用 `tasks:read` / `tasks:write` / `resources:read` / `resources:write`，
 > 避免「新权限需同步 `authz.AllPermissions` + 前端 `PERMISSIONS` + `enums-copy` 13 语」的连锁改动。
+> 新增端点路径均落在 `/api` 前缀下，确保被 agentbuddy 环回代理覆盖，无需改桌面端转发逻辑。
 
 ### 4.2 新增机器码
 
 `channel_disabled`、`channel_not_found`、`channel_signature_missing`、`channel_signature_invalid`、
 `channel_timestamp_expired`、`channel_payload_invalid`、`delivery_failed`、`connector_not_found`、
 `connector_action_denied`、`connector_policy_off`、`audio_too_large`、`audio_unsupported`、
-`audio_transcribe_failed`、`speech_disabled`。
+`audio_transcribe_failed`、`speech_disabled`、`computer_not_found`、`computer_disabled`、
+`schedule_not_found`、`schedule_invalid`、`knowledge_unavailable`、`skill_distill_disabled`。
 
 登记三处：`internal/httputil/json.go` 的 `Code*` 常量、agentbuddy `web/src/lib/errors.js` 的
 `CODE_KEYS`、`web/src/lib/copy/errors-copy.js` 的 13 语。
 
-### 4.3 新增迁移（agenthub，幂等）
+### 4.3 迁移（agenthub，幂等，编号接 `016` 之后）
+
+> `013_persona` / `014_channels` / `015_thread_origin` 为上一轮已落地迁移（已存在于仓库，列出供参照）；
+> 本轮新增自 `017` 起，全部 `IF NOT EXISTS` / `ON CONFLICT DO NOTHING`，并同步 `store_test.go` 的 `want`
+> 文件名清单（agenthub 硬性约束：文件名被测试钉死）。
 
 | 文件 | 内容 |
 |---|---|
-| `013_persona.sql` | `ALTER TABLE resources ADD COLUMN IF NOT EXISTS persona JSONB;` |
-| `014_channels.sql` | `channels` + `channel_messages`（`external_ref` 唯一键） |
-| `015_thread_origin.sql` | `ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT '';` |
+| `013_persona.sql` | （已存在）`ALTER TABLE resources ADD COLUMN IF NOT EXISTS persona JSONB;` |
+| `014_channels.sql` | （已存在）`channels` + `channel_messages`（`external_ref` 唯一键） |
+| `015_thread_origin.sql` | （已存在）`ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT '';` |
+| `017_computers.sql` | `computers`（agent_id, kind∈browser/shell/screen, session_ref, status, last_action, created_at） |
+| `018_schedules.sql` | `schedules`（goal, trigger, cron_expr, enabled, next_run, owner, last_run_at, last_status） |
+| `019_knowledge.sql` | `knowledge`（agent_id, chunk_text, source_ref, created_at）；真实向量检索标 `TODO(real)` |
 
 ## 5. 异常与降级
 
@@ -176,6 +267,10 @@
 | 语音超限/格式不支持 | 413 `audio_too_large` / 415 `audio_unsupported` |
 | 连接器策略 `off` | 403 `connector_policy_off`，动作不执行 |
 | 控制台 bundle 缺失 | 外壳显示 `consoleMissing`（不白屏） |
+| 计算机会话不存在/禁用 | 404 `computer_not_found` / 403 `computer_disabled`，视图回退到只读占位 |
+| 调度不存在/表达式非法 | 404 `schedule_not_found` / 400 `schedule_invalid`，前端内联提示 |
+| 知识库不可用（mock 缺数据） | 503 `knowledge_unavailable`，建议降级为无上下文委派 |
+| 技能蒸馏未启用 | 403 `skill_distill_disabled`，仅记录触发点不产出技能 |
 
 ## 6. 验收标准
 
@@ -190,3 +285,9 @@
 8. 连接器 `ask` 策略：动作 park 到 `input-required`，审批后 resume 且**不二次 park**。
 9. 通道：伪造签名的 webhook 被拒（401 + `channel_signature_invalid`），合法签名生成 thread 消息。
 10. 三平台 CI 产出 deb / dmg / msi 与 SHA256SUMS。
+11. 角色（F10）：新建 Agent 写入 `persona`（角色/指令/MBTI/头像），工作台与 Threads 正确渲染人格标签。
+12. Agent 计算机（F11）：`/api/computers` 返回 mock 会话与动作回显，视图不触发真实子进程/网络。
+13. 目标调度（F13）：创建周期任务，mock 调度器在本地 ticker 触发并生成会话消息，走 F5 通知。
+14. 技能/知识库（F14）：`kind=skill` 资源可管理版本/共享；知识库查询返回 mock 片段（`knowledge_unavailable` 时降级）。
+15. 协作共享空间（F12）：会话内 `@mention` 派活与 Agent 自主认领均落 `thread_messages`（`origin` 标记来源）。
+16. 富结果（F15）：带证据的建议以会话消息卡片呈现，单色与 13 语文案完整。

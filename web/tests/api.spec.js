@@ -30,6 +30,16 @@ import {
   postThreadAudio,
   subscribeThreadEvents,
   subscribeTaskEvents,
+  listComputers,
+  createComputer,
+  getComputer,
+  listSchedules,
+  createSchedule,
+  updateSchedule,
+  deleteSchedule,
+  listKnowledge,
+  createResource,
+  updateResource,
 } from '../src/lib/api.js'
 
 let fetchMock
@@ -270,5 +280,76 @@ describe('api endpoint helpers', () => {
     expect(handlers.message).toHaveBeenCalledWith({ m: 1 })
     handle.close()
     expect(src.closed).toBe(true)
+  })
+})
+
+describe('F10–F16 api helpers', () => {
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('computers helpers build paths and bodies', async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]))
+    await listComputers()
+    expect(lastCall()[0]).toBe('/api/computers')
+    expect(lastCall()[1].method).toBe('GET')
+
+    await createComputer('screen', 'a1')
+    expect(lastCall()[0]).toBe('/api/computers')
+    expect(lastCall()[1].method).toBe('POST')
+    expect(JSON.parse(lastCall()[1].body)).toEqual({ kind: 'screen', agentId: 'a1' })
+
+    await getComputer('c1')
+    expect(lastCall()[0]).toBe('/api/computers/c1')
+  })
+
+  it('schedules helpers build paths and bodies', async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]))
+    await listSchedules()
+    expect(lastCall()[0]).toBe('/api/schedules')
+
+    await createSchedule('goal', '* * * * *', true)
+    expect(lastCall()[0]).toBe('/api/schedules')
+    expect(lastCall()[1].method).toBe('POST')
+    expect(JSON.parse(lastCall()[1].body)).toEqual({
+      goal: 'goal',
+      trigger: 'cron',
+      cronExpr: '* * * * *',
+      enabled: true,
+    })
+
+    await updateSchedule('s1', { enabled: false })
+    expect(lastCall()[0]).toBe('/api/schedules/s1')
+    expect(lastCall()[1].method).toBe('PUT')
+    expect(JSON.parse(lastCall()[1].body)).toEqual({ enabled: false })
+
+    await deleteSchedule('s1')
+    expect(lastCall()[0]).toBe('/api/schedules/s1')
+    expect(lastCall()[1].method).toBe('DELETE')
+  })
+
+  it('knowledge helper adds the agentId query only when present', async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]))
+    await listKnowledge('a1')
+    expect(lastCall()[0]).toBe('/api/knowledge?agentId=a1')
+    await listKnowledge()
+    expect(lastCall()[0]).toBe('/api/knowledge')
+  })
+
+  it('resource create/update wrap the body and path', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}))
+    await createResource({ kind: 'persona', name: 'p' })
+    expect(lastCall()[0]).toBe('/api/resources')
+    expect(lastCall()[1].method).toBe('POST')
+    expect(JSON.parse(lastCall()[1].body)).toEqual({ kind: 'persona', name: 'p' })
+
+    await updateResource('r1', { name: 'x' })
+    expect(lastCall()[0]).toBe('/api/resources/r1')
+    expect(lastCall()[1].method).toBe('PUT')
+    expect(JSON.parse(lastCall()[1].body)).toEqual({ name: 'x' })
   })
 })

@@ -8,6 +8,7 @@ import { channelCopy } from '../src/lib/copy/channel-copy.js'
 import { connectorCopy } from '../src/lib/copy/connector-copy.js'
 import { settingsCopy } from '../src/lib/copy/settings-copy.js'
 import { errorsCopy } from '../src/lib/copy/errors-copy.js'
+import { hubCopy } from '../src/lib/copy/hub-copy.js'
 
 // Mirrors agenthub: every language must translate every key, and none may equal
 // the English text. This is what keeps the app from silently falling back to a
@@ -22,6 +23,7 @@ const NAMESPACES = {
   connector: connectorCopy,
   settings: settingsCopy,
   errors: errorsCopy,
+  hub: hubCopy,
 }
 
 const LANGS = ['zh', 'zh-TW', 'es', 'fr', 'de', 'it', 'ru', 'ja', 'ko', 'pt', 'ar', 'hi']

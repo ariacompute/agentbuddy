@@ -52,6 +52,16 @@ export const CODE_KEYS = {
   audio_unsupported: 'audioUnsupported',
   audio_transcribe_failed: 'audioTranscribeFailed',
   speech_disabled: 'speechDisabled',
+
+  // Computers, schedules and knowledge — agent capabilities (F10-F16).
+  computer_not_found: 'computerNotFound',
+  schedule_not_found: 'scheduleNotFound',
+  schedule_invalid: 'scheduleInvalid',
+  skill_distill_disabled: 'skillDistillDisabled',
+  // Single sentinel for any agent-capability endpoint whose backend store is not
+  // wired in (computers / schedules / knowledge). Replaces computer_disabled and
+  // knowledge_unavailable, which were split by feature.
+  feature_unavailable: 'featureUnavailable',
 }
 
 /** Returns the localised message for a machine readable code. */

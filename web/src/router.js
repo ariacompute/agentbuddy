@@ -10,6 +10,9 @@ import OrgView from './views/OrgView.vue'
 import ChannelsView from './views/ChannelsView.vue'
 import ConnectorsView from './views/ConnectorsView.vue'
 import SettingsView from './views/SettingsView.vue'
+import ComputersView from './views/ComputersView.vue'
+import SchedulesView from './views/SchedulesView.vue'
+import PersonaEditor from './views/PersonaEditor.vue'
 
 const routes = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
@@ -22,6 +25,9 @@ const routes = [
   { path: '/channels', name: 'channels', component: ChannelsView },
   { path: '/connectors', name: 'connectors', component: ConnectorsView },
   { path: '/settings', name: 'settings', component: SettingsView },
+  { path: '/computers', name: 'computers', component: ComputersView },
+  { path: '/schedules', name: 'schedules', component: SchedulesView },
+  { path: '/persona', name: 'persona', component: PersonaEditor },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 

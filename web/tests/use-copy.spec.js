@@ -55,6 +55,14 @@ describe('use-copy', () => {
     expect(useLang().value).toBe('en')
   })
 
+  it('useCopy("hub") resolves the agent-capability namespace (F10-F16)', () => {
+    const copy = useCopy('hub')
+    expect(copy.t('navComputers')).toBeTruthy()
+    expect(copy.t('suggestionTitle')).not.toBe('suggestionTitle')
+    expect(copy.te('navComputers')).toBe(true)
+    expect(copy.te('noSuchHubKey')).toBe(false)
+  })
+
   it('label helpers localise known enums and pass unknown values through', () => {
     expect(taskStateLabel('working')).toBeTruthy()
     expect(kindLabel('mcp')).toBeTruthy()

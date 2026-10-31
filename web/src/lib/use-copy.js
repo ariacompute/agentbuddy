@@ -14,6 +14,7 @@ import { connectorCopy } from './copy/connector-copy.js'
 import { enumsCopy } from './copy/enums-copy.js'
 import { errorsCopy } from './copy/errors-copy.js'
 import { settingsCopy } from './copy/settings-copy.js'
+import { hubCopy } from './copy/hub-copy.js'
 
 export const STORAGE_KEY = 'agentbuddy.lang'
 
@@ -27,6 +28,7 @@ const COPIES = {
   connector: connectorCopy,
   settings: settingsCopy,
   errors: errorsCopy,
+  hub: hubCopy,
 }
 
 /** Shallow merge with English fallback. */

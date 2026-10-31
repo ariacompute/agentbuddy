@@ -4,10 +4,11 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '../lib/auth-store.js'
 import { useWorkbenchStore } from '../lib/workbench-store.js'
 import { useCopy } from '../lib/use-copy.js'
-import { LayoutDashboard, MessagesSquare, ListChecks, Network, Radio, Plug, Settings as Cog } from 'lucide-vue-next'
+import { LayoutDashboard, MessagesSquare, ListChecks, Network, Radio, Plug, Settings as Cog, Monitor, CalendarClock } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
 
 const { t } = useCopy('shell')
+const { t: th } = useCopy('hub')
 const auth = useAuthStore()
 const workbench = useWorkbenchStore()
 const route = useRoute()
@@ -28,6 +29,8 @@ const links = computed(() => [
   { to: '/org', label: t('navOrg'), icon: Network, badge: 0 },
   { to: '/channels', label: t('navChannels'), icon: Radio, badge: workbench.channels.length },
   { to: '/connectors', label: t('navConnectors'), icon: Plug, badge: workbench.connectors.length },
+  { to: '/computers', label: th('navComputers'), icon: Monitor, badge: 0 },
+  { to: '/schedules', label: th('navSchedules'), icon: CalendarClock, badge: 0 },
   { to: '/settings', label: t('navSettings'), icon: Cog, badge: 0 },
 ])
 </script>

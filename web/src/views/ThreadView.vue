@@ -7,10 +7,12 @@ import { formatTime } from '../lib/format.js'
 import PersonaAvatar from '../components/PersonaAvatar.vue'
 import VoiceRecorder from '../components/VoiceRecorder.vue'
 import TaskCard from '../components/TaskCard.vue'
+import SuggestionCard from '../components/SuggestionCard.vue'
 import { Send, AtSign } from 'lucide-vue-next'
 
 const props = defineProps({ id: { type: String, required: true } })
 const { t } = useCopy('thread')
+const { t: th } = useCopy('hub')
 const workbench = useWorkbenchStore()
 
 const thread = ref(null)
@@ -72,6 +74,7 @@ onUnmounted(() => sub && sub.close())
           <div>
             <div class="msg-meta">
               <span>{{ msg.AuthorName || msg.AuthorID }}</span>
+              <span v-if="msg.Origin && msg.Origin.startsWith('agent:')" class="chip chip-mono">agent</span>
               <span>{{ formatTime(msg.CreatedAt) }}</span>
             </div>
             <div class="msg-body pre-wrap">{{ msg.Body }}</div>
@@ -102,7 +105,11 @@ onUnmounted(() => sub && sub.close())
     </div>
 
     <div class="thread-side">
-      <h3 class="card-title">{{ t('tasksPanel') }}</h3>
+      <h3 class="card-title">{{ th('suggestionTitle') }}</h3>
+      <div v-if="messages.filter(m => m.Suggestion).length === 0" class="muted" style="font-size:12px">{{ t('tasksPanelEmpty') }}</div>
+      <SuggestionCard v-for="m in messages.filter(x => x.Suggestion)" :key="m.ID" :suggestion="m.Suggestion" />
+
+      <h3 class="card-title" style="margin-top:16px">{{ t('tasksPanel') }}</h3>
       <div v-if="relatedTasks.length === 0" class="muted" style="font-size:12px">{{ t('tasksPanelEmpty') }}</div>
       <TaskCard v-for="task in relatedTasks" :key="task.id" :task="task" dense />
     </div>

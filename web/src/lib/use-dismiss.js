@@ -1,7 +1,7 @@
 // Small helper for auto-dismissing transient UI (toasts, banners). Returns a
 // ref and a `dismiss` that cancels any pending timer; pass `ttl=0` to keep it
 // until the caller dismisses it manually.
-import { ref, onUnmounted } from 'vue'
+import { ref, onUnmounted, getCurrentInstance } from 'vue'
 
 export function useDismiss(initial = null, ttl = 5000) {
   const value = ref(initial)
@@ -25,6 +25,8 @@ export function useDismiss(initial = null, ttl = 5000) {
     value.value = null
   }
 
-  onUnmounted(clear)
+  // Only register the lifecycle hook inside a component setup; calling it
+  // outside one (e.g. in tests) triggers a Vue warning.
+  if (getCurrentInstance()) onUnmounted(clear)
   return { value, show, dismiss }
 }

@@ -157,3 +157,58 @@ bun 构建/测试运行时与桌面端（Rust/Tauri）对 agenthub 服务端的�
 - [x] desktop/src-tauri/src/lib.rs: document that `COMMIT` comes from `build.rs` (git or env), `unknown` only as a last resort.
 - [x] desktop/src-tauri/src/proxy/static_files.rs: wrap the injected version assignment in `<script>` (the missing wrapper rendered it as literal text `window.__AGENTBUDDY_VERSION__ = ...;` on the login dialog); injection now yields `<script>window.__AGENTBUDDY_VERSION__ = "vX.Y.Z@<7-char commit>";</script>` before `</body>`.
 - [x] web/src/views/LoginView.vue + web/src/style.css: show the version in the bottom-left corner of the login screen (absolute, pinned to the viewport bottom-left; moved out of the login card).
+
+## M10 — 融合 6 标杆项目的特性扩展（F10–F16，agenthub 为服务端）
+
+背景：参考 `agent-assistant-analysis.md`（OpenDots / openmuse / openbot / Octop / openagents / Velozity
+六个项目的 Agent Assistant 特性），将可借鉴能力抽象为 agentbuddy 正式特性规格；agenthub 继续作为
+唯一后端（执行/编排/通道/语音）。真实第三方对接首版为确定性 mock，标 `TODO(real)`；不新增权限码。
+
+- [x] `requirements.md`：在 §2 与 §3 间新增 `## 2B. 融合标杆项目的扩展特性（F10–F16）`
+  - F10 Agent 角色与人格（persona 角色/指令/MBTI/头像，扩展 `registry.Entry.persona`）
+  - F11 Agent 计算机 / Computer Use（mock 适配器 `TODO(real)`）
+  - F12 Agent 间协作与共享空间（增强 F3 Threads，`origin` 015 已加列）
+  - F13 目标与主动调度（复用 hub tasks + `schedules` 表，mock 调度器 `TODO(real)`）
+  - F14 技能与知识库（`kind=skill` 版本/共享 + `knowledge` 表，mock RAG `TODO(real)`）
+  - F15 建议与富结果（带证据卡片）
+  - F16 多用户/团队与云协作（标注为 agenthub 服务端能力，客户端仅消费）
+- [x] `requirements.md` §1.1：区分「现有 / 上一轮已落地 / 本轮新增」端点，本轮新增 `/api/computers*`、`/api/schedules*`
+- [x] `requirements.md` §4.1：新增 `/api/computers*`、`/api/schedules*` 端点（全部 `tasks:*`/`resources:*` 权限，落 `/api` 前缀）
+- [x] `requirements.md` §4.2：新增机器码 `computer_not_found`/`computer_disabled`/`schedule_not_found`/`schedule_invalid`/`knowledge_unavailable`/`skill_distill_disabled`
+- [x] `requirements.md` §4.3：修正迁移口径——`013–015` 已存在；本轮新增 `017_computers.sql` / `018_schedules.sql` / `019_knowledge.sql`（编号接 agenthub 已达的 `016_wechat_login.sql` 之后）
+- [x] `requirements.md` §5：新增计算机会话/调度/知识库/技能蒸馏的异常与降级行
+- [x] `requirements.md` §6：验收标准新增 11–16 条（F10–F16 可测项）
+- [x] `README.md`：在 Features 后新增 `## Feature Comparison`（英文对照表，含 10 维度 × 7 列）
+- [x] `README_cn.md`：在 功能 后新增 `## 功能对比`（中文对照表，维度对齐英文版）
+- [x] agenthub 实现侧（本轮已落地，详见 M11）：`017/018/019` 迁移、`/api/computers*`、`/api/schedules*`、`/api/knowledge` handler、机器码常量、Listen/probes/`store_test.go` want 清单同步
+
+注意：agenthub 迁移当前最大编号为 `016_wechat_login.sql`，故新迁移从 `017` 起（原方案误用 `016`）。
+
+## M11 — F10–F16 实现落地（agenthub 后端 + agentbuddy 前端脚手架）
+
+本轮把 M10 的契约真正落到代码：agenthub 新增数据层/服务层，agentbuddy 新增 API 调用、错误码与 13 语文案、最小可运行 UI。`go test ./internal/...` 通过；`bun run test`（247 用例）全绿；`bun run build` 通过。
+
+### agenthub（服务端契约 + mock 适配器）
+- [x] `migrations/017_computers.sql` / `018_schedules.sql` / `019_knowledge.sql`：幂等建表，`IF NOT EXISTS`；编号接 `016` 之后。
+- [x] `internal/model/{computers,schedules,knowledge}.go`：GORM 模型。
+- [x] `internal/computers` / `internal/schedules` / `internal/knowledge`：领域类型 + `Store` 端口（依赖倒置，镜像 channels 模式）。
+- [x] `internal/store/{computers,schedules,knowledge}_store.go`：GORM 双模实现，`NewComputersStore` 等；`store_test.go` 的 `want` 追加 017/018/019。
+- [x] `internal/httputil/json.go`：新增 6 个 `Code*`（computer/schedule/knowledge/skill）；`writeDomainErr` 映射状态（404/403/400/503）。
+- [x] `internal/handlers/computers.go` / `schedules.go` / `knowledge.go`：mock 适配器（浏览器/Shell/屏幕占位、内存 ticker 调度、确定性 RAG 片段），真实能力标 `TODO(real)`；复用 `resources:*` / `tasks:*` 权限，无新权限码。
+- [x] `internal/handlers/handlers.go`：`Deps` 增 `Computers/Schedules/Knowledge`，注册 9 条 `/api` 路由。
+- [x] `internal/handlers/listen.go` `Listeners()` + `listen_test.go` `probes`：双向同步 9 个端点（`TestListenersCoverRoutes` 兜底）。
+- [x] `cmd/agenthub-server/main.go`：注入三个新 store 到 `Deps`。
+
+### agentbuddy（前端脚手架）
+- [x] `web/src/lib/api.js`：新增 `list/create/getComputers`、`list/create/update/deleteSchedules`、`listKnowledge`、`createResource/updateResource`。
+- [x] `web/src/lib/errors.js` `CODE_KEYS`：登记 6 新码；`errors-copy.js` 13 语补译。
+- [x] `web/src/lib/copy/hub-copy.js`：新增（Computers/Schedules/Persona/Suggestions/Knowledge 文案，13 语）；`use-copy.js` 注册 `hub`；`tests/copy-fallback.spec.js` 加入 `hub` 命名空间（130 用例全绿）。
+- [x] 视图：`ComputersView.vue`（三类型 mock）、`SchedulesView.vue`（目标/周期任务 + 新建/启停/删除）、`PersonaEditor.vue`（F10 角色/指令/MBTI/头像，写 `POST/PUT /api/resources` 的 `persona`）；组件 `SuggestionCard.vue`（F15 带证据卡）。
+- [x] `router.js`：新增 `/computers` `/schedules` `/persona` 路由；`Sidebar.vue`：新增 Computers / Schedules 导航项。
+- [x] `ThreadView.vue`：消息流标记 `agent:` 来源（F12）、侧栏渲染 `SuggestionCard`（F15）。
+
+### 约束核对
+- 不新增权限码；新端点全落 `/api` 前缀（桌面环回代理自动覆盖，无需改桌面端）。
+- 单色 + 13 语 + RTL + 无障碍：`style.spec.js` 与 `copy-fallback.spec.js` 均通过。
+- F16 仅标注为 agenthub 服务端能力（JWT/实例互联），客户端未新增账号/联邦逻辑。
+- 深层能力（RAG / 真实调度 / 真实计算机控制）一律 mock + `TODO(real)`，未引入子进程/网络依赖。

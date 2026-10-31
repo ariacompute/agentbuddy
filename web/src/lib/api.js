@@ -81,6 +81,28 @@ export const getThread = (id) => get(`/api/threads/${id}`)
 export const postThreadMessage = (id, body, mentions) =>
   post(`/api/threads/${id}/messages`, { body, mentions })
 
+// ---- Agent computers (F11) ----------------------------------------------
+
+export const listComputers = () => get('/api/computers')
+export const createComputer = (kind, agentId) =>
+  post('/api/computers', { kind, agentId })
+export const getComputer = (id) => get(`/api/computers/${id}`)
+
+// ---- Schedules (F13) ----------------------------------------------------
+
+// `trigger` is 'cron' for periodic goals; the server stores cron_expr and runs a
+// mock scheduler. The first release does not depend on an external scheduler.
+export const listSchedules = () => get('/api/schedules')
+export const createSchedule = (goal, cronExpr, enabled) =>
+  post('/api/schedules', { goal, trigger: 'cron', cronExpr, enabled })
+export const updateSchedule = (id, patch) => put(`/api/schedules/${id}`, patch)
+export const deleteSchedule = (id) => del(`/api/schedules/${id}`)
+
+// ---- Knowledge (F14, mock RAG) ------------------------------------------
+
+export const listKnowledge = (agentId) =>
+  get(`/api/knowledge${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`)
+
 /** Streams thread events (replay then live). `handlers` gets {event, data}. */
 export function subscribeThreadEvents(id, handlers = {}) {
   const source = new EventSource(`/api/threads/${id}/events`)
@@ -133,6 +155,8 @@ export function subscribeTaskEvents(id, since, handlers = {}) {
 
 export const listResources = (kind) =>
   get(kind ? `/api/resources?kind=${encodeURIComponent(kind)}` : '/api/resources')
+export const createResource = (body) => post('/api/resources', body)
+export const updateResource = (id, patch) => put(`/api/resources/${id}`, patch)
 
 // ---- Channels ------------------------------------------------------------
 

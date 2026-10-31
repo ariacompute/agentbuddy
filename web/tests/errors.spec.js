@@ -30,4 +30,21 @@ describe('errors', () => {
       expect(errorsCopy.en[key], `${code} (${key})`).toBeTruthy()
     }
   })
+
+  it('maps the F10-F16 machine codes to non-empty localised copy', () => {
+    const codes = [
+      'computer_not_found',
+      'schedule_not_found',
+      'schedule_invalid',
+      'skill_distill_disabled',
+      'feature_unavailable',
+    ]
+    for (const code of codes) {
+      expect(CODE_KEYS[code], `${code} should be registered`).toBeTruthy()
+      const msg = errorMessage(code)
+      expect(msg, `${code} should localise`).toBeTruthy()
+      expect(msg).not.toBe(code) // never the raw machine code
+      expect(errorsCopy.en[CODE_KEYS[code]], `${code} en label`).toBeTruthy()
+    }
+  })
 })
