@@ -51,7 +51,10 @@ export const useAuthStore = defineStore('auth', {
     async refresh() {
       this.refreshError = null
       try {
-        this.user = await whoami()
+        const u = await whoami()
+        // agenthub renders the user's name as `name`; the UI elsewhere reads
+        // `displayName`, so normalise it here once.
+        this.user = u ? { ...u, displayName: u.displayName || u.name } : null
       } catch (error) {
         // Not signed in, or server unreachable: treat as anonymous.
         this.user = null

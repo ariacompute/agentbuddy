@@ -60,7 +60,7 @@ const put = (path, body) => request(path, { method: 'PUT', body: JSON.stringify(
 
 export const authConfig = () => get('/api/auth/config')
 export const register = (email, password, displayName) =>
-  post('/api/auth/register', { email, password, displayName })
+  post('/api/auth/register', { email, password, name: displayName })
 export const login = (email, password) => post('/api/auth/login', { email, password })
 export const logout = () => post('/api/auth/logout')
 export const whoami = () => get('/api/auth/me')
