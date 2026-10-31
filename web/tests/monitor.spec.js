@@ -23,12 +23,13 @@ vi.mock('../src/lib/api.js', () => ({
   getWorkspace: vi.fn(),
   listTasks: vi.fn(),
   subscribeTaskEvents: vi.fn(),
+  isAuthError: vi.fn(),
 }))
 
-import { getWorkspace, listTasks, subscribeTaskEvents } from '../src/lib/api.js'
+import { getWorkspace, listTasks, subscribeTaskEvents, isAuthError } from '../src/lib/api.js'
 
 function makeStore() {
-  return { agents: [], tasks: [], offline: true, seen: {}, ingestTask() {} }
+  return { agents: [], tasks: [], offline: true, authExpired: false, seen: {}, ingestTask() {} }
 }
 
 function flush() {
@@ -58,16 +59,57 @@ describe('ActivityMonitor', () => {
     m.stop()
   })
 
-  it('flips offline + failing when the poll throws', async () => {
+  it('flips offline + failing when the poll throws a connectivity error', async () => {
     getWorkspace.mockRejectedValue(new Error('boom'))
+    isAuthError.mockReturnValue(false)
     const store = makeStore()
     const m = new ActivityMonitor(store, { visible: () => true })
     m.start()
     await flush()
     expect(store.offline).toBe(true)
+    expect(store.authExpired).toBe(false)
     expect(m.failing).toBe(true)
     expect(m.failureCount).toBe(1)
     m.stop()
+  })
+
+  it('flags authExpired (not offline) when the poll fails with an auth error', async () => {
+    const authErr = { code: 'unauthenticated', status: 401 }
+    getWorkspace.mockRejectedValue(authErr)
+    isAuthError.mockReturnValue(true)
+    const store = makeStore()
+    const m = new ActivityMonitor(store, { visible: () => true })
+    m.start()
+    await flush()
+    expect(store.authExpired).toBe(true)
+    expect(store.offline).toBe(false)
+    // An expired session is not a connectivity failure, so no backoff.
+    expect(m.failing).toBe(false)
+    expect(m.failureCount).toBe(0)
+    m.stop()
+  })
+
+  it('treats auth and connectivity errors differently on successive polls', async () => {
+    const store = makeStore()
+    const m = new ActivityMonitor(store, { visible: () => true })
+    m.running = true // bypass the scheduler; drive _poll directly
+
+    isAuthError.mockReturnValue(true)
+    getWorkspace.mockRejectedValue({ code: 'unauthenticated', status: 401 })
+    await m._poll()
+    expect(store.authExpired).toBe(true)
+    expect(store.offline).toBe(false)
+    expect(m.failing).toBe(false)
+    expect(m.failureCount).toBe(0)
+
+    // A genuine connectivity failure afterwards: offline wins, authExpired cleared.
+    isAuthError.mockReturnValue(false)
+    getWorkspace.mockRejectedValue(new Error('boom'))
+    await m._poll()
+    expect(store.offline).toBe(true)
+    expect(store.authExpired).toBe(false)
+    expect(m.failing).toBe(true)
+    expect(m.failureCount).toBe(1)
   })
 
   it('subscribes in-flight tasks and caps concurrent streams at 6 (LRU evict)', async () => {

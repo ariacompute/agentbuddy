@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { useAuthStore } from './lib/auth-store.js'
 import { useWorkbenchStore } from './lib/workbench-store.js'
 import { ActivityMonitor } from './lib/monitor.js'
@@ -20,6 +20,17 @@ onMounted(async () => {
     visible: () => document.visibilityState === 'visible',
   })
   monitor.start()
+})
+
+// A poll/refresh that fails with an auth error means the session expired, not that
+// the server is down. Re-check the principal: if it really is gone, drop to login
+// so the user can re-authenticate instead of staring at a misleading "offline" banner.
+watch(() => workbench.authExpired, async (expired) => {
+  if (!expired) return
+  const wasSignedIn = auth.signedIn
+  await auth.refresh()
+  if (wasSignedIn && !auth.signedIn) await auth.logout()
+  workbench.authExpired = false
 })
 </script>
 

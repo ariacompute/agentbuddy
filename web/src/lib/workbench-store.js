@@ -5,7 +5,7 @@
 import { defineStore } from 'pinia'
 import {
   getWorkspace, listThreads, listTasks, listChannels, listConnectors, getDeliveries,
-  resumeTask, cancelTask,
+  resumeTask, cancelTask, isAuthError,
 } from './api.js'
 import { decide, markSeen, pruneSeen } from './notifications.js'
 
@@ -26,6 +26,10 @@ export const useWorkbenchStore = defineStore('workbench', {
     notifications: [],
     seen: {},
     offline: false,
+    // Set when a poll/refresh fails with an auth error (401/403): the server is
+    // reachable but the session expired. Drives a "re-login" prompt instead of the
+    // misleading "cannot connect to server" offline banner.
+    authExpired: false,
     errorCode: null,
     loading: false,
   }),
@@ -44,9 +48,16 @@ export const useWorkbenchStore = defineStore('workbench', {
         const data = await getWorkspace()
         this.agents = data.agents || []
         this.offline = false
+        this.authExpired = false
       } catch (error) {
         console.error('agentbuddy: workspace refresh failed', error)
-        this.offline = true
+        if (isAuthError(error)) {
+          this.authExpired = true
+          this.offline = false
+        } else {
+          this.offline = true
+          this.authExpired = false
+        }
         this.errorCode = error.code
       }
     },
@@ -105,6 +116,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     async refreshAll() {
       this.loading = true
       this.errorCode = null
+      this.authExpired = false
       await Promise.all([
         this.refreshWorkspace(),
         this.refreshThreads(),

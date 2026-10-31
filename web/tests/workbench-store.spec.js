@@ -10,12 +10,13 @@ vi.mock('../src/lib/api.js', () => ({
   getDeliveries: vi.fn(),
   resumeTask: vi.fn(),
   cancelTask: vi.fn(),
+  isAuthError: vi.fn(),
 }))
 
 import { useWorkbenchStore } from '../src/lib/workbench-store.js'
 import {
   getWorkspace, listThreads, listTasks, listChannels, listConnectors, getDeliveries,
-  resumeTask, cancelTask,
+  resumeTask, cancelTask, isAuthError,
 } from '../src/lib/api.js'
 
 describe('workbench-store', () => {
@@ -120,6 +121,21 @@ describe('workbench-store', () => {
       const s = useWorkbenchStore()
       await s.refreshThreads()
       expect(s.errorCode).toBe('service_unavailable')
+    })
+
+    it('marks authExpired on a 401 but offline on a connectivity failure', async () => {
+      const s = useWorkbenchStore()
+      isAuthError.mockReturnValue(true)
+      getWorkspace.mockRejectedValue({ code: 'unauthenticated', status: 401 })
+      await s.refreshWorkspace()
+      expect(s.authExpired).toBe(true)
+      expect(s.offline).toBe(false)
+
+      isAuthError.mockReturnValue(false)
+      getWorkspace.mockRejectedValue({ code: 'service_unavailable', status: 503 })
+      await s.refreshWorkspace()
+      expect(s.offline).toBe(true)
+      expect(s.authExpired).toBe(false)
     })
 
     it('refreshChannels also loads deliveries per channel', async () => {

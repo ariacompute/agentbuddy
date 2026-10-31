@@ -30,6 +30,25 @@ async function parseError(res) {
   return new ApiError(code, res.status)
 }
 
+/**
+ * True when an API error is an authentication / authorisation failure rather than a
+ * connectivity problem. The workbench must tell these apart: a 401/403 means the
+ * session expired (the server is reachable, just rejects us), whereas a network
+ * error or a 502/503 from the loopback proxy means the server really is down.
+ * Confusing the two makes the desktop app falsely report "cannot connect to server".
+ */
+export function isAuthError(err) {
+  if (!err) return false
+  const code = err.code
+  return (
+    code === 'unauthenticated' ||
+    code === 'forbidden' ||
+    code === 'session_expired' ||
+    err.status === 401 ||
+    err.status === 403
+  )
+}
+
 export async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
     credentials: 'include',

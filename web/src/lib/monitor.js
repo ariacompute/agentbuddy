@@ -7,7 +7,7 @@
 // Polling cadence adapts: 5s while the window is visible, 20s while hidden
 // (minimised to tray), and exponential backoff from 5s to 30s when the server
 // looks offline, which also flips the offline chip.
-import { getWorkspace, listTasks, subscribeTaskEvents } from './api.js'
+import { getWorkspace, listTasks, subscribeTaskEvents, isAuthError } from './api.js'
 
 const POLL_VISIBLE_MS = 5000
 const POLL_HIDDEN_MS = 20000
@@ -65,6 +65,7 @@ export class ActivityMonitor {
       this.store.agents = ws.agents || []
       this.store.tasks = tasks.tasks || []
       this.store.offline = false
+      this.store.authExpired = false
       this.failing = false
       this.failureCount = 0
       const now = Date.now()
@@ -73,9 +74,20 @@ export class ActivityMonitor {
       this._syncSubscriptions()
     } catch (error) {
       console.error('agentbuddy: monitor poll failed', error)
-      this.store.offline = true
-      this.failing = true
-      this.failureCount += 1
+      // An auth failure (401/403) means the session expired, not that the server is
+      // unreachable. Flag it as such so the workbench prompts a re-login instead of
+      // falsely reporting "cannot connect to server" while the server is fine.
+      if (isAuthError(error)) {
+        // The server is reachable but rejects the session: not a connectivity
+        // problem, so never show the "cannot connect" banner for it.
+        this.store.authExpired = true
+        this.store.offline = false
+      } else {
+        this.store.offline = true
+        this.store.authExpired = false
+        this.failing = true
+        this.failureCount += 1
+      }
     } finally {
       this._schedule()
     }

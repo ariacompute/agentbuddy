@@ -40,6 +40,7 @@ import {
   listKnowledge,
   createResource,
   updateResource,
+  isAuthError,
 } from '../src/lib/api.js'
 
 let fetchMock
@@ -135,6 +136,20 @@ describe('ApiError', () => {
     expect(e.code).toBe('bad_request')
     expect(e.status).toBe(400)
     expect(e.message).toBeTruthy()
+  })
+})
+
+describe('isAuthError', () => {
+  it('flags auth/permission failures but not connectivity or other errors', () => {
+    expect(isAuthError(new ApiError('unauthenticated', 401))).toBe(true)
+    expect(isAuthError(new ApiError('forbidden', 403))).toBe(true)
+    expect(isAuthError(new ApiError('session_expired', 401))).toBe(true)
+    expect(isAuthError({ status: 401 })).toBe(true)
+    expect(isAuthError({ status: 403 })).toBe(true)
+    expect(isAuthError(new ApiError('service_unavailable', 503))).toBe(false)
+    expect(isAuthError(new ApiError('not_found', 404))).toBe(false)
+    expect(isAuthError(new TypeError('network failed'))).toBe(false)
+    expect(isAuthError(null)).toBe(false)
   })
 })
 
