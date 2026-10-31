@@ -8,6 +8,7 @@ const { t } = useCopy('settings')
 const lang = useLang()
 
 const KEY = 'agentbuddy.settings'
+const THEME_KEY = 'agentbuddy.theme'
 const background = ref(true)
 const notify = ref(true)
 const quiet = ref(0)
@@ -43,6 +44,7 @@ onMounted(async () => {
   const local = readLocal()
   voiceInput.value = local.voiceInput ?? true
   themeLight.value = local.theme !== 'dark'
+  applyTheme()
   try {
     const h = await checkHealth()
     server.value = h.server || ''
@@ -50,6 +52,12 @@ onMounted(async () => {
     build.value = h.commit || t('unknown')
   } catch (e) { /* ignore */ }
 })
+
+function applyTheme() {
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.theme = themeLight.value ? 'light' : 'dark'
+  }
+}
 
 function saveLocal() {
   const local = readLocal()
@@ -60,6 +68,10 @@ function saveLocal() {
   local.notify = notify.value
   local.quiet = quiet.value
   window.localStorage.setItem(KEY, JSON.stringify(local))
+  // Keep the canonical theme key in sync so the pre-paint script in index.html
+  // and the top-bar ThemeToggle honour the same choice, and apply it live.
+  window.localStorage.setItem(THEME_KEY, themeLight.value ? 'light' : 'dark')
+  applyTheme()
 }
 
 async function save() {
