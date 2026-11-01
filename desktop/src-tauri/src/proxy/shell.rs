@@ -174,3 +174,71 @@ async fn decode(req: Request) -> Option<ConfigPayload> {
 fn failure(reason: &str, status: StatusCode) -> Response {
     (status, axum::Json(json!({ "ok": false, "reason": reason }))).into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{AppConfig, ConfigStore};
+    use crate::proxy::forward;
+    use axum::body::to_bytes;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    async fn state() -> ProxyState {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-shell-{}", std::process::id()));
+        let store = Arc::new(ConfigStore::new(dir));
+        let jar = Arc::new(reqwest::cookie::Jar::default());
+        let clients = forward::Clients::new(jar.clone()).expect("the forwarding client builds");
+        let config = Arc::new(RwLock::new(AppConfig::default()));
+        ProxyState {
+            clients,
+            config,
+            store,
+            self_url: "http://127.0.0.1:0".to_string(),
+            app: None,
+            jar,
+        }
+    }
+
+    fn req(method: &str, path: &str) -> Request<Body> {
+        Request::builder().method(method).uri(path).body(Body::empty()).unwrap()
+    }
+
+    async fn decode(resp: Response) -> (StatusCode, serde_json::Value) {
+        let (parts, body) = resp.into_parts();
+        let bytes = to_bytes(body, 1 << 20).await.unwrap();
+        let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (parts.status, json)
+    }
+
+    #[tokio::test]
+    async fn unknown_shell_route_returns_not_found() {
+        let state = state().await;
+        let (status, json) = decode(handle(&state, req("GET", "/__shell/nope")).await).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(json["code"], "not_found");
+    }
+
+    #[tokio::test]
+    async fn hide_answers_ok_without_a_window() {
+        // With no app handle the handler must not crash; it simply has nothing to hide.
+        let state = state().await;
+        let (status, json) = decode(handle(&state, req("POST", "/__shell/hide")).await).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn read_config_echoes_the_current_settings() {
+        let state = state().await;
+        let (status, json) = decode(handle(&state, req("GET", "/__shell/config")).await).await;
+        assert_eq!(status, StatusCode::OK);
+        // The defaults from AppConfig.
+        assert_eq!(json["background"], true);
+        assert_eq!(json["notifyEnabled"], true);
+        assert_eq!(json["notifyQuietMinutes"], 0);
+        assert_eq!(json["insecure"], false);
+    }
+}

@@ -230,6 +230,31 @@ bun 构建/测试运行时与桌面端（Rust/Tauri）对 agenthub 服务端的�
 - [x] `web/src/views/SchedulesView.vue`：`load()` 同样未从 `{schedules:[...]}` 中取
   `.schedules`，调度列表渲染出空行；改为 `(await listSchedules()).schedules || []`。
 
+## M13 — 桌面端 Rust 测试覆盖补齐（2026-11）
+
+背景：`desktop/src-tauri/src` 已有 `i18n` / `config` / `proxy/{mod,forward,static_files}` 的
+inline 测试，但 `notify.rs`、`proxy/shell.rs`、`proxy/static_files.rs` 的若干分支与
+`render_shell_page` 无覆盖。本机测试二进制因 Tauri 原生依赖 DLL 入口缺失
+（`STATUS_ENTRYPOINT_NOT_FOUND`，见 M7 注）无法启动，**新增用例仅编译校验、CI 中运行**。
+
+### 1. 新增用例（全部 `app: None` headless 形态，不依赖 Tauri 运行时）
+- [x] `desktop/src-tauri/src/notify.rs`：`handle()` 四分支全测 —— 非法 JSON（`invalid_json` /
+  400）、缺 title/body 或空白（`missing_fields`）、`notify_enabled=false`（`disabled`）、
+  无 `app` 句柄（`no_app`）。（`show()` 成功分支需真实 `AppHandle`，headless 不可测，已在
+  注释中说明。）
+- [x] `desktop/src-tauri/src/proxy/shell.rs`：`handle()` 路由 —— 未知 shell 路由返回 404 /
+  `not_found`；`/__shell/hide` 在 `app: None` 下不崩溃、返回 `ok:true`；`GET /__shell/config`
+  回显默认 `background` / `notifyEnabled` / `notifyQuietMinutes` / `insecure`。
+- [x] `desktop/src-tauri/src/proxy/static_files.rs`：抽出 `render_shell_page()`（与既有
+  `render_console_index()` 同构，便于脱离 `axum::body::Body` 单测），新增用例断言注入的
+  `window.__SHELL__` 启动对象含 `version` / `languages` / `dirs` / `page`。
+
+### 2. 覆盖增量
+- 桌面端 Rust 单测约 **41 → 49**（新增 8 例，含正常 + 异常路径）。
+- `cargo test --no-run` 通过（编译校验）；运行须在 CI（本机 Tauri 二进制无法启动）。
+- 未覆盖：`tray.rs`（需 `tauri::test` 集成套件且依赖原生窗口）、`lib.rs` / `main.rs`
+  （Tauri 生命周期），属环境限制，非遗漏。
+
 注：其余组件 / 视图交互（如 ConnectorsView 审批区、OrgView 图表）仅消费 `workbench`/`listResources`
 的 `.resources`，未踩中同类响应解包缺陷。
 - [x] `internal/model/{computers,schedules,knowledge}.go`：GORM 模型。

@@ -68,3 +68,89 @@ fn invalid(reason: &str) -> Response {
 fn denied(reason: &str) -> Response {
     (StatusCode::OK, axum::Json(json!({ "ok": false, "reason": reason }))).into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{AppConfig, ConfigStore};
+    use crate::proxy::forward;
+    use axum::body::to_bytes;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    /// A headless proxy: no window (`app: None`), the only shape the unit tests
+    /// can build. It still has to answer every branch correctly.
+    async fn state_with(notify_enabled: bool) -> ProxyState {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-notify-{}", std::process::id()));
+        let store = Arc::new(ConfigStore::new(dir));
+        let jar = Arc::new(reqwest::cookie::Jar::default());
+        let clients = forward::Clients::new(jar.clone()).expect("the forwarding client builds");
+        let config = Arc::new(RwLock::new(AppConfig { notify_enabled, ..Default::default() }));
+        ProxyState {
+            clients,
+            config,
+            store,
+            self_url: "http://127.0.0.1:0".to_string(),
+            app: None,
+            jar,
+        }
+    }
+
+    fn post(body: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri("/__shell/notify")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    async fn decode(resp: Response) -> (StatusCode, serde_json::Value) {
+        let (parts, body) = resp.into_parts();
+        let bytes = to_bytes(body, 1 << 20).await.unwrap();
+        let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (parts.status, json)
+    }
+
+    #[tokio::test]
+    async fn rejects_malformed_json() {
+        let state = state_with(true).await;
+        let (status, json) = decode(handle(&state, post("{not json")).await).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json["ok"], false);
+        assert_eq!(json["reason"], "invalid_json");
+    }
+
+    #[tokio::test]
+    async fn rejects_a_payload_without_a_title_and_body() {
+        let state = state_with(true).await;
+        for body in ["{}", r#"{"title":"","body":"x"}"#, r#"{"title":"x","body":"   "}"#] {
+            let (status, json) = decode(handle(&state, post(body)).await).await;
+            assert_eq!(status, StatusCode::OK, "payload `{body}` must be rejected as missing_fields");
+            assert_eq!(json["ok"], false);
+            assert_eq!(json["reason"], "missing_fields");
+        }
+    }
+
+    #[tokio::test]
+    async fn denies_when_notifications_are_disabled() {
+        let state = state_with(false).await;
+        let (status, json) = decode(handle(&state, post(r#"{"title":"Done","body":"Task complete"}"#)).await).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["ok"], false);
+        assert_eq!(json["reason"], "disabled");
+    }
+
+    #[tokio::test]
+    async fn denies_without_an_app_handle() {
+        // A headless proxy has nothing to surface a notification on, but must
+        // still answer rather than panic.
+        let state = state_with(true).await;
+        let (status, json) = decode(handle(&state, post(r#"{"title":"Done","body":"Task complete"}"#)).await).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["ok"], false);
+        assert_eq!(json["reason"], "no_app");
+    }
+}

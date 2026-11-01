@@ -98,6 +98,19 @@ pub fn shell_page(page: &str, config: &crate::config::AppConfig) -> Response {
     let Some(file) = Shell::get("shell.html") else {
         return (StatusCode::INTERNAL_SERVER_ERROR, "the shell page is missing").into_response();
     };
+    let html = render_shell_page(&file, config, page);
+    HttpResponse::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/html; charset=utf-8")
+        .header(CACHE_CONTROL, "no-cache")
+        .body(Body::from(html.into_bytes()))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// Builds `shell.html` with the boot object injected. Kept separate from the
+/// response wrapper so it can be unit-tested without prying bytes out of an
+/// `axum::body::Body`.
+fn render_shell_page(file: &EmbeddedFile, config: &crate::config::AppConfig, page: &str) -> String {
     let lang = config.lang();
     let tables: BTreeMap<&str, BTreeMap<&str, &str>> = i18n::LANGUAGES
         .iter()
@@ -121,16 +134,7 @@ pub fn shell_page(page: &str, config: &crate::config::AppConfig) -> Response {
         "dirs": dirs,
         "tables": tables,
     });
-    let html = String::from_utf8_lossy(&file.data).replace(
-        BOOT_MARKER,
-        &format!("window.__SHELL__ = {boot};"),
-    );
-    HttpResponse::builder()
-        .status(StatusCode::OK)
-        .header(CONTENT_TYPE, "text/html; charset=utf-8")
-        .header(CACHE_CONTROL, "no-cache")
-        .body(Body::from(html.into_bytes()))
-        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+    String::from_utf8_lossy(&file.data).replace(BOOT_MARKER, &format!("window.__SHELL__ = {boot};"))
 }
 
 fn file_response(rel: &str, file: &EmbeddedFile) -> Response {
@@ -191,5 +195,22 @@ mod tests {
             html.contains(&app_version_stamp()),
             "the injected stamp does not match app_version_stamp()"
         );
+    }
+
+    /// The shell page carries the boot object the connection page reads, and it
+    /// must never drift from Rust: the languages table and the RTL directions
+    /// are rendered straight from `i18n`.
+    #[test]
+    fn renders_shell_page_with_the_boot_object() {
+        let Some(file) = Shell::get("shell.html") else {
+            eprintln!("skipping: assets/shell.html is missing");
+            return;
+        };
+        let html = render_shell_page(&file, &crate::config::AppConfig::default(), "connect");
+        assert!(html.contains("window.__SHELL__"), "the boot object is missing");
+        assert!(html.contains("\"version\""), "the boot object must carry the version stamp");
+        assert!(html.contains("\"languages\""), "the boot object must carry the language table");
+        assert!(html.contains("\"dirs\""), "the boot object must carry the RTL/LTR directions");
+        assert!(html.contains("\"page\":\"connect\""), "the boot object must carry the page name");
     }
 }
