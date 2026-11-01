@@ -43,14 +43,17 @@ over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known
 - **Screens**: the original eight — Login, Workspace, Threads, TaskTrace, Org,
   Channels, Connectors and Settings — plus three new agent-capability screens,
   with Threads and Tasks each gaining a dedicated list view alongside their
-  detail views.
+  detail views, and Schedules growing from a goal list into a scheduler console.
 - **i18n & theme**: a language switcher (13 languages) and light/dark theme,
   persona avatars and a notification center.
 
 ## 4. Channels, Connectors & Speech
 
 - **Channels**: bind Slack / Teams / Telegram / SMS surfaces to threads; view
-  deliveries and configure signing keys (env-var name only).
+  deliveries and configure signing keys (env-var name only). A failed delivery
+  carries a retry action (`POST /api/channels/{id}/deliveries/{did}/retry`), a
+  delivered one offers none, and every channel error renders localized copy
+  instead of the raw code.
 - **Connectors**: list `kind=mcp` resources, set the `off / ask_first / allowed`
   policy, and fire actions; `ask_first` surfaces an in-app HITL approval card.
 - **Speech**: record a voice clip, upload it (multipart) to
@@ -58,14 +61,26 @@ over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known
 
 ## 5. Agent Capability Views
 
-Mirroring agenthub's F10–F16, the workbench gains three views over the agent
-capability surface (all deterministic scaffolds on the server side; deep
-behaviours remain `TODO(real)`):
+Mirroring agenthub's F10–F16, the workbench gains views over the agent capability
+surface. The scheduler drives agenthub's real trigger router; the rest are
+deterministic scaffolds, with deep behaviours still marked `TODO(real)` on the
+server side:
 
 - **Computers**: lists and creates per-agent `browser` / `shell` / `screen`
-  sandboxes (`GET/POST /api/computers`, `GET /api/computers/{id}`).
-- **Schedules**: creates, edits and deletes proactive goals — goal / cron
-  expression / enabled (`GET/POST/PUT/DELETE /api/schedules`).
+  sandboxes (`GET/POST /api/computers`, `GET /api/computers/{id}`), and renders
+  the returned envelope instead of silently treating it as an empty array.
+- **Scheduler**: reads agenthub's trigger router instead of a mock ticker — a
+  water-level strip (to decide / running / awaiting a person / last batch /
+  last pass), the goal's run history as a timeline that links into the real
+  task trace, and the recent trigger stream with the verdict on every row
+  (`GET /api/router/stats`, `/triggers`, `/tickets`). "Run now" fires one goal
+  (`POST /api/schedules/{id}/run`), "Run a pass" asks for a single beat
+  (`POST /api/router/passes`), and a run in flight can be cancelled or handed
+  back. When the server has the scheduler switched off, the screen says so
+  instead of reporting a healthy row of zeros.
+- **Goals**: creates, edits and deletes proactive goals — goal / cron
+  expression / enabled (`GET/POST/PUT/DELETE /api/schedules`), with the cron
+  expression validated on save.
 - **Persona editor**: edits an agent's persona profile — role, instruction, MBTI,
   avatar and title — and persists it to agenthub through the resource update
   endpoint.
@@ -83,5 +98,15 @@ behaviours remain `TODO(real)`):
 
 ## 8. Tests
 
-- Vitest (i18n completeness, monochrome, connector-policy, monitor,
-  notifications, voice) and `cargo test` (proxy, config, i18n).
+- Vitest covers i18n completeness, the monochrome guard, connector policy,
+  monitor, notifications, voice, the auth guard and shell root, the modal and
+  the recorder, plus a suite per view (filters, budget, persona switching,
+  goal create/toggle/delete, schedule water level and countdown, channel
+  create/delete/retry, computer sessions, sign-in). 393 cases, all offline.
+- `bun run test:coverage` (v8, `make web-coverage`) reports 99% of statements,
+  84% of branches and 85% of functions.
+- `cargo test` covers the proxy, config (language fallback, per-server session
+  storage), i18n (every locale carries every key in English order, codes pinned
+  to `web/src/lib/languages.js`) and the tray mapping. The Windows test binary
+  cannot start in this environment, so those cases are compile-verified locally
+  and executed in CI.

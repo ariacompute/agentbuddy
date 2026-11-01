@@ -30,13 +30,15 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
 
 - **Vue 3 + Vite（bun）** 工作台由外壳托管，采用左栏 + 右内容布局。
 - **各屏**：原有八屏——登录、工作区、线程、任务追踪、组织、通道、连接器、设置——外加三个
-  新增的 agent 能力屏，且线程与任务各自拥有独立的列表视图与详情视图。
+  新增的 agent 能力屏，且线程与任务各自拥有独立的列表视图与详情视图；调度页则从目标列表
+  长成了可观测的调度台。
 - **多语言与主题**：语言切换（13 语）与明/暗主题、人像头像及通知中心。
 
 ## 四、通道、连接器与语音
 
 - **通道**：把 Slack / Teams / Telegram / SMS 绑定到线程；查看投递记录、配置签名密钥
-  （仅环境变量名）。
+  （仅环境变量名）。未送达的回执带「重试」（`POST /api/channels/{id}/deliveries/{did}/retry`），
+  已送达的不给重试入口；通道错误一律显示本地化文案，不再打印机器码。
 - **连接器**：列出 `kind=mcp` 资源，设置 `off / ask_first / allowed` 策略并触发动作；
   `ask_first` 在应用内弹出人工批准卡片（HITL）。
 - **语音**：录制语音片段，以 multipart 上传至 `POST /api/threads/{id}/audio`，并回放
@@ -44,13 +46,20 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
 
 ## 五、Agent 能力视图
 
-对应 agenthub 的 F10–F16，工作台新增三块覆盖 agent 能力面的视图（服务端侧均为确定性脚手架，
-深层能力仍标 `TODO(real)`）：
+对应 agenthub 的 F10–F16，工作台新增覆盖 agent 能力面的视图。其中调度已接上 agenthub 的真实
+触发路由器，其余仍为确定性脚手架（深层能力在服务端标 `TODO(real)`）：
 
 - **计算机**：列出并创建绑定到 agent 的 `browser` / `shell` / `screen` 沙箱
-  （`GET/POST /api/computers`、`GET /api/computers/{id}`）。
-- **调度**：创建、编辑与删除主动目标——目标 / cron 表达式 / 是否启用
-  （`GET/POST/PUT/DELETE /api/schedules`）。
+  （`GET/POST /api/computers`、`GET /api/computers/{id}`），并正确解包返回的信封，不再把列表
+  当成空数组而始终显示空白。
+- **调度台**：读取 agenthub 的触发路由器，而不再是 mock 计时器——顶部「水位条」（待判定 /
+  运行中 / 待人工 / 本批数量 / 已跑节拍）、该目标的运行历史时间线（可点进真实任务追踪）、
+  以及最近触发流并对每一行标注判定结果（`GET /api/router/stats`、`/triggers`、`/tickets`）。
+  「立即运行」触发一次目标（`POST /api/schedules/{id}/run`），「推进一拍」请求一轮调度
+  （`POST /api/router/passes`），在飞的运行可取消或交回。服务端关闭调度器时页面直接说明，
+  而不是显示一排看起来健康的 0。
+- **目标**：创建、编辑与删除主动目标——目标 / cron 表达式 / 是否启用
+  （`GET/POST/PUT/DELETE /api/schedules`），cron 表达式在保存时校验。
 - **人像编辑器**：编辑 agent 的人像档案——角色、指令、MBTI、头像与标题——并通过资源
   更新端点持久化到 agenthub。
 
@@ -65,5 +74,10 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
 
 ## 八、测试
 
-- Vitest（i18n 完整性、单色、connector-policy、monitor、notifications、voice）与
-  `cargo test`（代理、配置、i18n）。
+- Vitest 覆盖 i18n 完整性、单色守卫、连接器策略、轮询监控、通知、语音、登录守卫与外壳根组件、
+  模态框与录音组件，并为每一屏补齐用例（筛选、预算、人像切换、目标新建/启停/删除、调度水位与
+  倒计时、通道新建/删除/重试、计算机会话、登录）。共 393 条，全程离线。
+- `bun run test:coverage`（v8，对应 `make web-coverage`）报告：语句 99%、分支 84%、函数 85%。
+- `cargo test` 覆盖代理、配置（语言回落、按服务器隔离的会话存储）、i18n（13 语键集与英文顺序
+  完全一致、语言代码编译期对齐 `web/src/lib/languages.js`）与托盘映射。Windows 测试二进制在本
+  环境无法启动，故这些用例在本机只做编译校验，在 CI 上执行。
