@@ -11,6 +11,8 @@ const props = defineProps({
   channel: { type: Object, required: true },
   deliveries: { type: Array, default: () => [] },
 })
+// Passed straight up: the card knows the delivery, only the page knows the API.
+const emit = defineEmits(['retry'])
 const { t } = useCopy('channel')
 const workbench = useWorkbenchStore()
 const expanded = ref(false)
@@ -56,6 +58,6 @@ async function toggle() {
     <button class="btn btn-ghost btn-sm" style="margin-top:10px" @click="expanded = !expanded">
       {{ t('deliveriesTitle') }} ({{ deliveries.length }})
     </button>
-    <DeliveryList v-if="expanded" :deliveries="deliveries" />
+    <DeliveryList v-if="expanded" :deliveries="deliveries" @retry="(id) => emit('retry', id)" />
   </div>
 </template>

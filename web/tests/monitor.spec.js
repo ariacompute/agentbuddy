@@ -158,6 +158,40 @@ describe('ActivityMonitor subscription upkeep', () => {
     m.stop()
   })
 
+  it('closes the stream of a task that left the in-flight states', async () => {
+    const close = vi.fn()
+    subscribeTaskEvents.mockReturnValue({ close })
+    getWorkspace.mockResolvedValue({ agents: [] })
+    listTasks.mockResolvedValue({ tasks: [{ id: 't1', status: { state: 'working' } }] })
+    const store = makeStore()
+    const m = new ActivityMonitor(store, { visible: () => true })
+    m.start()
+    await flush()
+    expect(m.subscriptions.has('t1')).toBe(true)
+
+    // The task finished between polls: its stream is spent and must be released,
+    // otherwise a long-lived window accumulates one socket per finished task.
+    store.tasks = [{ id: 't1', status: { state: 'completed' } }]
+    m._syncSubscriptions()
+    expect(close).toHaveBeenCalled()
+    expect(m.subscriptions.has('t1')).toBe(false)
+    m.stop()
+  })
+
+  it('forgets per-task bookkeeping older than an hour', async () => {
+    getWorkspace.mockResolvedValue({ agents: [] })
+    listTasks.mockResolvedValue({ tasks: [] })
+    const store = makeStore()
+    const old = Date.now() - 2 * 60 * 60 * 1000
+    store.seen = { stale: old, fresh: Date.now() }
+    const m = new ActivityMonitor(store, { visible: () => true })
+    m.start()
+    await flush()
+    expect(store.seen.stale).toBeUndefined()
+    expect(store.seen.fresh).toBeDefined()
+    m.stop()
+  })
+
   it('opens nothing when there are no in-flight tasks', async () => {
     getWorkspace.mockResolvedValue({ agents: [] })
     listTasks.mockResolvedValue({ tasks: [{ id: 'done', status: { state: 'failed' } }] })

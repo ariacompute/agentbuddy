@@ -4,6 +4,7 @@ import { useWorkbenchStore } from '../lib/workbench-store.js'
 import { useCopy } from '../lib/use-copy.js'
 import { enumLabel } from '../lib/use-copy.js'
 import { createChannel, updateChannel, deleteChannel, retryDelivery } from '../lib/api.js'
+import { errorMessage } from '../lib/errors.js'
 import ChannelCard from '../components/ChannelCard.vue'
 import BaseDialog from '../components/BaseDialog.vue'
 import { Plus, X } from 'lucide-vue-next'
@@ -12,7 +13,10 @@ const { t } = useCopy('channel')
 const { t: ts } = useCopy('shell')
 const workbench = useWorkbenchStore()
 const showForm = ref(false)
-const errorCode = ref(null)
+// Two refs, two places: a rejected save belongs inside the dialog the user is
+// looking at, while a rejected delete or retry belongs on the page behind it.
+const formError = ref(null)
+const listError = ref(null)
 const saving = ref(false)
 
 const form = ref({
@@ -23,7 +27,7 @@ const types = ['slack', 'teams', 'telegram', 'sms']
 
 async function save() {
   saving.value = true
-  errorCode.value = null
+  formError.value = null
   try {
     const payload = {
       name: form.value.name,
@@ -38,20 +42,30 @@ async function save() {
     showForm.value = false
     form.value = { name: '', kind: 'slack', threadId: '', signingKeyEnv: '', destination: '', participants: '' }
   } catch (e) {
-    errorCode.value = e.code
+    formError.value = e.code
   } finally {
     saving.value = false
   }
 }
 
 async function remove(id) {
-  await deleteChannel(id)
-  await workbench.refreshChannels()
+  listError.value = null
+  try {
+    await deleteChannel(id)
+    await workbench.refreshChannels()
+  } catch (e) {
+    listError.value = e.code
+  }
 }
 
 async function retry(channelId, deliveryId) {
-  await retryDelivery(channelId, deliveryId)
-  await workbench.refreshChannels()
+  listError.value = null
+  try {
+    await retryDelivery(channelId, deliveryId)
+    await workbench.refreshChannels()
+  } catch (e) {
+    listError.value = e.code
+  }
 }
 
 onMounted(() => workbench.refreshChannels())
@@ -71,6 +85,8 @@ onMounted(() => workbench.refreshChannels())
       <span>{{ t('securityNote') }}</span>
     </div>
 
+    <p v-if="listError" class="empty">{{ errorMessage(listError) }}</p>
+
     <div v-if="workbench.channels.length === 0" class="empty">
       <p>{{ t('listEmpty') }}</p>
       <p class="muted" style="font-size:12px">{{ t('listEmptyNote') }}</p>
@@ -81,7 +97,11 @@ onMounted(() => workbench.refreshChannels())
         <div class="row" style="justify-content:flex-end">
           <button class="btn-icon btn-sm" :aria-label="'delete'" @click="remove(c.id)"><X :size="15" /></button>
         </div>
-        <ChannelCard :channel="c" :deliveries="workbench.deliveries[c.id] || []" />
+        <ChannelCard
+          :channel="c"
+          :deliveries="workbench.deliveries[c.id] || []"
+          @retry="(deliveryId) => retry(c.id, deliveryId)"
+        />
       </div>
     </div>
 
@@ -118,7 +138,7 @@ onMounted(() => workbench.refreshChannels())
         <label>{{ t('fieldParticipants') }}</label>
         <input v-model="form.participants" :placeholder="'agent-a, agent-b'" />
       </div>
-      <div v-if="errorCode" class="banner"><span>{{ errorCode }}</span></div>
+      <div v-if="formError" class="banner"><span>{{ errorMessage(formError) }}</span></div>
       <template #footer>
         <button class="btn btn-ghost btn-sm" :disabled="saving" @click="showForm = false">{{ ts('actionCancel') }}</button>
         <button class="btn btn-primary btn-sm" :disabled="saving" @click="save">{{ ts('actionCreate') }}</button>

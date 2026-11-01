@@ -14,7 +14,8 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    computers.value = await listComputers()
+    const data = await listComputers()
+    computers.value = data?.computers || []
   } catch (e) {
     error.value = errorMessage(e.code) || e.message
   } finally {

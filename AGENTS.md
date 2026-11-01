@@ -72,6 +72,8 @@ desktop/
   新增错误码须登记三处（服务端 `httputil.Code*`、前端 `CODE_KEYS`、`errors-copy.js` 13 语）。
 - **测试**：`cd web && bun run test`（Vitest）。**勿用裸 `bun test`**（Bun 原生 runner 不加载
   `vitest.config.js`，无 jsdom 环境）。新增功能须补**正常 + 异常**双路径用例。
+  覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`），
+  当前基线：语句/行 99%、分支 84%、函数 85%；回落时先看报告里的未覆盖行再补用例。
 
 ### 桌面外壳（desktop/）
 
@@ -90,7 +92,10 @@ desktop/
 - **托盘菜单语言跟随应用**：Rust 无法读取浏览器 `localStorage`，故工作台在 `setLang` 时把
   `agentbuddy.lang` 经 `/__shell/config` 推送到外壳 `config.lang`，托盘据此重建（`tray::refresh`）；
   连接页 `connect()` 同样会同步。即托盘语言 = 应用的 `agentbuddy.lang`，而非外壳独立设置。
-- **测试**：`cd desktop/src-tauri && cargo test`。
+- **测试**：`cd desktop/src-tauri && cargo test`。本机（Windows）测试二进制因 Tauri 原生依赖
+  入口缺失无法启动，只能 `cargo test --no-run` 做编译校验；纯逻辑用例（i18n 表、托盘映射、
+  会话存取）不依赖 AppHandle，在 CI 上一跑即知。`i18n/copy.rs` 用 `include_str!` 读
+  `web/src/lib/languages.js` 钉住 13 语代码集，改语言清单会在此处报错。
 
 ### 服务端（agenthub，改动需谨慎）
 
@@ -105,6 +110,7 @@ make web-install      # bun install
 make web-dev          # vite dev（:5173，代理 /api 到 localhost:3500）
 make web-build        # 产出 web/dist（外壳内嵌它）
 make web-test         # vitest
+make web-coverage     # vitest + v8 覆盖率
 make desktop-install  # @tauri-apps/cli
 make desktop-dev      # web-build + tauri dev
 make desktop-build    # web-build + tauri build（宿主平台安装包）

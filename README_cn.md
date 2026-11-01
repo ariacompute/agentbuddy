@@ -45,6 +45,7 @@ bun run build                           # 针对当前平台执行 tauri build
 ```bash
 make test                           # 前端 Vitest + 桌面 cargo 测试，全程离线
 cd web && bun run test              # Vitest：i18n 完整性、单色守卫、lib 单测
+cd web && bun run test:coverage     # 同一批用例 + v8 覆盖率报告
 cd desktop/src-tauri && cargo test  # proxy / config / i18n 单测
 ```
 

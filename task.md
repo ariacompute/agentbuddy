@@ -319,3 +319,64 @@ Worker 层执行，双层调度），agentbuddy 把 `/schedules` 从「列表 + 
 
 注：本机测试二进制仍因 Tauri 原生依赖 DLL 入口缺失（`STATUS_ENTRYPOINT_NOT_FOUND`）无法启动（与 M7 同款
 环境问题，与本次测试代码无关），故测试仅编译验证通过、逻辑对齐既有会话测试。
+
+## M15 — 测试覆盖率补齐（web + desktop，2026-11）
+
+背景：上一轮 M14 之后前端 95.5% 语句覆盖但分支只有 77%、函数 75%，`App.vue`/`router.js` 完全没跑，
+`BaseDialog`、`ChannelsView`、`ComputersView`、`VoiceRecorder` 的交互路径全靠人工验证；桌面壳的
+`tray.rs` 与 `i18n/copy.rs` 零用例。本轮把「没测到的行为」补齐，不追求数字，只补用户能看到的分支。
+
+### 1. 度量前置
+- [x] `vite.config.js`：`test.coverage`（v8，`text-summary` + `text`），`package.json` 增 `test:coverage`，
+  `Makefile` 增 `web-coverage`。
+
+### 2. 新增 web 用例
+- [x] `tests/app.spec.js`（5）：未登录渲染裸路由且不启轮询；登录后挂载外壳并启动 `ActivityMonitor`（含
+  `visible()` 探针）；轮询报会话过期时重查身份——会话仍在则只清标记，真过期则登出并退回登录页，
+  从未登录时视为空操作。
+- [x] `tests/router.spec.js`（6）：匿名访问带 `?next=` 跳登录、登录后可进屏、已登录访问 `/login` 回工作台、
+  未知路径归位 `/`、登出后不再重查会话、内存中已有身份时跳过 `whoami`。
+- [x] `tests/base-dialog.spec.js`（7）：打开/关闭渲染、`role`/`aria-modal`/`aria-label`、无 footer 插槽时不渲染页脚、
+  关闭按钮与遮罩（`.self`）与 Escape 三条关闭路径、Tab 首尾环绕与中途放行（stub `offsetParent`）、
+  打开时聚焦首个控件并在关闭后归还焦点、卸载后不再响应 Escape。
+- [x] `tests/voice-recorder.spec.js`（5）：点一次开始、再点停止、上传走组件收到的 `threadId`、
+  麦克风错误显示本地化拒绝文案并随状态恢复清除、不支持时不出按钮只出说明、卸载时 `reset()`。
+- [x] `views.spec.js` 扩充（+25）：TaskListView 四档筛选与空态；OrgView 预算汇总与加载失败仍保住页面框架；
+  PersonaEditor 切换智能体重载表单、保存被拒/加载失败/无智能体三态；SchedulesView 目标新建、启停、删除、
+  取消被拒、工单状态与不可读时间的占位、倒计时每秒跳动且卸载后不再计时；ChannelsView 新建（含表单到
+  请求体的映射）、删除、投递重试、已送达不给重试、被拒时展示本地化原因；ComputersView 列表解包、
+  新建会话、失败提示与按钮恢复可用、空态；LoginView 半填禁用、成功跳转、被拒留在原页、版本号页脚。
+- [x] `format.spec.js` / `languages.spec.js` / `api.spec.js` / `monitor.spec.js` 补边界：不可用 locale 的
+  dash 回退、TB 级字节封顶、hreflang/OG 映射与未映射透传、`subscribeRouterEvents` 的 `since` 与错误回调、
+  线程流失效、任务离开执行态后关闭订阅、每小时清理过期簿记。
+
+### 3. 写用例时发现并修掉的问题
+- [x] `ComputersView.vue`：`computers.value = await listComputers()` 把信封当成数组，页面永远渲染不出卡片
+  （M12 修过同类问题），改为解包 `data.computers`。
+- [x] `ChannelsView.vue`：错误横幅直接渲染机器码（违反「只存 code、文案走 errors.js」），改走 `errorMessage()`；
+  删除与重试没有 `try/catch`，失败即未处理拒绝，现各自回写内联错误。
+- [x] `DeliveryList.vue` / `ChannelCard.vue` / `ChannelsView.vue`：`deliveryRetry` 文案与重试接口早已存在，
+  但按钮从未接线（`retry()` 是死代码），补上 `retry` 事件链，已送达的回执不显示按钮。
+
+### 4. desktop 用例
+- [x] `src/tray.rs`：把菜单项到路径的映射抽成纯函数 `path_for()`，新增 3 条用例（各菜单项各就各位、
+  退出与未知 id 不导航、托盘 id 稳定）。
+- [x] `src/i18n/copy.rs`：新增 5 条用例——13 语与 EN 键集/顺序完全一致且无空值（避免 en 兜底掩盖漏译）、
+  未知语言回落 EN、各语言块互不共享（防止 match 分支被合并）、键唯一且无空白、
+  语言代码与 `web/src/lib/languages.js` 逐条对齐（`include_str!` 编译期钉住）。
+- [x] `src/i18n/mod.rs`：大小写/下划线 locale 归一化（`ZH-TW`/`zh_CN`/`zh_HK`/`PT-BR`）、
+  `block_for()` 覆盖全部键且非空。
+- [x] `src/config.rs`：语言回落与区域匹配、`UrlError` 文案、会话按服务器隔离（跨服务器不串号、
+  二次登录覆盖而非追加）、登出删文件且可重复调用、损坏的会话文件读作未登录。
+- [x] `cargo test --no-run` 编译通过（本机无法运行，见下注）。
+
+### 5. 结果
+- [x] web：`bun run test` 393 用例（原 327）全绿；`bun run test:coverage` 语句/行 98.99%、分支 84.11%、函数 85.47%
+  （原 95.54% / 77.08% / 74.91%）。
+- [x] `bun run build` 通过（401.20 kB）。
+- [x] 文档：README/README_cn 测试命令补 `test:coverage`；AGENTS 记录覆盖率基线与桌面测试的环境限制；
+  requirements 补 F6.2 的回执重试与错误展示。
+
+注：desktop 测试在本机仍无法执行（`STATUS_ENTRYPOINT_NOT_FOUND`，与 M7/M14 同款环境问题），
+本轮只做编译校验；新增用例全部是纯逻辑（不含 `AppHandle`），CI 上可直接运行。
+`i18n` 键集一致性另用一次性脚本按同一断言离线复算过（13 块 × 30 键、13 语代码全部命中）。

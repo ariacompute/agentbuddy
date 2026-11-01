@@ -132,6 +132,27 @@ mod tests {
     }
 
     #[test]
+    fn normalises_uppercase_and_underscore_locales() {
+        // Platform locales are not consistent about case or separators.
+        assert_eq!(match_lang("ZH-TW"), "zh-TW");
+        assert_eq!(match_lang("zh_CN"), "zh");
+        assert_eq!(match_lang("zh_HK"), "zh-TW");
+        assert_eq!(match_lang("PT-BR"), "pt");
+        assert_eq!(match_lang("ES"), "es");
+    }
+
+    #[test]
+    fn block_for_returns_every_key_with_text() {
+        for code in CODES {
+            let block = block_for(code);
+            assert_eq!(block.len(), copy::keys().count(), "{code} lost a key");
+            for (key, value) in &block {
+                assert!(!value.is_empty(), "{code}.{key} renders nothing");
+            }
+        }
+    }
+
+    #[test]
     fn falls_back_to_english_for_an_unsupported_language() {
         for key in copy::keys() {
             assert_eq!(translate("nl", key), translate("en", key), "nl.{key}");

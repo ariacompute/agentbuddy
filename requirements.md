@@ -83,7 +83,7 @@
 | 编号 | 需求 |
 |---|---|
 | F6.1 | 通道类型：`slack` / `teams` / `telegram`（入站 webhook + 出站回复）、`sms`（仅出站） |
-| F6.2 | 客户端：通道列表、新建/编辑、启用开关、绑定线程与参与者、投递回执列表（方向/状态/错误码） |
+| F6.2 | 客户端：通道列表、新建/编辑、启用开关、绑定线程与参与者、投递回执列表（方向/状态/错误码）；未送达的回执带「重试」按钮（`POST /api/channels/{id}/deliveries/{did}/retry`），已送达的不给重试入口，删除/重试失败用本地化文案内联提示而非静默吞错 |
 | F6.3 | 服务端入站：`POST /api/channels/{id}/webhook` 为 **public**，靠平台签名校验 |
 | F6.4 | Slack：`X-Slack-Signature` = HMAC-SHA256(`v0:{ts}:{body}`)，5 分钟重放窗；Teams：HMAC；Telegram：`X-Telegram-Bot-Api-Secret-Token`。一律 `hmac.Equal` 常量时间比较 |
 | F6.5 | `external_ref` 唯一键幂等去重；复用既有 `RateLimit` |

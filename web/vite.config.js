@@ -20,5 +20,17 @@ export default defineConfig({
     },
   },
   build: { outDir: 'dist', emptyOutDir: true },
-  test: { environment: 'node', include: ['tests/**/*.spec.js'], setupFiles: ['tests/setup.js'] },
+  test: {
+    environment: 'node',
+    include: ['tests/**/*.spec.js'],
+    setupFiles: ['tests/setup.js'],
+    // The report is the map for the next round of tests: it counts what the
+    // specs actually exercise, not what happened to be imported.
+    coverage: {
+      provider: 'v8',
+      reporter: ['text-summary', 'text'],
+      include: ['src/**/*.{js,vue}'],
+      exclude: ['src/main.js'],
+    },
+  },
 })

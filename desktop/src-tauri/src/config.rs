@@ -331,6 +331,76 @@ mod tests {
     }
 
     #[test]
+    fn a_stored_language_is_matched_like_the_workbench_does() {
+        let regional = AppConfig { lang: "zh-Hant-HK".into(), ..Default::default() };
+        assert_eq!(regional.lang(), "zh-TW");
+        let plain = AppConfig { lang: "fr".into(), ..Default::default() };
+        assert_eq!(plain.lang(), "fr");
+    }
+
+    #[test]
+    fn an_unknown_stored_language_falls_back_to_english() {
+        let config = AppConfig { lang: "nl-NL".into(), ..Default::default() };
+        assert_eq!(config.lang(), "en");
+    }
+
+    #[test]
+    fn an_empty_language_defers_to_the_system_locale() {
+        // Whatever the host asks for, the answer must be one we ship.
+        let config = AppConfig::default();
+        assert!(i18n::is_valid_lang(config.lang()));
+    }
+
+    #[test]
+    fn url_errors_name_their_reason() {
+        assert_eq!(UrlError::Empty.to_string(), "empty");
+        assert_eq!(UrlError::Invalid.to_string(), "invalid");
+    }
+
+    #[test]
+    fn a_session_belongs_to_the_server_that_issued_it() {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-session-{}", std::process::id()));
+        let store = ConfigStore::new(dir.clone());
+
+        store.save_session("https://a.example.com", "sid=1").unwrap();
+        assert_eq!(store.load_session_cookie("https://a.example.com").as_deref(), Some("sid=1"));
+        // Replaying one server's session against another would be a leak.
+        assert_eq!(store.load_session_cookie("https://b.example.com"), None);
+
+        // A later login replaces the cookie rather than appending to it.
+        store.save_session("https://a.example.com", "sid=2").unwrap();
+        assert_eq!(store.load_session_cookie("https://a.example.com").as_deref(), Some("sid=2"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clearing_the_session_removes_the_file_and_is_safe_to_repeat() {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-session-clear-{}", std::process::id()));
+        let store = ConfigStore::new(dir.clone());
+
+        store.save_session("https://a.example.com", "sid=1").unwrap();
+        assert!(store.session_path().exists());
+
+        store.save_session("https://a.example.com", "").unwrap();
+        assert!(!store.session_path().exists(), "logout must not leave the token on disk");
+        assert_eq!(store.load_session_cookie("https://a.example.com"), None);
+        // Clearing twice is not an error: logout can race a token expiry.
+        store.save_session("https://a.example.com", "").unwrap();
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_broken_session_file_reads_as_no_session() {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-session-broken-{}", std::process::id()));
+        let store = ConfigStore::new(dir.clone());
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(store.session_path(), "{ not json").unwrap();
+
+        assert_eq!(store.load_session_cookie("https://a.example.com"), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_missing_or_broken_file_is_treated_as_a_first_run() {
         let dir = std::env::temp_dir().join(format!("agentbuddy-cfg-missing-{}", std::process::id()));
         let store = ConfigStore::new(dir.clone());

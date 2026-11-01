@@ -8,6 +8,9 @@ import { RefreshCw } from 'lucide-vue-next'
 const props = defineProps({
   deliveries: { type: Array, default: () => [] },
 })
+// A delivery that never left is the only one worth retrying: a delivered row
+// would just post the same message twice.
+const emit = defineEmits(['retry'])
 const { t } = useCopy('channel')
 
 function statusKey(d) {
@@ -25,6 +28,15 @@ function statusKey(d) {
       <span class="chip" :data-on="d.status === 'delivered'">{{ t(statusKey(d)) }}</span>
       <span class="spacer truncate">{{ d.errorCode ? errorMessage(d.errorCode) : '' }}</span>
       <span class="dur">{{ formatTime(d.at) }}</span>
+      <button
+        v-if="d.status !== 'delivered'"
+        class="btn btn-ghost btn-sm"
+        :aria-label="t('deliveryRetry')"
+        :title="t('deliveryRetry')"
+        @click="emit('retry', d.id)"
+      >
+        <RefreshCw :size="14" />
+      </button>
     </div>
   </div>
 </template>

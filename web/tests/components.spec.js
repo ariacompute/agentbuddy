@@ -222,6 +222,28 @@ describe('TaskCard', () => {
     })
     expect(wrapper.text()).not.toContain('hi')
   })
+
+  it('joins every message part into one line when not dense', () => {
+    const { wrapper } = mountWith(TaskCard, {
+      props: {
+        task: {
+          id: 't1',
+          status: { state: 'working', message: { parts: [{ text: 'first' }, { text: 'second' }] }, timestamp: new Date().toISOString() },
+        },
+      },
+    })
+    expect(wrapper.text()).toContain('first second')
+    expect(wrapper.text()).toContain('Updated')
+  })
+
+  it('opens the trace of the task it was given', async () => {
+    const { wrapper, router } = mountWith(TaskCard, {
+      props: { task: { id: 't42', status: { state: 'working' } } },
+    })
+    await wrapper.find('.card').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/tasks/t42')
+  })
 })
 
 describe('ThemeToggle', () => {

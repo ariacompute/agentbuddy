@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   DASH,
   formatBytes,
@@ -57,5 +57,38 @@ describe('format', () => {
     expect(formatRatio(1, 0)).toBe(DASH)
     expect(formatRatio(1, 4)).toBe('25%')
     expect(formatRatio(3, 4)).toBe('75%')
+  })
+
+  it('stops at GB even when the value is terabytes', () => {
+    expect(formatBytes(1024 ** 4)).toBe('1024 GB')
+    expect(formatBytes(Number.POSITIVE_INFINITY)).toBe(DASH)
+    expect(formatBytes(null)).toBe('0 B')
+  })
+
+  it('formatRatio rejects a value that is not a number', () => {
+    expect(formatRatio('x', 10)).toBe(DASH)
+    expect(formatRatio(1, 'x')).toBe(DASH)
+    expect(formatRatio(-1, 4)).toBe('-25%')
+  })
+
+  it('renders a Date in the requested locale', () => {
+    expect(formatTime(new Date('2020-01-01T00:00:00Z'), 'en')).not.toBe(DASH)
+    expect(formatShortTime(new Date(), 'en')).not.toBe(DASH)
+  })
+
+  it('reports an unusable locale and falls back to a dash', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // Intl rejects a tag with spaces, which is exactly the path a bad
+    // `agentbuddy.lang` value takes in the wild.
+    expect(formatTime('2020-01-01T00:00:00Z', 'not a language tag')).toBe(DASH)
+    expect(formatShortTime('2020-01-01T00:00:00Z', 'not a language tag')).toBe(DASH)
+    expect(consoleError).toHaveBeenCalledTimes(2)
+    consoleError.mockRestore()
+  })
+
+  it('formatShortTime shows a clock for today and a date for older stamps', () => {
+    const today = formatShortTime(new Date(), 'en')
+    const older = formatShortTime(new Date('2020-01-01T00:00:00Z'), 'en')
+    expect(today).not.toBe(older)
   })
 })

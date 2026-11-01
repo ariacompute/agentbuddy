@@ -30,6 +30,7 @@ import {
   postThreadAudio,
   subscribeThreadEvents,
   subscribeTaskEvents,
+  subscribeRouterEvents,
   listComputers,
   createComputer,
   getComputer,
@@ -287,6 +288,34 @@ describe('api endpoint helpers', () => {
     expect(handlers.message).toHaveBeenCalledWith({ c: 3 })
     handle.close()
     expect(src.closed).toBe(true)
+  })
+
+  it('subscribeThreadEvents reports a stream error so the view can reconnect', () => {
+    const handlers = { message: vi.fn(), error: vi.fn() }
+    subscribeThreadEvents('t1', handlers)
+    const src = FakeEventSource.last
+    const err = new Error('stream dropped')
+    src.onerror(err)
+    expect(handlers.error).toHaveBeenCalledWith(err)
+  })
+
+  it('subscribeRouterEvents replays from a seq and names the router event', () => {
+    const handlers = { event: vi.fn(), error: vi.fn() }
+    const handle = subscribeRouterEvents(42, handlers)
+    const src = FakeEventSource.last
+    expect(src.url).toBe('/api/router/events?since=42')
+    emit(src, 'router_event', { seq: 43, kind: 'ticket.opened' })
+    expect(handlers.event).toHaveBeenCalledWith({ seq: 43, kind: 'ticket.opened' })
+    const err = new Error('stream dropped')
+    src.onerror(err)
+    expect(handlers.error).toHaveBeenCalledWith(err)
+    handle.close()
+    expect(src.closed).toBe(true)
+  })
+
+  it('subscribeRouterEvents omits the query on a first connection', () => {
+    subscribeRouterEvents(0)
+    expect(FakeEventSource.last.url).toBe('/api/router/events')
   })
 
   it('subscribeTaskEvents forwards the since param and task events', () => {

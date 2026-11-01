@@ -56,13 +56,27 @@ fn menu(app: &AppHandle, config: &AppConfig) -> tauri::Result<Menu<tauri::Wry>> 
     )
 }
 
+/// Where a menu entry points. Split out of the handler so the mapping can be
+/// checked without a running Tauri app.
+fn path_for(id: &str) -> Option<&'static str> {
+    match id {
+        ID_OPEN => Some("/"),
+        ID_SETTINGS => Some("/__shell/connect"),
+        ID_ABOUT => Some("/__shell/about"),
+        _ => None,
+    }
+}
+
 pub fn on_menu_event(app: &AppHandle, event: MenuEvent) {
-    match event.id().as_ref() {
-        ID_OPEN => open(app, "/"),
-        ID_SETTINGS => open(app, "/__shell/connect"),
-        ID_ABOUT => open(app, "/__shell/about"),
-        ID_QUIT => app.exit(0),
-        _ => {}
+    let id = event.id().as_ref();
+    // Quit is the only entry that ends the process; everything else opens a
+    // page in the one window, which is also how the app comes back from the tray.
+    if id == ID_QUIT {
+        app.exit(0);
+        return;
+    }
+    if let Some(path) = path_for(id) {
+        open(app, path);
     }
 }
 
@@ -80,4 +94,30 @@ fn open(app: &AppHandle, path: &str) {
     }
     let _ = window.show();
     let _ = window.set_focus();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_entry_opens_its_own_page() {
+        assert_eq!(path_for(ID_OPEN), Some("/"));
+        assert_eq!(path_for(ID_SETTINGS), Some("/__shell/connect"));
+        assert_eq!(path_for(ID_ABOUT), Some("/__shell/about"));
+    }
+
+    #[test]
+    fn quit_and_unknown_ids_open_nothing() {
+        // Quit ends the process instead of navigating, and an id from a stale
+        // menu must not navigate anywhere either.
+        assert_eq!(path_for(ID_QUIT), None);
+        assert_eq!(path_for("shell.unknown"), None);
+        assert_eq!(path_for(""), None);
+    }
+
+    #[test]
+    fn the_tray_id_is_the_one_tauri_looks_up() {
+        assert_eq!(TRAY_ID, "main");
+    }
 }

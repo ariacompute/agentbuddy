@@ -610,3 +610,72 @@ pub fn block(lang: &str) -> &'static [(&'static str, &'static str)] {
 pub fn keys() -> impl Iterator<Item = &'static str> {
     EN.iter().map(|(key, _)| *key)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    const CODES: [&str; 13] = [
+        "en", "zh", "zh-TW", "es", "fr", "de", "it", "ru", "ja", "ko", "pt", "ar", "hi",
+    ];
+
+    /// The fallback in `i18n::translate` would happily hide a half-translated
+    /// language, so the shape of every block is asserted directly: same keys, in
+    /// English order, none empty. A missing key cannot hide behind English.
+    fn assert_matches_english(name: &str, block: &'static [(&'static str, &'static str)]) {
+        assert_eq!(block.len(), EN.len(), "{name} carries {} keys, English carries {}", block.len(), EN.len());
+        for (index, ((en_key, _), (key, value))) in EN.iter().zip(block.iter()).enumerate() {
+            assert_eq!(key, en_key, "{name} key #{index} is `{key}`, English has `{en_key}`");
+            assert!(!value.trim().is_empty(), "{name}.{key} is empty or blank");
+        }
+    }
+
+    #[test]
+    fn every_language_carries_every_key_in_english_order() {
+        for code in CODES {
+            assert_matches_english(code, block(code));
+        }
+    }
+
+    #[test]
+    fn an_unknown_language_reads_english() {
+        assert_eq!(block("nl"), EN);
+        assert_eq!(block(""), EN);
+        // Case matters here; match_lang is what normalises user input.
+        assert_eq!(block("ZH"), EN);
+    }
+
+    #[test]
+    fn the_blocks_are_distinct_so_the_match_arms_are_not_shared() {
+        for (index, code) in CODES.iter().enumerate() {
+            for other in &CODES[index + 1..] {
+                assert!(
+                    !std::ptr::eq(block(code), block(other)),
+                    "{code} and {other} resolve to the same block"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn keys_are_unique_and_do_not_carry_whitespace() {
+        let mut seen = HashSet::new();
+        for key in keys() {
+            assert!(seen.insert(key), "{key} is declared twice");
+            assert!(!key.is_empty(), "an empty key cannot be looked up");
+            assert_eq!(key.trim(), key, "{key} has surrounding whitespace");
+        }
+    }
+
+    /// The workbench owns the language list; the shell must not drift from it.
+    #[test]
+    fn the_language_codes_match_the_workbench_catalogue() {
+        const WORKBENCH: &str = include_str!("../../../../web/src/lib/languages.js");
+        for (code, native_name) in LANGUAGES {
+            let entry = format!("['{code}',");
+            assert!(WORKBENCH.contains(&entry), "web/src/lib/languages.js is missing {code}");
+            assert!(!native_name.trim().is_empty(), "{code} has no native name");
+        }
+    }
+}

@@ -48,6 +48,7 @@ bun run build                           # tauri build for the host platform
 ```bash
 make test                           # web Vitest + desktop cargo tests, fully offline
 cd web && bun run test              # Vitest: i18n completeness, monochrome guard, lib units
+cd web && bun run test:coverage     # same suite, plus a v8 coverage report
 cd desktop/src-tauri && cargo test  # proxy / config / i18n units
 ```
 

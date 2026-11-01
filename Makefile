@@ -35,6 +35,10 @@ web-build: web-install ## Build the console into web/dist (embedded by the shell
 web-test: web-install ## Vitest suite (i18n completeness + monochrome guard).
 	cd $(WEB) && $(BUN) run test
 
+.PHONY: web-coverage
+web-coverage: web-install ## Same suite plus a v8 coverage report.
+	cd $(WEB) && $(BUN) run test:coverage
+
 # ------------------------------------------------------------------- desktop
 
 .PHONY: desktop-install

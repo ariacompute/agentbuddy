@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { LANGUAGES, LANG_CODES, isRTL, isValidLang, matchLang } from '../src/lib/languages.js'
+import {
+  LANGUAGES, LANG_CODES, isRTL, isValidLang, matchLang, hreflangFor, ogLocaleFor,
+} from '../src/lib/languages.js'
 
 describe('languages', () => {
   it('exactly 13 languages', () => {
@@ -27,5 +29,24 @@ describe('languages', () => {
     expect(matchLang('fr')).toBe('fr')
     expect(matchLang('xx')).toBe('en')
     expect(matchLang('')).toBe('en')
+  })
+
+  it('maps codes onto hreflang and Open Graph locales', () => {
+    expect(hreflangFor('zh')).toBe('zh-Hans')
+    expect(hreflangFor('zh-TW')).toBe('zh-Hant')
+    expect(hreflangFor('ar')).toBe('ar')
+    expect(ogLocaleFor('zh')).toBe('zh_CN')
+    expect(ogLocaleFor('pt')).toBe('pt_BR')
+    // An unmapped code is passed through rather than crashing a page that
+    // somehow got a language the catalogue never shipped.
+    expect(hreflangFor('xx')).toBe('xx')
+    expect(ogLocaleFor('xx')).toBe('en_US')
+  })
+
+  it('names every language in its own script', () => {
+    for (const [code, name] of LANGUAGES) {
+      expect(name.trim()).not.toBe('')
+      expect(name).not.toBe(code)
+    }
   })
 })
