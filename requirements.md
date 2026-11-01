@@ -22,6 +22,9 @@
   以及 `registry.Entry.persona` 列（`013_persona.sql`）。
 - **本轮（F10–F16）新增**（见 §4）：`/api/computers*`（Agent 计算机，F11）、`/api/schedules*`（目标调度，F13），
   并扩展 `registry.Entry.persona` 角色字段（F10）；新增 `computers` / `schedules` / `knowledge` 表（`017`–`019`）。
+- **本轮（调度器）新增**：`POST /api/schedules/{id}/run` 与 `/api/router/*`（14 个端点，见 §4.1），
+  对应 agenthub 迁移 `020_router.sql`（8 张表）；服务端开关 `AGENTHUB_ROUTER_ENABLED` 关闭时全部 503
+  `feature_unavailable`，前端按「调度器已关闭」降级。
 
 ## 2. 功能需求
 
@@ -155,8 +158,10 @@
 |---|---|---|
 | F13.1 | 新增「目标 / 周期任务」：目标描述 + 触发器（自然语言或斜杠命令）+ 周期（cron 表达式或间隔） | openmuse Goals、Octop Cron、OpenDots 后台回合、openbot Routines |
 | F13.2 | 服务端复用 hub task 状态机推进；调度元数据落 `schedules` 表（见 §4.3 `017_schedules.sql`） | — |
-| F13.3 | 首版为 **mock 调度器**：本地内存 ticker 触发，不依赖外部 cron 服务；真实 APScheduler 式调度标 `TODO(real)` | Octop APScheduler |
-| F13.4 | 主动推送：触发后生成会话消息/任务并走 F5 通知；失败指数退避 | openmuse 退避告警、Octop 主动推送 |
+| F13.3 | **已落地**：调度器为「Router 层 + Worker 层」双层结构。cron 到期 / 会话消息 / 渠道 webhook / 手动注入统一入 Trigger 队列并按去重键幂等；程序层规则（来源模式 `off\|candidate\|request_only`、发起者白名单、@提及、关键词、静默时段）先筛，候选再一拍批量一次语义判定（模型不可用时逐条回退规则，绝不放行）；通过的生成 Ticket 交 Worker 执行，复用 hub 任务状态机（`input-required` 即人工介入） | Octop APScheduler、dsh superagent router |
+| F13.4 | 主动推送：触发后生成会话消息/任务并走 F5 通知；失败按退避重试（默认 3 次，槽位上限 8） | openmuse 退避告警、Octop 主动推送 |
+| F13.5 | **已落地**：订阅直通——Ticket 与 Thread 多对多订阅，同一 Thread 后续事件直接扇出到已订阅 Worker（人类消息优先），支持退订、交回 Router（每条触发仅一次）、Ticket 结束时未读事件回流判定 | dsh superagent router |
+| F13.6 | **已落地**：控制台可视化——目标页显示「下次到期倒计时 / 该目标运行历史 / 最近触发流与队列水位」，标注判定结果并可跳转任务，提供立即运行、推进一拍、取消/交回操作；调度事件经 SSE 实时跟随并支持 `since` 回放 | Studio 试跑、observability 分层 |
 
 ### F14 技能与知识库
 
@@ -221,6 +226,18 @@
 | POST | `/api/schedules` | `tasks:write` | 新建目标/周期任务 |
 | PUT | `/api/schedules/{id}` | `tasks:write` | 启停/编辑调度 |
 | DELETE | `/api/schedules/{id}` | `tasks:write` | 删除调度 |
+| POST | `/api/schedules/{id}/run` | `tasks:write` | 立即触发一次（不等 cron 到点），返回 202 Trigger |
+| GET | `/api/router/stats` | `tasks:read` | 调度水位（待判定 / 运行中 / 待人工 / 本批数量 / 节拍） |
+| GET/POST | `/api/router/triggers` | `tasks:read` / `tasks:write` | 触发流列表（`source`/`disposition`/`thread`/`ticket`/`limit`）；手动注入，重复投递返回 200 `{duplicate:true}` |
+| GET | `/api/router/triggers/{id}` | `tasks:read` | 单条触发 + 判定 + 归属工单 |
+| GET | `/api/router/tickets` | `tasks:read` | 工单列表（`state`/`open`/`limit`） |
+| GET | `/api/router/tickets/{id}` | `tasks:read` | 工单详情（订阅 / 每次运行 / 判定 / 原始触发） |
+| POST | `/api/router/tickets/{id}/cancel` | `tasks:write` | 结束工单并停止其任务 |
+| POST | `/api/router/tickets/{id}/handback` | `tasks:write` | 交回一条触发（每条仅一次，否则 409） |
+| DELETE | `/api/router/threads/{id}/subscription` | `tasks:write` | 取消该会话上的全部订阅 |
+| GET/PUT | `/api/router/policies`、`/api/router/policies/{source}` | `tasks:read` / `tasks:write` | 读 / 改写各类来源的程序层规则 |
+| POST | `/api/router/passes` | `tasks:write` | 立即推进一拍 |
+| GET | `/api/router/events` | `tasks:read` | 调度事件流（SSE，`?since=<seq>&subject=`，先回放再实时） |
 
 > **F10 / F12 / F14 复用既有端点**：角色字段走 `POST/PUT /api/resources`（扩展 `persona`）、协作走
 > `GET/POST /api/threads*`（`origin` 015 已加列）、技能走既有 `kind=skill` 资源，**不新增端点**；知识库
@@ -237,9 +254,12 @@
 `connector_action_denied`、`connector_policy_off`、`audio_too_large`、`audio_unsupported`、
 `audio_transcribe_failed`、`speech_disabled`、`computer_not_found`、`computer_disabled`、
 `schedule_not_found`、`schedule_invalid`、`knowledge_unavailable`、`skill_distill_disabled`。
+调度器（F13）：`router_ticket_not_found`、`router_trigger_not_found`、`router_thread_not_found`（404）、
+`router_policy_invalid`（400）、`router_ticket_closed`、`router_handback_exhausted`、`router_resource_unset`（409）。
 
 登记三处：`internal/httputil/json.go` 的 `Code*` 常量、agentbuddy `web/src/lib/errors.js` 的
-`CODE_KEYS`、`web/src/lib/copy/errors-copy.js` 的 13 语。
+`CODE_KEYS`、`web/src/lib/copy/errors-copy.js` 的 13 语（调度器文案集中在
+`copy/scheduler-copy.js`，由这两张表合并进来）。
 
 ### 4.3 迁移（agenthub，幂等，编号接 `016` 之后）
 
@@ -270,6 +290,11 @@
 | 控制台 bundle 缺失 | 外壳显示 `consoleMissing`（不白屏） |
 | 计算机会话不存在/禁用 | 404 `computer_not_found` / 403 `computer_disabled`，视图回退到只读占位 |
 | 调度不存在/表达式非法 | 404 `schedule_not_found` / 400 `schedule_invalid`，前端内联提示 |
+| 调度器开关关闭（F13） | `/api/router/*` 与 `/api/schedules/{id}/run` 返回 503 `feature_unavailable`；目标页显示「调度器已关闭」灰字，不隐藏目标列表本身 |
+| 工单/触发/会话不存在（F13） | 404 `router_ticket_not_found` / `router_trigger_not_found` / `router_thread_not_found`，列表保留并内联提示 |
+| 工单已结束或交回次数用尽（F13） | 409 `router_ticket_closed` / `router_handback_exhausted`，按钮置灰而非弹窗 |
+| 路由规则非法（F13） | 400 `router_policy_invalid`，保留上一次成功保存的规则 |
+| 目标未配置执行者（F13） | 409 `router_resource_unset`，提示先去资源页指定 Worker |
 | 知识库不可用（mock 缺数据） | 503 `knowledge_unavailable`，建议降级为无上下文委派 |
 | 技能蒸馏未启用 | 403 `skill_distill_disabled`，仅记录触发点不产出技能 |
 
@@ -288,7 +313,7 @@
 10. 三平台 CI 产出 deb / dmg / msi 与 SHA256SUMS。
 11. 角色（F10）：新建 Agent 写入 `persona`（角色/指令/MBTI/头像），工作台与 Threads 正确渲染人格标签。
 12. Agent 计算机（F11）：`/api/computers` 返回 mock 会话与动作回显，视图不触发真实子进程/网络。
-13. 目标调度（F13）：创建周期任务，mock 调度器在本地 ticker 触发并生成会话消息，走 F5 通知。
+13. 目标调度（F13）：cron 保存即算出下次到期，到期后自动触发并回写最近运行时间 / 状态 / 下次到期；「立即运行」返回 202 Trigger，「推进一拍」触发一轮判定与派单；目标页可见水位（待判定 / 运行中 / 待人工 / 本批数量）、该目标运行历史与最近触发流，点击任务链接跳到 `/tasks/:id`；调度器关闭时相关区块显示灰字而非报错弹窗。
 14. 技能/知识库（F14）：`kind=skill` 资源可管理版本/共享；知识库查询返回 mock 片段（`knowledge_unavailable` 时降级）。
 15. 协作共享空间（F12）：会话内 `@mention` 派活与 Agent 自主认领均落 `thread_messages`（`origin` 标记来源）。
 16. 富结果（F15）：带证据的建议以会话消息卡片呈现，单色与 13 语文案完整。

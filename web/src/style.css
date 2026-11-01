@@ -1535,6 +1535,164 @@ audio {
   }
 }
 
+/* --------------------------------------------------------------- scheduler */
+
+/* The water level above the trigger stream. A single bordered grid rather than
+   five cards: the numbers are read together, and a row of separate boxes would
+   make them look like five unrelated facts. */
+.stats-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  padding: 1px;
+  border: 1px solid var(--stroke-1);
+  border-radius: var(--radius-sm);
+  background: var(--stroke-1);
+  overflow: hidden;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  background: var(--bg-surface);
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.schedule-row {
+  cursor: pointer;
+  transition: border-color var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+
+.schedule-row:hover {
+  border-color: var(--stroke-3);
+}
+
+.schedule-row.selected {
+  border-color: var(--stroke-3);
+  background: var(--accent-softer);
+}
+
+.chip-on {
+  border-color: var(--stroke-3);
+  color: var(--text-1);
+  background: var(--accent-soft);
+}
+
+/* A vertical rail of runs: the line is the goal, each node one ticket it opened. */
+.run-timeline {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.run-timeline::before {
+  content: '';
+  position: absolute;
+  inset-block: 10px;
+  inset-inline-start: 7px;
+  width: 1px;
+  background: var(--stroke-2);
+}
+
+.run-timeline .timeline-node {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-block-end: 1px solid var(--stroke-1);
+}
+
+.run-timeline .timeline-node:last-child {
+  border-block-end: none;
+}
+
+.timeline-dot {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin-block-start: 3px;
+  border: 1px solid var(--stroke-3);
+  border-radius: 999px;
+  background: var(--bg-surface);
+}
+
+.timeline-dot.live {
+  background: var(--accent);
+  animation: router-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes router-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.timeline-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.trigger-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trigger-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-block-end: 1px solid var(--stroke-1);
+  font-size: 12px;
+}
+
+.trigger-row:last-child {
+  border-block-end: none;
+}
+
+@media (max-width: 1279px) {
+  .stats-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .stats-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .trigger-row .mono {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

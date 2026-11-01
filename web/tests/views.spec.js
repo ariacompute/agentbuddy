@@ -16,6 +16,8 @@ import {
   runConnectorAction, listResources, listComputers, createComputer, listSchedules,
   createSchedule, updateSchedule,   updateResource, login, authConfig, whoami,
   logout, getDeliveries, request,
+  routerStats, listRouterTriggers, listRouterTickets, kickRouterPass, runSchedule,
+  cancelRouterTicket, handbackRouterTrigger,
 } from '../src/lib/api.js'
 
 import WorkspaceView from '../src/views/WorkspaceView.vue'
@@ -51,6 +53,13 @@ beforeEach(() => {
   listResources.mockResolvedValue({ resources: [] })
   listComputers.mockResolvedValue({ computers: [] })
   listSchedules.mockResolvedValue({ schedules: [] })
+  // The scheduler's three reads: the water level, the trigger stream and the
+  // tickets. Empty answers keep every screen's onMounted refresh quiet.
+  routerStats.mockResolvedValue({ pending: 0, runningTickets: 0, waiting: 0, batchSize: 0, passes: 0 })
+  listRouterTriggers.mockResolvedValue({ triggers: [] })
+  listRouterTickets.mockResolvedValue({ tickets: [] })
+  kickRouterPass.mockResolvedValue({ kicked: true })
+  runSchedule.mockResolvedValue({})
   login.mockResolvedValue({})
   authConfig.mockResolvedValue({})
   whoami.mockResolvedValue(null)
@@ -208,6 +217,112 @@ describe('SchedulesView', () => {
     const { wrapper } = mountWith(SchedulesView)
     await flushPromises()
     expect(wrapper.text()).toContain('Nightly')
+  })
+
+  it('shows the water level above the trigger stream', async () => {
+    routerStats.mockResolvedValue({ pending: 4, runningTickets: 2, waiting: 1, batchSize: 3, passes: 27 })
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+    const text = wrapper.text()
+    expect(text).toContain('4')
+    expect(text).toContain('27')
+    expect(wrapper.findAll('.stat')).toHaveLength(5)
+  })
+
+  it('renders the recent triggers with the verdict on each row', async () => {
+    listRouterTriggers.mockResolvedValue({
+      triggers: [
+        { id: 'trg-1', source: 'cron', body: 'nightly rollup', disposition: 'routed', ticketId: 'tkt-1', at: '2026-11-01T10:00:00Z' },
+        { id: 'trg-2', source: 'thread', body: 'thanks!', disposition: 'filtered', at: '2026-11-01T10:01:00Z' },
+      ],
+    })
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+    const rows = wrapper.findAll('.trigger-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].text()).toContain('Accepted')
+    expect(rows[1].text()).toContain('Filtered')
+  })
+
+  it('says the scheduler is off instead of showing a level of zero', async () => {
+    const off = new Error('off')
+    off.code = 'feature_unavailable'
+    routerStats.mockRejectedValue(off)
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+    expect(wrapper.text()).toContain('switched off')
+    expect(wrapper.findAll('.stat')).toHaveLength(0)
+  })
+
+  it('runs a goal now and refreshes the stream', async () => {
+    listSchedules.mockResolvedValue({ schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }] })
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+    const runBtn = wrapper.findAll('button').find((b) => b.text() === 'Run now')
+    expect(runBtn).toBeTruthy()
+    await runBtn.trigger('click')
+    await flushPromises()
+    expect(runSchedule).toHaveBeenCalledWith('s1')
+  })
+
+  it('shows the run history of the goal once it is selected', async () => {
+    listSchedules.mockResolvedValue({ schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }] })
+    listRouterTriggers.mockResolvedValue({
+      triggers: [{ id: 'trg-1', source: 'cron', sourceId: 's1', disposition: 'routed', ticketId: 'tkt-1', at: '2026-11-01T10:00:00Z' }],
+    })
+    listRouterTickets.mockResolvedValue({
+      tickets: [{ id: 'tkt-1', state: 'done', originTriggerId: 'trg-1', taskId: 'task-1', createdAt: '2026-11-01T10:00:00Z' }],
+    })
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+    await wrapper.find('.schedule-row').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.timeline-node')).toHaveLength(1)
+    expect(wrapper.text()).toContain('Run history')
+  })
+
+  it('offers cancel and hand back only while a run is in flight', async () => {
+    cancelRouterTicket.mockResolvedValue({})
+    handbackRouterTrigger.mockResolvedValue({ requeued: true })
+    listSchedules.mockResolvedValue({ schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }] })
+    listRouterTriggers.mockResolvedValue({
+      triggers: [{ id: 'trg-1', source: 'cron', sourceId: 's1', disposition: 'routed', ticketId: 'tkt-1', at: '2026-11-01T10:00:00Z' }],
+    })
+    listRouterTickets.mockResolvedValue({
+      tickets: [{ id: 'tkt-1', state: 'running', originTriggerId: 'trg-1', createdAt: '2026-11-01T10:00:00Z' }],
+    })
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+    await wrapper.find('.schedule-row').trigger('click')
+    await flushPromises()
+
+    const cancel = wrapper.findAll('button').find((b) => b.text() === 'Cancel')
+    const handback = wrapper.findAll('button').find((b) => b.text() === 'Hand back')
+    expect(cancel).toBeTruthy()
+    expect(handback).toBeTruthy()
+
+    await cancel.trigger('click')
+    await flushPromises()
+    expect(cancelRouterTicket).toHaveBeenCalledWith('tkt-1')
+
+    await handback.trigger('click')
+    await flushPromises()
+    expect(handbackRouterTrigger).toHaveBeenCalledWith('tkt-1', 'trg-1')
+  })
+
+  it('hides cancel once a run has finished', async () => {
+    listSchedules.mockResolvedValue({ schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }] })
+    listRouterTriggers.mockResolvedValue({
+      triggers: [{ id: 'trg-1', source: 'cron', sourceId: 's1', disposition: 'routed', ticketId: 'tkt-1', at: '2026-11-01T10:00:00Z' }],
+    })
+    listRouterTickets.mockResolvedValue({
+      tickets: [{ id: 'tkt-1', state: 'done', originTriggerId: 'trg-1', createdAt: '2026-11-01T10:00:00Z' }],
+    })
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+    await wrapper.find('.schedule-row').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('button').some((b) => b.text() === 'Cancel')).toBe(false)
   })
 })
 

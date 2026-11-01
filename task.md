@@ -294,5 +294,28 @@ inline 测试，但 `notify.rs`、`proxy/shell.rs`、`proxy/static_files.rs` 的
 - [x] `desktop/src-tauri/src/proxy/mod.rs`：新增集成测试 `resumes_the_session_after_a_restart`（两个共享同一 store 的代理实例验证会话跨「重启」存活）
 - [x] `cargo check --all-targets` 通过（无 warning/error）
 
+## M14 — 调度器落地（F13 由 mock 转为真实，2026-11）
+
+背景：F13 此前是 `mock 调度器 TODO(real)`。本轮 agenthub 新建 `internal/router`（Router 层判定 +
+Worker 层执行，双层调度），agentbuddy 把 `/schedules` 从「列表 + 启停」扩展成可观测的调度台。
+详见 agenthub `task.md` 的 M6。
+
+### 1. 接口与错误码
+- [x] `web/src/lib/api.js`：新增 `runSchedule`、`routerStats`、`listRouterTriggers`、`getRouterTrigger`、`listRouterTickets`、`getRouterTicket`、`cancelRouterTicket`、`handbackRouterTrigger`、`dropRouterSubscription`、`listRouterPolicies`、`saveRouterPolicy`、`kickRouterPass` + `subscribeRouterEvents`（SSE，`?since=` 回放）。
+- [x] `web/src/lib/errors.js` `CODE_KEYS` + `copy/scheduler-copy.js`：登记 7 个调度器码（ticket/trigger/thread 未找到、工单已结束、交回耗尽、规则非法、未配置执行者），13 语齐备。
+
+### 2. 视图（`SchedulesView.vue`）
+- [x] 「调度水位条」：待判定 / 运行中 / 待人工 / 本批数量 + 上次节拍时间，等宽数字、细分隔线，无彩色进度条。
+- [x] 「运行历史」时间线：时间、判定结果徽标、派发任务链接（`/tasks/:id`）、取消 / 交回操作。
+- [x] 「最近触发流」列表：时间、来源、摘要截断、判定徽标、工单状态。
+- [x] 「立即运行」（`202 Trigger`）与「推进一拍」（`202 kicked`）为主/次按钮对，44px 触控目标。
+- [x] 空态一行灰字 + 虚线框；加载骨架行；错误只显示本地化文案；调度器关闭时显示「调度器已关闭」灰字而非 503 报错。
+- [x] 单色守卫：六种判定徽标（accept / attach / ignored / filtered / unavailable / routed）全用边框 + 灰度填充 + 文字标签；`style.spec.js` 通过。
+
+### 3. 验证
+- [x] `web/tests/api.spec.js`：14 条 router 端点路径与错误映射（正常 + 异常）。
+- [x] `web/tests/views.spec.js`：SchedulesView 三区块挂载、空态、调度器关闭态。
+- [x] `bun run test`（325 用例）与 `bun run build` 全绿。
+
 注：本机测试二进制仍因 Tauri 原生依赖 DLL 入口缺失（`STATUS_ENTRYPOINT_NOT_FOUND`）无法启动（与 M7 同款
 环境问题，与本次测试代码无关），故测试仅编译验证通过、逻辑对齐既有会话测试。

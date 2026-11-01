@@ -1,6 +1,12 @@
 // Feature copy for the agent-capability screens added for F10-F16 (computers,
 // schedules, persona, knowledge, suggestions). One line per language.
-export const hubCopy = {
+//
+// The scheduler's own vocabulary lives in scheduler-copy.js and is folded in
+// below: the namespace the app resolves stays single, and the router's words stay
+// reviewable on their own.
+import { schedulerCopy, withCopy } from './scheduler-copy.js'
+
+const baseCopy = {
   en: { navComputers: 'Computers', navSchedules: 'Schedules', computersTitle: 'Agent computers', computersEmpty: 'No computers yet.', computerAttach: 'Attach', computerIdle: 'Idle', computerActive: 'Active', computerDisabled: 'Disabled', schedulesTitle: 'Goals & schedules', schedulesEmpty: 'No goals yet.', scheduleGoal: 'Goal', scheduleCron: 'Cron expression', scheduleEnabled: 'Enabled', scheduleNew: 'New goal', personaTitle: 'Agent persona', personaName: 'Display name', personaInstruction: 'Instructions', personaMbti: 'Personality (MBTI)', personaSave: 'Save persona', suggestionTitle: 'Suggestions', knowledgeTitle: 'Knowledge', knowledgeEmpty: 'No knowledge chunks yet.', featureOff: 'This server feature is switched off.' },
   zh: { navComputers: '计算机', navSchedules: '目标调度', computersTitle: 'Agent 计算机', computersEmpty: '暂无计算机。', computerAttach: '连接', computerIdle: '空闲', computerActive: '活动中', computerDisabled: '已停用', schedulesTitle: '目标与调度', schedulesEmpty: '暂无目标。', scheduleGoal: '目标', scheduleCron: 'Cron 表达式', scheduleEnabled: '已启用', scheduleNew: '新建目标', personaTitle: 'Agent 人格', personaName: '显示名称', personaInstruction: '指令', personaMbti: '性格（MBTI）', personaSave: '保存人格', suggestionTitle: '建议', knowledgeTitle: '知识库', knowledgeEmpty: '暂无知识片段。', featureOff: '该服务端功能已关闭。' },
   'zh-TW': { navComputers: '計算機', navSchedules: '目標排程', computersTitle: 'Agent 計算機', computersEmpty: '暫無計算機。', computerAttach: '連線', computerIdle: '閒置', computerActive: '活動中', computerDisabled: '已停用', schedulesTitle: '目標與排程', schedulesEmpty: '暫無目標。', scheduleGoal: '目標', scheduleCron: 'Cron 運算式', scheduleEnabled: '已啟用', scheduleNew: '新增目標', personaTitle: 'Agent 人格', personaName: '顯示名稱', personaInstruction: '指令', personaMbti: '性格（MBTI）', personaSave: '儲存人格', suggestionTitle: '建議', knowledgeTitle: '知識庫', knowledgeEmpty: '暫無知識片段。', featureOff: '此伺服器功能已關閉。' },
@@ -15,3 +21,5 @@ export const hubCopy = {
   ar: { navComputers: 'الحواسيب', navSchedules: 'الجدولات', computersTitle: 'حواسيب الوكيل', computersEmpty: 'لا توجد حواسيب بعد.', computerAttach: 'إرفاق', computerIdle: 'خامل', computerActive: 'نشط', computerDisabled: 'معطّل', schedulesTitle: 'الأهداف والجدولات', schedulesEmpty: 'لا توجد أهداف بعد.', scheduleGoal: 'الهدف', scheduleCron: 'تعبير cron', scheduleEnabled: 'مُفعّل', scheduleNew: 'هدف جديد', personaTitle: 'شخصية الوكيل', personaName: 'الاسم المعروض', personaInstruction: 'التعليمات', personaMbti: 'الشخصية (MBTI)', personaSave: 'حفظ الشخصية', suggestionTitle: 'اقتراحات', knowledgeTitle: 'المعرفة', knowledgeEmpty: 'لا توجد أجزاء معرفة بعد.', featureOff: 'هذه الميزة في الخادم معطّلة.' },
   hi: { navComputers: 'कंप्यूटर', navSchedules: 'अनुसूचियाँ', computersTitle: 'एजेंट के कंप्यूटर', computersEmpty: 'अभी कोई कंप्यूटर नहीं।', computerAttach: 'जोड़ें', computerIdle: 'निष्क्रिय', computerActive: 'सक्रिय', computerDisabled: 'अक्षम', schedulesTitle: 'लक्ष्य और अनुसूचियाँ', schedulesEmpty: 'अभी कोई लक्ष्य नहीं।', scheduleGoal: 'लक्ष्य', scheduleCron: 'Cron अभिव्यक्ति', scheduleEnabled: 'सक्षम', scheduleNew: 'नया लक्ष्य', personaTitle: 'एजेंट की पहचान', personaName: 'प्रदर्शित नाम', personaInstruction: 'निर्देश', personaMbti: 'व्यक्तित्व (MBTI)', personaSave: 'पहचान सहेजें', suggestionTitle: 'सुझाव', knowledgeTitle: 'ज्ञान', knowledgeEmpty: 'अभी कोई ज्ञान अंश नहीं।', featureOff: 'यह सर्वर सुविधा बंद है।' },
 }
+
+export const hubCopy = withCopy(baseCopy, schedulerCopy)

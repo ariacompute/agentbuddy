@@ -42,7 +42,8 @@ web/                        Vue 3 工作台（bun + vite）
   src/router.js             8 条路由 + 登录守卫
   src/style.css             唯一全局样式表（单色令牌 + 全站样式）
   src/lib/                  语言、copy、api、stores、monitor、notifications、voice
-  src/views/                8 屏
+  src/lib/copy/scheduler-copy.js  调度器文案（13 语，合并进 hub / errors 命名空间）
+  src/views/                8 屏（SchedulesView 含调度水位 / 运行历史 / 触发流三区块）
   src/components/           共享组件
   tests/                    Vitest（含 style 单色守卫、copy-fallback 13 语完整性）
 desktop/

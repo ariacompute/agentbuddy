@@ -109,13 +109,55 @@ export const getComputer = (id) => get(`/api/computers/${id}`)
 
 // ---- Schedules (F13) ----------------------------------------------------
 
-// `trigger` is 'cron' for periodic goals; the server stores cron_expr and runs a
-// mock scheduler. The first release does not depend on an external scheduler.
+// `trigger` is 'cron' for periodic goals. The server derives next_run from the
+// expression at save time; the router fires it when it comes due.
 export const listSchedules = () => get('/api/schedules')
 export const createSchedule = (goal, cronExpr, enabled) =>
   post('/api/schedules', { goal, trigger: 'cron', cronExpr, enabled })
 export const updateSchedule = (id, patch) => put(`/api/schedules/${id}`, patch)
 export const deleteSchedule = (id) => del(`/api/schedules/${id}`)
+
+/** Fires a goal now, whatever its expression says. It enters the router as a trigger. */
+export const runSchedule = (id) => post(`/api/schedules/${id}/run`)
+
+// ---- Router / scheduler ---------------------------------------------------
+
+const qs = (params) => {
+  const pairs = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+  if (pairs.length === 0) return ''
+  return `?${pairs.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')}`
+}
+
+/** The water level: queue depth, tickets in hand and the last batch size. */
+export const routerStats = () => get('/api/router/stats')
+export const listRouterTriggers = (params = {}) =>
+  get(`/api/router/triggers${qs(params)}`)
+export const getRouterTrigger = (id) => get(`/api/router/triggers/${id}`)
+export const listRouterTickets = (params = {}) => get(`/api/router/tickets${qs(params)}`)
+export const getRouterTicket = (id) => get(`/api/router/tickets/${id}`)
+export const cancelRouterTicket = (id) => post(`/api/router/tickets/${id}/cancel`)
+export const handbackRouterTrigger = (ticketId, triggerId, reason) =>
+  post(`/api/router/tickets/${ticketId}/handback`, { triggerId, reason })
+export const dropRouterSubscription = (threadId) =>
+  del(`/api/router/threads/${threadId}/subscription`)
+export const listRouterPolicies = () => get('/api/router/policies')
+export const saveRouterPolicy = (source, patch) =>
+  put(`/api/router/policies/${source}`, patch)
+/** Runs one scheduling beat now instead of waiting for the next tick. */
+export const kickRouterPass = () => post('/api/router/passes')
+
+/** Streams scheduler frames (replay from `since`, then live). */
+export function subscribeRouterEvents(since, handlers = {}) {
+  const q = since ? `?since=${encodeURIComponent(since)}` : ''
+  const source = new EventSource(`/api/router/events${q}`)
+  source.addEventListener('router_event', (ev) => {
+    if (handlers.event) handlers.event(JSON.parse(ev.data))
+  })
+  source.onerror = (err) => {
+    if (handlers.error) handlers.error(err)
+  }
+  return { close: () => source.close() }
+}
 
 // ---- Knowledge (F14, mock RAG) ------------------------------------------
 

@@ -41,6 +41,15 @@ import {
   createResource,
   updateResource,
   isAuthError,
+  runSchedule,
+  routerStats,
+  listRouterTriggers,
+  listRouterTickets,
+  cancelRouterTicket,
+  handbackRouterTrigger,
+  dropRouterSubscription,
+  saveRouterPolicy,
+  kickRouterPass,
 } from '../src/lib/api.js'
 
 let fetchMock
@@ -345,6 +354,50 @@ describe('F10–F16 api helpers', () => {
     await deleteSchedule('s1')
     expect(lastCall()[0]).toBe('/api/schedules/s1')
     expect(lastCall()[1].method).toBe('DELETE')
+  })
+
+  it('router helpers build the scheduler paths', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}))
+    await runSchedule('s1')
+    expect(lastCall()[0]).toBe('/api/schedules/s1/run')
+    expect(lastCall()[1].method).toBe('POST')
+
+    await routerStats()
+    expect(lastCall()[0]).toBe('/api/router/stats')
+
+    await listRouterTriggers({ source: 'cron', limit: 20 })
+    expect(lastCall()[0]).toBe('/api/router/triggers?source=cron&limit=20')
+
+    // Empty values are dropped rather than sent as `?disposition=`.
+    await listRouterTickets({ state: '', open: 'true' })
+    expect(lastCall()[0]).toBe('/api/router/tickets?open=true')
+
+    await cancelRouterTicket('t1')
+    expect(lastCall()[0]).toBe('/api/router/tickets/t1/cancel')
+    expect(lastCall()[1].method).toBe('POST')
+
+    await handbackRouterTrigger('t1', 'g1', 'not mine')
+    expect(lastCall()[0]).toBe('/api/router/tickets/t1/handback')
+    expect(JSON.parse(lastCall()[1].body)).toEqual({ triggerId: 'g1', reason: 'not mine' })
+
+    await dropRouterSubscription('th1')
+    expect(lastCall()[0]).toBe('/api/router/threads/th1/subscription')
+    expect(lastCall()[1].method).toBe('DELETE')
+
+    await saveRouterPolicy('thread', { mode: 'off' })
+    expect(lastCall()[0]).toBe('/api/router/policies/thread')
+    expect(lastCall()[1].method).toBe('PUT')
+
+    await kickRouterPass()
+    expect(lastCall()[0]).toBe('/api/router/passes')
+  })
+
+  it('router helpers surface the machine code on refusal', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ code: 'router_handback_exhausted' }, { status: 409, ok: false }))
+    await expect(handbackRouterTrigger('t1', 'g1')).rejects.toMatchObject({
+      code: 'router_handback_exhausted',
+      status: 409,
+    })
   })
 
   it('knowledge helper adds the agentId query only when present', async () => {

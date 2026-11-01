@@ -62,6 +62,16 @@ export const CODE_KEYS = {
   // wired in (computers / schedules / knowledge). Replaces computer_disabled and
   // knowledge_unavailable, which were split by feature.
   feature_unavailable: 'featureUnavailable',
+
+  // Scheduler. Each code names the guardrail that refused the command, so the
+  // console can explain rather than apologise.
+  router_ticket_not_found: 'routerTicketNotFound',
+  router_trigger_not_found: 'routerTriggerNotFound',
+  router_thread_not_found: 'routerThreadNotFound',
+  router_ticket_closed: 'routerTicketClosed',
+  router_handback_exhausted: 'routerHandbackExhausted',
+  router_policy_invalid: 'routerPolicyInvalid',
+  router_resource_unset: 'routerResourceUnset',
 }
 
 /** Returns the localised message for a machine readable code. */
