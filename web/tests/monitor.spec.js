@@ -234,4 +234,37 @@ describe('ActivityMonitor subscription upkeep', () => {
     m._touch('t1')
     expect(m.subscriptions.get('t1').lastSeen).toBeGreaterThan(1000)
   })
+
+  it('uses the default visibility probe and forwards the stream handlers', async () => {
+    getWorkspace.mockResolvedValue({ agents: [] })
+    listTasks.mockResolvedValue({ tasks: [{ id: 't1', status: { state: 'working' }, lastSeq: 4 }] })
+    const opened = []
+    subscribeTaskEvents.mockImplementation((id, seq, handlers) => {
+      opened.push({ id, seq, handlers })
+      return { close: vi.fn() }
+    })
+
+    const store = makeStore()
+    // No options: the monitor falls back to "the window is visible" and keeps the
+    // 5s cadence, which is the path the app itself takes.
+    const m = new ActivityMonitor(store)
+    m.start()
+    await flush()
+
+    expect(opened).toHaveLength(1)
+    // A resumed stream must replay from where the task left off, not from zero.
+    expect(opened[0].seq).toBe(4)
+
+    opened[0].handlers.status({ status: { state: 'working' }, note: 'updated' })
+    expect(store.tasks[0].note).toBe('updated')
+
+    // Artifact and error frames are only liveness signals: they refresh the
+    // bookkeeping so the LRU does not evict a stream that is still talking.
+    const before = m.subscriptions.get('t1').lastSeen
+    opened[0].handlers.artifact()
+    expect(m.subscriptions.get('t1').lastSeen).toBeGreaterThanOrEqual(before)
+    opened[0].handlers.error()
+
+    m.stop()
+  })
 })

@@ -136,6 +136,16 @@ describe('AudioPlayer', () => {
     expect(wrapper.find('audio').exists()).toBe(false)
     expect(wrapper.text()).toContain('—')
   })
+
+  it('shows an em dash for a file with neither uri nor bytes', () => {
+    // A declared audio file that carries no payload is not playable: a player with
+    // an empty src would look broken in a way the em dash explains.
+    const { wrapper } = mountWith(AudioPlayer, {
+      props: { part: { data: { file: { mimeType: 'audio/webm', name: 'clip' } } } },
+    })
+    expect(wrapper.find('audio').exists()).toBe(false)
+    expect(wrapper.text()).toContain('—')
+  })
 })
 
 describe('ArtifactList', () => {
@@ -166,6 +176,27 @@ describe('ArtifactList', () => {
     const a = wrapper.find('a')
     expect(a.exists()).toBe(true)
     expect(a.attributes('download')).toBeDefined()
+  })
+
+  it('inlines bytes when a file has no uri, and stays silent when it has neither', () => {
+    const { wrapper } = mountWith(ArtifactList, {
+      props: {
+        artifacts: [
+          { parts: [{ type: 'file', file: { name: 'a.png', mimeType: 'image/png', bytes: 'AA' } }] },
+          { parts: [{ type: 'file', file: { name: 'b.bin' } }] },
+        ],
+      },
+    })
+
+    const links = wrapper.findAll('a')
+    // No uri and bytes present: the bytes become a data: URI so the file is still
+    // downloadable without a round trip.
+    expect(links).toHaveLength(1)
+    expect(links[0].attributes('href')).toBe('data:image/png;base64,AA')
+    // Neither uri nor bytes: the row stays, but there is nothing to download, so
+    // no dead link is drawn.
+    expect(wrapper.findAll('.artifact')).toHaveLength(2)
+    expect(wrapper.text()).toContain('b.bin')
   })
 })
 
@@ -307,6 +338,34 @@ describe('VoiceRecorder', () => {
     expect(wrapper.find('button.voice-btn').exists()).toBe(false)
     expect(wrapper.text().toLowerCase()).toContain('available')
   })
+
+  it('asks the browser for the microphone when the button is pressed', async () => {
+    class FakeRecorder {
+      static isTypeSupported() { return true }
+      constructor() { this.state = 'inactive'; this.mimeType = 'audio/webm' }
+      start() { this.state = 'recording' }
+      stop() { this.state = 'inactive'; this.onstop?.() }
+    }
+    const track = { stop: vi.fn() }
+    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [track] })
+    vi.stubGlobal('MediaRecorder', FakeRecorder)
+    Object.defineProperty(navigator, 'mediaDevices', {
+      value: { getUserMedia },
+      configurable: true,
+    })
+
+    const { wrapper } = mountWith(VoiceRecorder, { props: { threadId: 't1' } })
+    const button = wrapper.find('button.voice-btn')
+    expect(button.exists()).toBe(true)
+
+    await button.trigger('click')
+    await flushPromises()
+
+    // The wrapper exists so the permission prompt happens on a click, never on
+    // mount; a mount alone must leave the microphone untouched.
+    expect(getUserMedia).toHaveBeenCalledWith({ audio: true })
+    expect(getUserMedia).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('ConnectionBanner', () => {
@@ -365,6 +424,17 @@ describe('NotificationCenter', () => {
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/tasks/1')
   })
+
+  it('says there is nothing yet when the panel opens empty', async () => {
+    const { wrapper } = mountWith(NotificationCenter)
+    await wrapper.find('.btn-icon').trigger('click')
+
+    // An empty panel gets a sentence rather than a blank box, and no bell dot is
+    // drawn for a count of zero.
+    expect(wrapper.find('.notif-center').exists()).toBe(true)
+    expect(wrapper.text().trim().length).toBeGreaterThan(0)
+    expect(wrapper.find('.notif-dot').exists()).toBe(false)
+  })
 })
 
 describe('ApprovalCard', () => {
@@ -385,6 +455,38 @@ describe('ApprovalCard', () => {
     await wrapper.findAll('button')[1].trigger('click')
     await flushPromises()
     expect(cancelTask).toHaveBeenCalledWith('t2')
+  })
+
+  it('swallows a refused approval instead of leaving a rejected promise', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    resumeTask.mockRejectedValue({ code: 'task_not_found' })
+    const { wrapper } = mountWith(ApprovalCard, {
+      props: { task: { id: 't3', resourceId: 'A', status: { state: 'input-required' } } },
+    })
+
+    await wrapper.findAll('button')[0].trigger('click')
+    await flushPromises()
+
+    // The card stays on screen: the task list is the source of truth and will
+    // drop it once the poll confirms the state.
+    expect(wrapper.find('.card').exists()).toBe(true)
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+
+  it('swallows a refused rejection too', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    cancelTask.mockRejectedValue({ code: 'task_not_found' })
+    const { wrapper } = mountWith(ApprovalCard, {
+      props: { task: { id: 't4', resourceId: 'A', status: { state: 'input-required' } } },
+    })
+
+    await wrapper.findAll('button')[1].trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.card').exists()).toBe(true)
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
   })
 })
 
@@ -431,6 +533,36 @@ describe('ConnectorCard', () => {
     await wrapper.find('button.btn-primary').trigger('click')
     await flushPromises()
     expect(runConnectorAction).toHaveBeenCalledWith('k1', 'send', {})
+  })
+
+  it('saves a new policy and re-reads the connector list', async () => {
+    setConnectorPolicy.mockResolvedValue({})
+    listConnectors.mockResolvedValue({ connectors: [] })
+    const { wrapper } = mountWith(ConnectorCard, {
+      props: { connector: { id: 'k1', name: 'Twilio', policy: 'off' } },
+    })
+
+    wrapper.findComponent(PolicySelect).vm.$emit('change', 'allowed')
+    await flushPromises()
+
+    expect(setConnectorPolicy).toHaveBeenCalledWith('k1', 'allowed')
+    expect(listConnectors).toHaveBeenCalled()
+  })
+
+  it('refuses to run an action whose arguments are not JSON', async () => {
+    runConnectorAction.mockClear()
+    const { wrapper } = mountWith(ConnectorCard, {
+      props: { connector: { id: 'k1', name: 'Twilio', policy: 'allowed' } },
+    })
+
+    await wrapper.findAll('input')[0].setValue('send')
+    // A typo in the arguments box must not reach the server as `undefined`.
+    await wrapper.findAll('input')[1].setValue('{ bad json')
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(runConnectorAction).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('The action could not be started.')
   })
 })
 

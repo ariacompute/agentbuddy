@@ -73,7 +73,7 @@ desktop/
 - **测试**：`cd web && bun run test`（Vitest）。**勿用裸 `bun test`**（Bun 原生 runner 不加载
   `vitest.config.js`，无 jsdom 环境）。新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`），
-  当前基线：语句/行 99%、分支 84%、函数 85%；回落时先看报告里的未覆盖行再补用例。
+  当前基线：语句/行 99.9%、分支 87%、函数 92%；回落时先看报告里的未覆盖行再补用例。
 
 ### 桌面外壳（desktop/）
 

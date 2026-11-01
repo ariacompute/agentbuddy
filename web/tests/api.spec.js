@@ -51,6 +51,11 @@ import {
   dropRouterSubscription,
   saveRouterPolicy,
   kickRouterPass,
+  getRouterTrigger,
+  getRouterTicket,
+  listRouterPolicies,
+  getConnectorActions,
+  deleteComputer,
   sandboxStats,
   listSandboxes,
   getSandbox,
@@ -118,6 +123,16 @@ describe('api client', () => {
       text: async () => '',
     })
     await expect(request('/api/x')).rejects.toMatchObject({ code: '500' })
+  })
+
+  it('returns null when a successful response is not JSON', async () => {
+    // A proxy or a static-file fallback can answer 200 with HTML; treating that as
+    // an object would push `undefined.x` errors into every caller.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    fetchMock.mockResolvedValue({ ok: true, status: 200, text: async () => '<html>nope</html>' })
+    expect(await request('/api/x')).toBeNull()
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
   })
 
   it('serialises a JSON body for post and omits it when undefined', async () => {
@@ -366,6 +381,26 @@ describe('api endpoint helpers', () => {
     handle.close()
     expect(src.closed).toBe(true)
   })
+
+  it('subscribeTaskEvents reports a stream error so the trace can reconnect', () => {
+    const handlers = { status: vi.fn(), error: vi.fn() }
+    subscribeTaskEvents('t1', 0, handlers)
+    const err = new Error('stream dropped')
+    FakeEventSource.last.onerror(err)
+    expect(handlers.error).toHaveBeenCalledWith(err)
+  })
+
+  it('subscribeTaskEvents keeps working when a handler is not supplied', () => {
+    // Only status is watched: the other three listeners must simply not be wired,
+    // rather than being registered as undefined and throwing on the first frame.
+    const status = vi.fn()
+    subscribeTaskEvents('t1', 0, { status })
+    const src = FakeEventSource.last
+    emit(src, 'task_status_update', { s: 2 })
+    expect(status).toHaveBeenCalledWith({ s: 2 })
+    expect(src._listeners.task_artifact_update).toBeUndefined()
+    expect(src._listeners.message).toBeUndefined()
+  })
 })
 
 describe('F10–F16 api helpers', () => {
@@ -390,6 +425,28 @@ describe('F10–F16 api helpers', () => {
 
     await getComputer('c1')
     expect(lastCall()[0]).toBe('/api/computers/c1')
+
+    await deleteComputer('c1')
+    expect(lastCall()[0]).toBe('/api/computers/c1')
+    expect(lastCall()[1].method).toBe('DELETE')
+  })
+
+  it('router detail and policy helpers name their resource', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}))
+
+    await getRouterTrigger('trg-1')
+    expect(lastCall()[0]).toBe('/api/router/triggers/trg-1')
+
+    await getRouterTicket('tkt-1')
+    expect(lastCall()[0]).toBe('/api/router/tickets/tkt-1')
+
+    await listRouterPolicies()
+    expect(lastCall()[0]).toBe('/api/router/policies')
+
+    // A connector's action catalogue is a read; running one is a POST.
+    await getConnectorActions('k1')
+    expect(lastCall()[0]).toBe('/api/connectors/k1/actions')
+    expect(lastCall()[1].method).toBe('GET')
   })
 
   it('sandbox helpers build the control-plane paths', async () => {

@@ -28,6 +28,14 @@ describe('use-copy', () => {
     expect(detectLang('', { getItem: () => 'zz' })).toBe('en')
   })
 
+  it('detectLang survives an environment without navigator', () => {
+    // The resolver also runs in non-browser contexts (tests, prerender); touching
+    // navigator unguarded would throw there instead of falling back to English.
+    vi.stubGlobal('navigator', undefined)
+    expect(detectLang('', null)).toBe('en')
+    vi.unstubAllGlobals()
+  })
+
   it('enumLabel returns the localised label or the raw value', () => {
     expect(taskStateLabel('working')).toBeTruthy()
     expect(enumLabel('taskState', 'missing')).toBe('missing')

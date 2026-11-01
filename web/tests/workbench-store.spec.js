@@ -123,6 +123,44 @@ describe('workbench-store', () => {
       expect(s.errorCode).toBe('service_unavailable')
     })
 
+    it('records the code from a failed task, channel or connector refresh', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const s = useWorkbenchStore()
+
+      listTasks.mockRejectedValue({ code: 'tasks_down' })
+      await s.refreshTasks()
+      expect(s.errorCode).toBe('tasks_down')
+
+      listChannels.mockRejectedValue({ code: 'channels_down' })
+      await s.refreshChannels()
+      expect(s.errorCode).toBe('channels_down')
+
+      listConnectors.mockRejectedValue({ code: 'connectors_down' })
+      await s.refreshConnectors()
+      expect(s.errorCode).toBe('connectors_down')
+
+      consoleError.mockRestore()
+    })
+
+    it('keeps the channel list when only one delivery read fails', async () => {
+      // One unreadable delivery history must not blank the whole screen: the
+      // channel stays, its deliveries simply stay empty.
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      listChannels.mockResolvedValue({ channels: [{ id: 'c1' }, { id: 'c2' }] })
+      getDeliveries.mockImplementation(async (id) => {
+        if (id === 'c1') throw { code: 'deliveries_down' }
+        return { deliveries: [{ id: 'd1' }] }
+      })
+      const s = useWorkbenchStore()
+      await s.refreshChannels()
+
+      expect(s.channels).toHaveLength(2)
+      expect(s.deliveries.c1).toBeUndefined()
+      expect(s.deliveries.c2).toEqual([{ id: 'd1' }])
+      expect(s.errorCode).toBeNull()
+      consoleError.mockRestore()
+    })
+
     it('marks authExpired on a 401 but offline on a connectivity failure', async () => {
       const s = useWorkbenchStore()
       isAuthError.mockReturnValue(true)

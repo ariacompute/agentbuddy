@@ -430,6 +430,17 @@ agentbuddy 把「计算机」屏从三张空卡片升级为**执行环境控制�
   原因、在线状态、关闭不确认、四字段保存与 key 不回显、最近拒绝原因本地化）。
 - [x] `web/tests/api.spec.js`：sandbox 十个端点的路径/方法/请求体，以及 `subscribeSandboxEvents` 的
   `?since=` 回放、事件名、错误回调与 `close()`；另有首次连接不带 query 的用例。
-- [x] `bun run test` 420 用例（原 401）全绿；`bun run test:coverage` 语句/行 99.06%、分支 84.69%、
-  函数 85.95%（补测前 98.37% / 82.18% / 79.82%，本轮回落到基线以下已补齐）；`bun run build` 通过。
-- [x] `cargo check --all-targets` + `cargo test --no-run` 通过（本机仍无法运行测试二进制，同 M7/M14/M15）。
+- [x] 覆盖率补测（M16 收尾，本轮新增 42 条）：空白载荷与「无 code 失败」两条路径覆盖四视图的 `?.`/`||`
+  回退；`ComputersView` 审计读取失败与终止被拒；`SchedulesView` 撤销交回/推进节拍被拒、天数倒计时、
+  未知工单状态原样回退、目标列表读取失败；`TaskTraceView` 读取失败、实时 status/artifact 帧、resume 续接；
+  `ThreadView` 提及按钮与去重后的流帧；`ThreadListView` 创建后跳转；`TaskTraceView`/`ThreadView` 的 SSE
+  错误与处理器缺省；`ChannelsView` 重试被拒；`components.spec.js` 审批拒绝、连接器策略保存与非法 JSON、
+  工件 bytes/无 uri 与「都缺」、音频缺载荷、通知空态、录音组件取麦；`voice.spec.js` 不支持/被拒/空 chunk
+  与 reset；`monitor.spec.js` 缺省可见性探针与三个流处理器；`workbench-store.spec.js` 三类刷新失败与单条
+  投递读取失败；`use-copy.spec.js` 无 navigator 回落。
+- [x] `bun run test` 462 用例（原 420）全绿；`bun run test:coverage` 语句/行 99.98%、分支 87.93%、
+  函数 92.55%（补测前 99.06% / 84.69% / 85.95%）；唯一未覆盖语句是 `notifications.js:57` 的
+  不可达分支（静默窗口 30s < 幂等窗口 1h，前置判断已先返回）；`bun run build` 通过。
+- [x] `executor/tests.rs` 新增 2 条（`unix_seconds` 为墙钟秒、停机可中断长等待），Rust 侧共 120 条。
+- [x] `cargo check --all-targets` + `cargo test --no-run` 通过（本机仍无法运行测试二进制：0xc0000139
+  `STATUS_ENTRYPOINT_NOT_FOUND`，补齐 x64 `WebView2Loader.dll` 后仍复现，属宿主限制，同 M7/M14/M15）。

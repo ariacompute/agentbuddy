@@ -199,6 +199,37 @@ fn the_display_name_is_never_empty() {
     assert!(!name.trim().is_empty());
 }
 
+#[test]
+fn the_clock_is_wall_time_in_seconds() {
+    let before = unix_seconds();
+    let after = unix_seconds();
+    // A monotonic counter or an uptime would break every `last_seen` the server
+    // compares against its own clock.
+    assert!(before > 1_700_000_000, "the clock must be wall time, not an uptime");
+    assert!(after >= before);
+}
+
+#[tokio::test]
+async fn switching_the_node_off_interrupts_a_pending_wait() {
+    // The loop parks between polls. Switching the node off must return at once
+    // rather than waiting the interval out, or the window would look unresponsive
+    // for the rest of that window.
+    let (stop_tx, mut stop_rx) = tokio::sync::watch::channel(false);
+    let waiter = tokio::spawn(async move {
+        let started = std::time::Instant::now();
+        let stopped = sleep_or_stop(&mut stop_rx, std::time::Duration::from_secs(30)).await;
+        (stopped, started.elapsed())
+    });
+
+    stop_tx.send(true).unwrap();
+    let (stopped, elapsed) = waiter.await.unwrap();
+    assert!(stopped, "the wait must report that it was cut short");
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "stopping must not wait for the timer: {elapsed:?}"
+    );
+}
+
 #[tokio::test]
 async fn only_exec_reaches_the_spawn() {
     let root = scratch();

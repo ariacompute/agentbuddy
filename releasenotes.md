@@ -125,7 +125,7 @@ The node lives in the Rust process. The web view only reads its state through
   the recorder, plus a suite per view (filters, budget, persona switching,
   goal create/toggle/delete, schedule water level and countdown, channel
   create/delete/retry, the execution-environment console and its lease actions,
-  sign-in). 420 cases, all offline.
+  sign-in). 462 cases, all offline.
 - `bun run test:coverage` (v8, `make web-coverage`) reports 99% of statements,
   84% of branches and 85% of functions.
 - `cargo test` covers the proxy, config (language fallback, per-server session

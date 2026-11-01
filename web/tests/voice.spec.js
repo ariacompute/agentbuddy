@@ -91,4 +91,46 @@ describe('createRecorder', () => {
     await flush()
     expect(rec.state).toBe(VoiceState.Error)
   })
+
+  it('stays unavailable when start is pressed without browser APIs', () => {
+    const onState = vi.fn()
+    const rec = createRecorder({ onState })
+    rec.start()
+    // Nothing to record with: the state is re-announced so the button can explain
+    // itself instead of looking like a click that did nothing.
+    expect(onState).toHaveBeenCalledWith(VoiceState.Unavailable, undefined)
+    expect(rec.state).toBe(VoiceState.Unavailable)
+  })
+
+  it('reports unavailable when the microphone is denied', async () => {
+    const m = makeMocks()
+    m.getUserMedia = vi.fn().mockRejectedValue(new Error('NotAllowedError'))
+    const rec = createRecorder(m)
+    rec.start()
+    await flush()
+    expect(rec.state).toBe(VoiceState.Unavailable)
+    expect(m.onState).toHaveBeenLastCalledWith(VoiceState.Unavailable, { ok: false })
+  })
+
+  it('collects only non-empty chunks and reset releases the microphone', async () => {
+    const m = makeMocks()
+    const track = { stop: vi.fn() }
+    m.stream.getTracks = () => [track]
+    const rec = createRecorder(m)
+    rec.start()
+    await flush()
+
+    // An empty or absent blob carries no audio and must not reach the upload.
+    m.recorder.ondataavailable({ data: { size: 0 } })
+    m.recorder.ondataavailable({})
+    m.recorder.ondataavailable({ data: { size: 12 } })
+
+    rec.reset()
+    expect(rec.state).toBe(VoiceState.Idle)
+    expect(track.stop).toHaveBeenCalled()
+
+    // After a reset the recorder is idle again, so a late stop does nothing.
+    rec.stop()
+    expect(m.upload).not.toHaveBeenCalled()
+  })
 })

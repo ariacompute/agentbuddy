@@ -21,6 +21,7 @@ import {
   sandboxStats, listSandboxes, listSandboxProviders, listSandboxNodes,
   getSandbox, execSandbox, renewSandbox, terminateSandbox, refreshSandboxProviders,
   subscribeSandboxEvents,
+  subscribeTaskEvents, subscribeThreadEvents, retryDelivery,
 } from '../src/lib/api.js'
 import { errorMessage } from '../src/lib/errors.js'
 
@@ -40,6 +41,7 @@ import LoginView from '../src/views/LoginView.vue'
 import TaskCard from '../src/components/TaskCard.vue'
 import ConnectorCard from '../src/components/ConnectorCard.vue'
 import ApprovalCard from '../src/components/ApprovalCard.vue'
+import ChannelCard from '../src/components/ChannelCard.vue'
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
@@ -171,6 +173,56 @@ describe('TaskTraceView', () => {
       expect(cancelTask).toHaveBeenCalledWith('t1')
     }
   })
+
+  it('says the task does not exist when the load is refused', async () => {
+    getTask.mockRejectedValue(Object.assign(new Error('nope'), { code: 'not_found' }))
+    const { wrapper } = mountWith(TaskTraceView, { props: { id: 'gone' } })
+    await flushPromises()
+
+    // A missing task is not an empty trace: the screen says so instead of showing
+    // a timeline with no steps.
+    expect(wrapper.text()).toContain('That task does not exist, or you cannot see it.')
+  })
+
+  it('follows live status and artifact frames', async () => {
+    let handlers = null
+    subscribeTaskEvents.mockImplementation((id, since, hs) => {
+      handlers = hs
+      return { close: vi.fn() }
+    })
+    const { wrapper } = mountWith(TaskTraceView, { props: { id: 't1' } })
+    await flushPromises()
+    expect(handlers).toBeTruthy()
+
+    handlers.status({ status: { state: 'completed' } })
+    await nextTick()
+    expect(wrapper.find('.state-dot').attributes('data-state')).toBe('completed')
+
+    handlers.artifact({ artifacts: [{ parts: [{ type: 'text', text: 'fresh output' }] }] })
+    await nextTick()
+    expect(wrapper.text()).toContain('fresh output')
+  })
+
+  it('resumes a parked task with the typed answer', async () => {
+    getTask.mockResolvedValue({
+      id: 't1',
+      resourceId: 'A',
+      status: { state: 'input-required' },
+      artifacts: [],
+      spans: [],
+    })
+    resumeTask.mockResolvedValue({})
+    const { wrapper } = mountWith(TaskTraceView, { props: { id: 't1' } })
+    await flushPromises()
+
+    await wrapper.find('textarea').setValue('go ahead')
+    await wrapper.findAll('button').find((b) => b.text().includes('Send answer')).trigger('click')
+    await flushPromises()
+
+    expect(resumeTask).toHaveBeenCalledWith('t1', 'go ahead')
+    // The answer is consumed: leaving it in the box would send it twice.
+    expect(wrapper.find('textarea').element.value).toBe('')
+  })
 })
 
 describe('ThreadListView', () => {
@@ -192,6 +244,26 @@ describe('ThreadListView', () => {
       expect(createThread).toHaveBeenCalled()
     }
   })
+
+  it('opens the thread it just created', async () => {
+    // The dialog is stubbed so the form renders inline; the point here is where a
+    // successful create lands, not how BaseDialog teleports.
+    const stubs = {
+      BaseDialog: { props: ['modelValue'], template: '<div class="dialog-stub"><slot /><slot name="footer" /></div>' },
+    }
+    createThread.mockResolvedValue({ thread: { id: 'new-1' } })
+    const { wrapper, router } = mountWith(ThreadListView, { stubs })
+    await flushPromises()
+
+    await wrapper.find('button.btn-primary').trigger('click')
+    await nextTick()
+    await wrapper.find('.dialog-stub input').setValue('Kickoff')
+    await wrapper.findAll('.dialog-stub button').find((b) => b.text() === 'Create').trigger('click')
+    await flushPromises()
+
+    expect(createThread).toHaveBeenCalledWith('Kickoff')
+    expect(router.currentRoute.value.fullPath).toBe('/threads/new-1')
+  })
 })
 
 describe('ThreadView', () => {
@@ -210,6 +282,56 @@ describe('ThreadView', () => {
         expect(postThreadMessage).toHaveBeenCalled()
       }
     }
+  })
+})
+
+describe('ThreadView mentions and live frames', () => {
+  it('appends an @ to the draft so the browser picker can take over', async () => {
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    await wrapper.find('textarea').setValue('ask ')
+    await wrapper.find('button.voice-btn').trigger('click')
+    await nextTick()
+
+    // A trailing space is kept so the added `@` stays a separate token.
+    expect(wrapper.find('textarea').element.value).toBe('ask  @')
+  })
+
+  it('does not start a draft with whitespace when the mention comes first', async () => {
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    await wrapper.find('button.voice-btn').trigger('click')
+    await nextTick()
+
+    // `' @'.trimStart()` is `'@'`: the composer must not open with a space that
+    // would make the mention look like plain text.
+    expect(wrapper.find('textarea').element.value).toBe('@')
+  })
+
+  it('appends streamed messages once and ignores duplicates', async () => {
+    let handlers = null
+    subscribeThreadEvents.mockImplementation((id, hs) => {
+      handlers = hs
+      return { close: vi.fn() }
+    })
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+    expect(handlers).toBeTruthy()
+
+    handlers.message({ ID: 'm1', AuthorType: 'user', Body: 'hello from the stream' })
+    await nextTick()
+    expect(wrapper.text()).toContain('hello from the stream')
+
+    // The same frame arriving twice (a reconnect replay) must not duplicate it.
+    handlers.message({ ID: 'm1', AuthorType: 'user', Body: 'hello from the stream' })
+    await nextTick()
+    expect(wrapper.findAll('.msg')).toHaveLength(1)
+
+    handlers.agent({ ID: 'm2', AuthorType: 'agent', Body: 'agent reply' })
+    await nextTick()
+    expect(wrapper.text()).toContain('agent reply')
   })
 })
 
@@ -307,6 +429,23 @@ describe('ChannelsView', () => {
     await flushPromises()
 
     expect(retryDelivery).toHaveBeenCalledWith('c1', 'd1')
+  })
+
+  it('reports a rejected retry instead of leaving an unhandled rejection', async () => {
+    retryDelivery.mockRejectedValue(Object.assign(new Error('nope'), { code: 'channel_not_found' }))
+    listChannels.mockResolvedValue({ channels: [{ id: 'c1', name: 'Slack', kind: 'slack', enabled: true }], deliveries: {} })
+    getDeliveries.mockResolvedValue({
+      deliveries: [{ id: 'd1', status: 'failed', errorCode: 'delivery_failed', at: '2026-11-01T10:00:00Z' }],
+    })
+    const { wrapper } = mountWith(ChannelsView)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text().includes('Deliveries')).trigger('click')
+    await nextTick()
+    await wrapper.find('button[aria-label="Try again"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('channel_not_found'))
   })
 
   it('offers no retry for a delivery that already arrived', async () => {
@@ -550,6 +689,33 @@ describe('ComputersView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain(errorMessage('sandbox_unsupported'))
+  })
+
+  it('shows the plain message when a refused lease carries no code', async () => {
+    createComputer.mockRejectedValue(new Error('the server refused the request'))
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'New execution environment').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('.dialog-stub button').find((b) => b.text() === 'Lease it').trigger('click')
+    await flushPromises()
+
+    // Not every failure is a translated code: an unexpected one still has to reach
+    // the operator rather than vanish into a generic banner.
+    expect(wrapper.text()).toContain('the server refused the request')
+  })
+
+  it('survives empty payloads and says no environment is leased', async () => {
+    sandboxStats.mockResolvedValue(null)
+    listSandboxes.mockResolvedValue({})
+    listSandboxProviders.mockResolvedValue(null)
+    listSandboxNodes.mockResolvedValue({})
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    expect(wrapper.find('.banner-error').exists()).toBe(false)
+    expect(wrapper.text()).toContain('No environment is leased right now.')
   })
 
   it('renews a lease and reloads the console behind it', async () => {
@@ -802,6 +968,34 @@ describe('ComputersView', () => {
     wrapper.unmount()
     expect(close).toHaveBeenCalled()
   })
+
+  it('keeps the lease and says why its audit could not be read', async () => {
+    getSandbox.mockRejectedValue(Object.assign(new Error('gone'), { code: 'sandbox_lease_lost' }))
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    await wrapper.find('.lease-card').trigger('click')
+    await flushPromises()
+
+    // A lease that vanished between the list read and the drawer read is still
+    // shown: the operator needs the id to report, not an empty drawer.
+    expect(wrapper.find('.drawer').exists()).toBe(true)
+    expect(wrapper.text()).toContain(errorMessage('sandbox_lease_lost'))
+  })
+
+  it('keeps the lease on screen when termination is refused', async () => {
+    terminateSandbox.mockRejectedValue(Object.assign(new Error('nope'), { code: 'sandbox_lease_lost' }))
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    await wrapper.findAll('.lease-card button').find((b) => b.text() === 'Terminate').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('.dialog-stub button').find((b) => b.text() === 'Terminate').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('sandbox_lease_lost'))
+    expect(wrapper.findAll('.lease-card')).toHaveLength(1)
+  })
 })
 
 describe('SchedulesView', () => {
@@ -903,6 +1097,49 @@ describe('SchedulesView', () => {
     await handback.trigger('click')
     await flushPromises()
     expect(handbackRouterTrigger).toHaveBeenCalledWith('tkt-1', 'trg-1')
+  })
+
+  it('reports a refused hand back, and a refused beat', async () => {
+    handbackRouterTrigger.mockRejectedValue(new Error('that trigger was already handed back'))
+    listSchedules.mockResolvedValue({ schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }] })
+    listRouterTriggers.mockResolvedValue({
+      triggers: [{ id: 'trg-1', source: 'cron', sourceId: 's1', disposition: 'routed', ticketId: 'tkt-1', at: '2026-11-01T10:00:00Z' }],
+    })
+    listRouterTickets.mockResolvedValue({
+      tickets: [{ id: 'tkt-1', state: 'running', originTriggerId: 'trg-1', createdAt: '2026-11-01T10:00:00Z' }],
+    })
+    const first = mountWith(SchedulesView)
+    await flushPromises()
+    await first.wrapper.find('.schedule-row').trigger('click')
+    await flushPromises()
+    await first.wrapper.findAll('button').find((b) => b.text() === 'Hand back').trigger('click')
+    await flushPromises()
+
+    // A plain error has no code, so the message is what the operator gets.
+    expect(first.wrapper.text()).toContain('that trigger was already handed back')
+    first.wrapper.unmount()
+
+    kickRouterPass.mockRejectedValue(new Error('the beat is already running'))
+    const second = mountWith(SchedulesView)
+    await flushPromises()
+    await second.wrapper.findAll('button').find((b) => b.text() === 'Run a pass').trigger('click')
+    await flushPromises()
+
+    expect(second.wrapper.text()).toContain('the beat is already running')
+  })
+
+  it('renders the empty goal list and an empty router feed', async () => {
+    listSchedules.mockResolvedValue({})
+    routerStats.mockResolvedValue({})
+    listRouterTriggers.mockResolvedValue({})
+    listRouterTickets.mockResolvedValue({})
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    // A server that answers with `{}` is healthy but empty: the screen shows its
+    // empty states rather than throwing on `undefined.map`.
+    expect(wrapper.text()).toContain('No goals yet.')
+    expect(wrapper.text()).not.toContain('switched off')
   })
 
   it('creates a goal from the form and reloads the list', async () => {
@@ -1027,6 +1264,128 @@ describe('SchedulesView', () => {
     await wrapper.find('.schedule-row').trigger('click')
     await flushPromises()
     expect(wrapper.findAll('button').some((b) => b.text() === 'Cancel')).toBe(false)
+  })
+
+  it('asks for a scheduling beat and refreshes the stream behind it', async () => {
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+    listRouterTriggers.mockClear()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Run a pass').trigger('click')
+    await flushPromises()
+
+    expect(kickRouterPass).toHaveBeenCalled()
+    // The beat may have moved a trigger, so the water level and the stream are
+    // re-read rather than left showing the pre-beat numbers.
+    expect(listRouterTriggers).toHaveBeenCalled()
+  })
+
+  it('keeps the goal form open and explains a rejected save', async () => {
+    createSchedule.mockRejectedValue(Object.assign(new Error('no'), { code: 'schedule_invalid' }))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    await wrapper.findAll('input')[0].setValue('Nightly')
+    await wrapper.findAll('button').find((b) => b.text() === 'New goal').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('schedule_invalid'))
+  })
+
+  it('reports a rejected toggle instead of flipping the chip anyway', async () => {
+    listSchedules.mockResolvedValue({
+      schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }],
+    })
+    updateSchedule.mockRejectedValue(Object.assign(new Error('no'), { code: 'schedule_invalid' }))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    await wrapper.findAll('.schedule-row button').find((b) => b.text() === 'Enabled').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('schedule_invalid'))
+  })
+
+  it('reports a rejected delete', async () => {
+    listSchedules.mockResolvedValue({
+      schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }],
+    })
+    deleteSchedule.mockRejectedValue(Object.assign(new Error('no'), { code: 'schedule_not_found' }))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    await wrapper.findAll('.schedule-row button').find((b) => b.text() === '×').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('schedule_not_found'))
+  })
+
+  it('reports a rejected run-now', async () => {
+    listSchedules.mockResolvedValue({
+      schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }],
+    })
+    runSchedule.mockRejectedValue(Object.assign(new Error('no'), { code: 'router_resource_unset' }))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    await wrapper.findAll('.schedule-row button').find((b) => b.text() === 'Run now').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('router_resource_unset'))
+  })
+
+  it('shows why the goal list could not be read', async () => {
+    listSchedules.mockRejectedValue(Object.assign(new Error('down'), { code: 'service_unavailable' }))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('service_unavailable'))
+    expect(wrapper.findAll('.schedule-row')).toHaveLength(0)
+  })
+
+  it('shows why the router read failed without claiming the scheduler is off', async () => {
+    routerStats.mockRejectedValue(Object.assign(new Error('no'), { code: 'router_resource_unset' }))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('router_resource_unset'))
+    expect(wrapper.text()).not.toContain('switched off')
+  })
+
+  it('counts the next run down through days when it is far away', async () => {
+    // Ten hours into the third day, so the day/hour split is not sitting on a
+    // rounding boundary when the clock ticks between the fixture and the mount.
+    const next = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000 + 10 * 60 * 60 * 1000)
+    listSchedules.mockResolvedValue({
+      schedules: [{ id: 's1', goal: 'Weekly', enabled: true, cronExpr: '0 0 * * 1', trigger: 'cron', nextRun: next.toISOString() }],
+    })
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    // Beyond a day the label switches to `Nd Nh`: the exact hour depends on when
+    // the fixture was built, the shape is what matters here.
+    expect(wrapper.find('.schedule-row').text()).toMatch(/Next run 3d \d+h/)
+  })
+
+  it('falls back to the raw state name for a ticket it does not know', async () => {
+    listSchedules.mockResolvedValue({
+      schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }],
+    })
+    listRouterTriggers.mockResolvedValue({
+      triggers: [{ id: 'trg-1', source: 'cron', sourceId: 's1', disposition: 'routed', ticketId: 'tkt-1', at: '2026-11-01T10:00:00Z' }],
+    })
+    listRouterTickets.mockResolvedValue({
+      tickets: [{ id: 'tkt-1', state: 'canceled', originTriggerId: 'trg-1', lastError: 'stopped by a person', createdAt: '2026-11-01T10:00:00Z' }],
+    })
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+    await wrapper.find('.schedule-row').trigger('click')
+    await flushPromises()
+
+    // An unknown state is printed as it arrived: hiding it would make the history
+    // look like it had no verdict at all.
+    expect(wrapper.text()).toContain('canceled')
+    expect(wrapper.text()).toContain('stopped by a person')
   })
 })
 
