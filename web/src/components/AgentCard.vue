@@ -1,17 +1,16 @@
 <script setup>
 import { computed } from 'vue'
-import { useCopy } from '../lib/use-copy.js'
+import { enumLabel } from '../lib/use-copy.js'
 import PersonaAvatar from './PersonaAvatar.vue'
 
 const props = defineProps({
   agent: { type: Object, required: true },
 })
 
-const { t } = useCopy('enums')
 const display = computed(() => props.agent.persona?.displayName || props.agent.displayName || props.agent.name)
 const title = computed(() => props.agent.persona?.title || props.agent.persona?.tagline || '')
 const health = computed(() => props.agent.health?.status || props.agent.health || 'unknown')
-const healthText = computed(() => t('health')[health.value] || health.value)
+const healthText = computed(() => enumLabel('health', health.value) || health.value)
 const tags = computed(() => props.agent.tags || [])
 </script>
 

@@ -18,7 +18,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    schedules.value = await listSchedules()
+    schedules.value = (await listSchedules()).schedules || []
   } catch (e) {
     error.value = errorMessage(e.code) || e.message
   } finally {

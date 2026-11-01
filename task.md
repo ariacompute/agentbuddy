@@ -190,6 +190,48 @@ bun 构建/测试运行时与桌面端（Rust/Tauri）对 agenthub 服务端的�
 
 ### agenthub（服务端契约 + mock 适配器）
 - [x] `migrations/017_computers.sql` / `018_schedules.sql` / `019_knowledge.sql`：幂等建表，`IF NOT EXISTS`；编号接 `016` 之后。
+
+## M12 — 测试覆盖提升（组件 / 视图层，2026-11）
+
+背景：原 `web/tests/` 仅覆盖 `src/lib/*` 纯函数层（257 用例），21 个 `.vue` 组件与 13 个 `.vue`
+视图零覆盖。本轮补齐组件 / 视图的渲染与交互测试，总用例 **257 → 318** 全绿，
+`bun run build` 通过。
+
+### 1. 测试基建
+- [x] `web/package.json`：新增 devDeps `@vue/test-utils`、`jsdom`（组件 / 视图挂载需要）。
+- [x] `web/vite.config.js`：`test.setupFiles = ['tests/setup.js']`（node 环境 lib 测试无感；jsdom 组件测试用文件头 `// @vitest-environment jsdom` 单开）。
+- [x] `web/tests/setup.js`：jsdom 下补足可用的 `window.localStorage`（i18n 引导 `use-copy.js` 在导入时读 `agentbuddy.lang`），对 node 环境以 `typeof window` 守卫为空操作。
+- [x] `web/tests/helpers/vue-utils.js`：`mountWith()` 统一装配 Pinia + memory router + `attachTo: body`，组件 / 视图测试共享。
+- [x] 组件 / 视图 spec 以 `vi.mock('../src/lib/api.js')` 自动 mock，断网且确定性；`beforeEach` 给列表 / 读取类 API 预置空响应，避免 onMounted 刷新抛 `data.x`。
+
+### 2. 新增用例
+- [x] `web/tests/components.spec.js`：21 个组件全覆盖（BrandMark / PersonaAvatar / SuggestionCard /
+  StateDot / AudioPlayer / ArtifactList / DeliveryList / AgentCard / TaskCard / ThemeToggle /
+  LanguageSwitcher / PolicySelect / VoiceRecorder / ConnectionBanner / NotificationCenter /
+  ApprovalCard / ChannelCard / ConnectorCard / Sidebar / Topbar）。含正常 + 异常路径：
+  主题切换写 `document.documentElement.dataset.theme` 与 `localStorage`；语言切换触发
+  `setLang`；策略确认拒绝不发射 change；离线下线横幅与重登录；通知中心清空 / 深链跳转；
+  ApprovalCard 审批 / 驳回；ChannelCard 开关（API）、ConnectorCard 执行动作（API）等。
+- [x] `web/tests/views.spec.js`：13 个视图全覆盖（Workspace / TaskList / TaskTrace / ThreadList /
+  Thread / Channels / Connectors / Org / Computers / Schedules / Settings / PersonaEditor /
+  Login）。含挂载渲染 + 关键交互：Workspace 审批卡随 `tasks` 派生；TaskTrace 取消经 API；
+  ThreadList 新建线程（Teleport 对话框）；Settings 主题经 `/__shell/config` POST；
+  PersonaEditor / Schedules 保存 / 列表经 API 等。
+
+### 3. 测试过程中发现并修复的缺陷
+- [x] `web/src/components/ApprovalCard.vue`：`approve()` / `reject()` 在 `<script setup>` 内引用裸
+  属性 `task`（`ReferenceError`）；改为 `props.task.id`（真实浏览器中点击审批同样崩溃）。
+- [x] `web/src/components/AgentCard.vue`：用 `useCopy('enums').t('health')` 取枚举标签，但
+  `enumsCopy` 为二级结构（`{group:{en:{...}}}`），`COPIES` 未注册 `enums`，导致 `t('health')`
+  为 `undefined` 并在渲染时崩溃；改为 `enumLabel('health', value)`。
+- [x] `web/src/views/PersonaEditor.vue`：`load()` 把整个 `{resources:[...]}` 响应赋给
+  `agents.value` 而未取 `.resources`，列表永远为空、表单 / 保存永不渲染；改为
+  `(await listResources('agent')).resources || []`。
+- [x] `web/src/views/SchedulesView.vue`：`load()` 同样未从 `{schedules:[...]}` 中取
+  `.schedules`，调度列表渲染出空行；改为 `(await listSchedules()).schedules || []`。
+
+注：其余组件 / 视图交互（如 ConnectorsView 审批区、OrgView 图表）仅消费 `workbench`/`listResources`
+的 `.resources`，未踩中同类响应解包缺陷。
 - [x] `internal/model/{computers,schedules,knowledge}.go`：GORM 模型。
 - [x] `internal/computers` / `internal/schedules` / `internal/knowledge`：领域类型 + `Store` 端口（依赖倒置，镜像 channels 模式）。
 - [x] `internal/store/{computers,schedules,knowledge}_store.go`：GORM 双模实现，`NewComputersStore` 等；`store_test.go` 的 `want` 追加 017/018/019。

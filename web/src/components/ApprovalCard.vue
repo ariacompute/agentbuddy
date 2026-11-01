@@ -13,14 +13,14 @@ const router = useRouter()
 
 async function approve() {
   try {
-    await workbench.approve(task.id)
+    await workbench.approve(props.task.id)
   } catch (e) {
     console.error('agentbuddy: approve failed', e)
   }
 }
 async function reject() {
   try {
-    await workbench.reject(task.id)
+    await workbench.reject(props.task.id)
   } catch (e) {
     console.error('agentbuddy: reject failed', e)
   }

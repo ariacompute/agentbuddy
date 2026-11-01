@@ -19,7 +19,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    agents.value = await listResources('agent')
+    agents.value = (await listResources('agent')).resources || []
     if (agents.value.length) {
       selectedId.value = agents.value[0].id
       loadForm(agents.value[0])

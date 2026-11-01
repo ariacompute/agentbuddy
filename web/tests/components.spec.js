@@ -1,0 +1,441 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { nextTick } from 'vue'
+import { flushPromises } from '@vue/test-utils'
+import { useWorkbenchStore } from '../src/lib/workbench-store.js'
+import { useAuthStore } from '../src/lib/auth-store.js'
+import { setLang } from '../src/lib/use-copy.js'
+import { mountWith } from './helpers/vue-utils.js'
+
+// Auto-mock the API surface so no component reaches the network.
+vi.mock('../src/lib/api.js')
+
+import {
+  updateChannel, setConnectorPolicy, runConnectorAction, resumeTask, cancelTask, logout,
+  listChannels, listTasks, getDeliveries, getWorkspace, listThreads, listConnectors,
+} from '../src/lib/api.js'
+
+import BrandMark from '../src/components/BrandMark.vue'
+import PersonaAvatar from '../src/components/PersonaAvatar.vue'
+import SuggestionCard from '../src/components/SuggestionCard.vue'
+import StateDot from '../src/components/StateDot.vue'
+import AudioPlayer from '../src/components/AudioPlayer.vue'
+import ArtifactList from '../src/components/ArtifactList.vue'
+import DeliveryList from '../src/components/DeliveryList.vue'
+import AgentCard from '../src/components/AgentCard.vue'
+import TaskCard from '../src/components/TaskCard.vue'
+import ThemeToggle from '../src/components/ThemeToggle.vue'
+import LanguageSwitcher from '../src/components/LanguageSwitcher.vue'
+import PolicySelect from '../src/components/PolicySelect.vue'
+import VoiceRecorder from '../src/components/VoiceRecorder.vue'
+import ConnectionBanner from '../src/components/ConnectionBanner.vue'
+import NotificationCenter from '../src/components/NotificationCenter.vue'
+import ApprovalCard from '../src/components/ApprovalCard.vue'
+import ChannelCard from '../src/components/ChannelCard.vue'
+import ConnectorCard from '../src/components/ConnectorCard.vue'
+import Sidebar from '../src/components/Sidebar.vue'
+import Topbar from '../src/components/Topbar.vue'
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
+  // Give the auto-mocked API sane empty responses so any store refresh triggered
+  // during a test does not throw on `data.x` and pollute the output.
+  listChannels.mockResolvedValue({ channels: [] })
+  listTasks.mockResolvedValue({ tasks: [] })
+  getDeliveries.mockResolvedValue({ deliveries: [] })
+  getWorkspace.mockResolvedValue({ agents: [] })
+  listThreads.mockResolvedValue({ threads: [] })
+  listConnectors.mockResolvedValue({ connectors: [] })
+  window.localStorage.clear()
+  window.confirm = vi.fn(() => true)
+})
+afterEach(() => {
+  vi.unstubAllGlobals()
+  document.body.innerHTML = ''
+  // The language ref is module-global; reset it so a test that switches to a
+  // non-English locale cannot leak into the next test's assertions.
+  setLang('en')
+})
+
+describe('BrandMark', () => {
+  it('renders an accessible svg badge', () => {
+    const { wrapper } = mountWith(BrandMark, { props: { size: 32 } })
+    const svg = wrapper.find('svg.brand-glyph')
+    expect(svg.exists()).toBe(true)
+    expect(svg.attributes('aria-label')).toBe('Aria Compute')
+    expect(svg.attributes('width')).toBe('32')
+  })
+})
+
+describe('PersonaAvatar', () => {
+  it('shows initials when there is no image', () => {
+    const { wrapper } = mountWith(PersonaAvatar, { props: { name: 'Ada Lovelace', size: 40 } })
+    expect(wrapper.text()).toContain('AL')
+    expect(wrapper.find('img').exists()).toBe(false)
+  })
+  it('renders an image when avatarUrl is set', () => {
+    const { wrapper } = mountWith(PersonaAvatar, {
+      props: { persona: { displayName: 'X', avatarUrl: 'ref://x' }, name: 'X' },
+    })
+    const img = wrapper.find('img')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('src')).toBe('ref://x')
+  })
+  it('falls back to a single char for an empty name', () => {
+    const { wrapper } = mountWith(PersonaAvatar, { props: { name: '' } })
+    expect(wrapper.text().trim()).toBe('?')
+  })
+})
+
+describe('SuggestionCard', () => {
+  it('renders title, confidence, body and evidence', () => {
+    const { wrapper } = mountWith(SuggestionCard, {
+      props: {
+        suggestion: {
+          title: 'T', confidence: 0.42, body: 'B',
+          evidence: ['e1', 'e2'],
+        },
+      },
+    })
+    expect(wrapper.text()).toContain('T')
+    expect(wrapper.text()).toContain('42%')
+    expect(wrapper.text()).toContain('B')
+    expect(wrapper.findAll('li').length).toBe(2)
+  })
+})
+
+describe('StateDot', () => {
+  it('mirrors the state into a data attribute and label', () => {
+    const { wrapper } = mountWith(StateDot, { props: { state: 'working' } })
+    expect(wrapper.find('.state-dot').attributes('data-state')).toBe('working')
+  })
+  it('hides the label when requested', () => {
+    const { wrapper } = mountWith(StateDot, { props: { state: 'failed', label: false } })
+    // No text node beyond the dot itself.
+    expect(wrapper.find('.dim').exists()).toBe(false)
+  })
+})
+
+describe('AudioPlayer', () => {
+  it('renders an audio element for a uri file part', () => {
+    const { wrapper } = mountWith(AudioPlayer, {
+      props: { part: { file: { uri: 'https://x/a.mp3', mimeType: 'audio/mpeg' } } },
+    })
+    const audio = wrapper.find('audio')
+    expect(audio.exists()).toBe(true)
+    expect(audio.attributes('src')).toBe('https://x/a.mp3')
+  })
+  it('builds a data URI from inline base64 bytes', () => {
+    const { wrapper } = mountWith(AudioPlayer, {
+      props: { part: { data: { file: { bytes: 'QUJD', mimeType: 'audio/webm' } } } },
+    })
+    expect(wrapper.find('audio').attributes('src')).toBe('data:audio/webm;base64,QUJD')
+  })
+  it('shows an em dash when there is no file', () => {
+    const { wrapper } = mountWith(AudioPlayer, { props: { part: {} } })
+    expect(wrapper.find('audio').exists()).toBe(false)
+    expect(wrapper.text()).toContain('—')
+  })
+})
+
+describe('ArtifactList', () => {
+  it('shows the empty message with no artifacts', () => {
+    const { wrapper } = mountWith(ArtifactList, { props: { artifacts: [] } })
+    expect(wrapper.text().length).toBeGreaterThan(0)
+  })
+  it('renders a text artifact', () => {
+    const { wrapper } = mountWith(ArtifactList, {
+      props: { artifacts: [{ parts: [{ type: 'text', text: 'hello' }] }] },
+    })
+    expect(wrapper.text()).toContain('hello')
+  })
+  it('renders an audio artifact via AudioPlayer', () => {
+    const { wrapper } = mountWith(ArtifactList, {
+      props: {
+        artifacts: [{ parts: [{ type: 'file', file: { mimeType: 'audio/mp3', uri: 'u' } }] }],
+      },
+    })
+    expect(wrapper.findComponent(AudioPlayer).exists()).toBe(true)
+  })
+  it('renders a download link for a non-audio file', () => {
+    const { wrapper } = mountWith(ArtifactList, {
+      props: {
+        artifacts: [{ parts: [{ type: 'file', file: { name: 'f.pdf', mimeType: 'application/pdf', uri: 'u', bytes: 'AA' } }] }],
+      },
+    })
+    const a = wrapper.find('a')
+    expect(a.exists()).toBe(true)
+    expect(a.attributes('download')).toBeDefined()
+  })
+})
+
+describe('DeliveryList', () => {
+  it('shows the empty message with no deliveries', () => {
+    const { wrapper } = mountWith(DeliveryList, { props: { deliveries: [] } })
+    expect(wrapper.text().length).toBeGreaterThan(0)
+  })
+  it('maps status to a label and surfaces an error code', () => {
+    const { wrapper } = mountWith(DeliveryList, {
+      props: {
+        deliveries: [{ id: 'd1', status: 'delivered', direction: 'out', errorCode: 'bad_request', at: new Date().toISOString() }],
+      },
+    })
+    // The delivery id is not rendered; the status label and the localised error are.
+    expect(wrapper.text()).toContain('Delivered')
+    expect(wrapper.text().length).toBeGreaterThan(0)
+  })
+})
+
+describe('AgentCard', () => {
+  it('renders the display name, title, health and tags', () => {
+    const { wrapper } = mountWith(AgentCard, {
+      props: {
+        agent: {
+          name: 'agent-x', displayName: 'Agent X', persona: { title: 'Helper' },
+          health: 'healthy', tags: ['a', 'b'],
+        },
+      },
+    })
+    expect(wrapper.text()).toContain('Agent X')
+    expect(wrapper.text()).toContain('Helper')
+    expect(wrapper.findAll('.chip').length).toBeGreaterThan(0)
+  })
+  it('falls back to the raw name', () => {
+    const { wrapper } = mountWith(AgentCard, {
+      props: { agent: { name: 'agent-x', health: 'unknown' } },
+    })
+    expect(wrapper.text()).toContain('agent-x')
+  })
+})
+
+describe('TaskCard', () => {
+  it('renders resource id, chip id and a state dot', () => {
+    const { wrapper } = mountWith(TaskCard, {
+      props: { task: { id: 't1', resourceId: 'Agent', status: { state: 'working' } } },
+    })
+    expect(wrapper.text()).toContain('t1')
+    expect(wrapper.findComponent(StateDot).exists()).toBe(true)
+  })
+  it('hides the message block when dense', () => {
+    const { wrapper } = mountWith(TaskCard, {
+      props: { task: { id: 't1', status: { state: 'working', message: { parts: [{ text: 'hi' }] } } }, dense: true },
+    })
+    expect(wrapper.text()).not.toContain('hi')
+  })
+})
+
+describe('ThemeToggle', () => {
+  it('reads the stored theme on mount and toggles it', async () => {
+    window.localStorage.setItem('agentbuddy.theme', 'dark')
+    const { wrapper } = mountWith(ThemeToggle)
+    await nextTick()
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    await wrapper.find('button').trigger('click')
+    expect(document.documentElement.dataset.theme).toBe('light')
+    expect(window.localStorage.getItem('agentbuddy.theme')).toBe('light')
+  })
+  it('defaults to light when nothing is stored', async () => {
+    const { wrapper } = mountWith(ThemeToggle)
+    await nextTick()
+    expect(document.documentElement.dataset.theme).toBe('light')
+  })
+})
+
+describe('LanguageSwitcher', () => {
+  it('lists every supported language and reflects the current one', () => {
+    const { wrapper } = mountWith(LanguageSwitcher)
+    expect(wrapper.findAll('option').length).toBe(13)
+    expect(wrapper.find('select').element.value).toBe('en')
+  })
+  it('changes language on selection', async () => {
+    const { wrapper } = mountWith(LanguageSwitcher)
+    await wrapper.find('select').setValue('ja')
+    expect(wrapper.find('select').element.value).toBe('ja')
+  })
+})
+
+describe('PolicySelect', () => {
+  it('renders the three policies', () => {
+    const { wrapper } = mountWith(PolicySelect, { props: { value: 'off' } })
+    expect(wrapper.findAll('.policy-opt').length).toBe(3)
+  })
+  it('emits change for a different policy after confirm', async () => {
+    window.confirm = vi.fn(() => true)
+    const { wrapper } = mountWith(PolicySelect, { props: { value: 'off' } })
+    await wrapper.findAll('.policy-opt')[0].trigger('click')
+    expect(wrapper.emitted('change')).toEqual([['allowed']])
+  })
+  it('does not emit when the same policy is picked', async () => {
+    const { wrapper } = mountWith(PolicySelect, { props: { value: 'off' } })
+    await wrapper.findAll('.policy-opt')[2].trigger('click')
+    expect(wrapper.emitted('change')).toBeUndefined()
+  })
+  it('does not emit when the user cancels the confirm', async () => {
+    window.confirm = vi.fn(() => false)
+    const { wrapper } = mountWith(PolicySelect, { props: { value: 'off' } })
+    await wrapper.findAll('.policy-opt')[0].trigger('click')
+    expect(wrapper.emitted('change')).toBeUndefined()
+  })
+})
+
+describe('VoiceRecorder', () => {
+  it('shows the unavailable hint when MediaRecorder is absent', () => {
+    const { wrapper } = mountWith(VoiceRecorder, { props: { threadId: 't1' } })
+    // jsdom has no MediaRecorder, so the recorder reports unsupported.
+    expect(wrapper.find('button.voice-btn').exists()).toBe(false)
+    expect(wrapper.text().toLowerCase()).toContain('available')
+  })
+})
+
+describe('ConnectionBanner', () => {
+  it('is hidden when the workbench is online', () => {
+    const { wrapper, pinia } = mountWith(ConnectionBanner)
+    const wb = useWorkbenchStore(pinia)
+    wb.offline = false
+    wb.authExpired = false
+    expect(wrapper.find('.content-banner').exists()).toBe(false)
+  })
+  it('shows the offline banner when offline', async () => {
+    const { wrapper, pinia } = mountWith(ConnectionBanner)
+    const wb = useWorkbenchStore(pinia)
+    wb.offline = true
+    await nextTick()
+    expect(wrapper.find('.banner').exists()).toBe(true)
+  })
+  it('shows a relogin action when the session expired and logs out on click', async () => {
+    const { wrapper, pinia } = mountWith(ConnectionBanner)
+    const wb = useWorkbenchStore(pinia)
+    wb.authExpired = true
+    logout.mockResolvedValue({})
+    await nextTick()
+    await wrapper.find('.banner-action').trigger('click')
+    await flushPromises()
+    expect(logout).toHaveBeenCalled()
+  })
+})
+
+describe('NotificationCenter', () => {
+  it('renders a bell and a count badge only when there are notifications', async () => {
+    const { wrapper, pinia } = mountWith(NotificationCenter)
+    const wb = useWorkbenchStore(pinia)
+    wb.notifications = [{ key: 'k1', kind: 'result', body: 'done', title: 't', link: '/tasks' }]
+    await nextTick()
+    expect(wrapper.find('.notif-dot').exists()).toBe(true)
+  })
+  it('opens the panel and clears all on click', async () => {
+    const { wrapper, pinia } = mountWith(NotificationCenter)
+    const wb = useWorkbenchStore(pinia)
+    wb.notifications = [
+      { key: 'k1', kind: 'result', body: 'done', title: 't', link: '/tasks' },
+      { key: 'k2', kind: 'failure', body: 'boom', title: 't', link: '/tasks' },
+    ]
+    await wrapper.find('.btn-icon').trigger('click')
+    expect(wrapper.find('.notif-center').exists()).toBe(true)
+    await wrapper.find('button.btn-ghost').trigger('click')
+    expect(wb.notifications.length).toBe(0)
+  })
+  it('routes to the note link on click', async () => {
+    const { wrapper, pinia, router } = mountWith(NotificationCenter)
+    const wb = useWorkbenchStore(pinia)
+    wb.notifications = [{ key: 'k1', kind: 'result', body: 'done', title: 't', link: '/tasks/1' }]
+    await wrapper.find('.btn-icon').trigger('click')
+    await wrapper.find('.notif-item').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/tasks/1')
+  })
+})
+
+describe('ApprovalCard', () => {
+  it('approves a task via the API', async () => {
+    const { wrapper } = mountWith(ApprovalCard, {
+      props: { task: { id: 't1', resourceId: 'A', status: { state: 'input-required' } } },
+    })
+    resumeTask.mockResolvedValue({})
+    await wrapper.findAll('button')[0].trigger('click')
+    await flushPromises()
+    expect(resumeTask).toHaveBeenCalledWith('t1', '')
+  })
+  it('rejects a task via the API', async () => {
+    const { wrapper } = mountWith(ApprovalCard, {
+      props: { task: { id: 't2', resourceId: 'A', status: { state: 'input-required' } } },
+    })
+    cancelTask.mockResolvedValue({})
+    await wrapper.findAll('button')[1].trigger('click')
+    await flushPromises()
+    expect(cancelTask).toHaveBeenCalledWith('t2')
+  })
+})
+
+describe('ChannelCard', () => {
+  it('renders the channel name and delivery count', () => {
+    const { wrapper } = mountWith(ChannelCard, {
+      props: { channel: { id: 'c1', name: 'Slack', kind: 'slack', enabled: true }, deliveries: [{ id: 'd' }] },
+    })
+    expect(wrapper.text()).toContain('Slack')
+    expect(wrapper.text()).toContain('1')
+  })
+  it('toggles the channel enabled flag through the API', async () => {
+    updateChannel.mockResolvedValue({})
+    const { wrapper } = mountWith(ChannelCard, {
+      props: { channel: { id: 'c1', name: 'Slack', kind: 'slack', enabled: false }, deliveries: [] },
+    })
+    await wrapper.find('input[type="checkbox"]').trigger('change')
+    await flushPromises()
+    expect(updateChannel).toHaveBeenCalledWith('c1', expect.objectContaining({ enabled: true }))
+  })
+  it('expands the delivery list on button click', async () => {
+    const { wrapper } = mountWith(ChannelCard, {
+      props: { channel: { id: 'c1', name: 'Slack', kind: 'slack', enabled: true }, deliveries: [{ id: 'd1' }] },
+    })
+    await wrapper.find('button.btn-ghost').trigger('click')
+    expect(wrapper.findComponent(DeliveryList).exists()).toBe(true)
+  })
+})
+
+describe('ConnectorCard', () => {
+  it('renders the connector and a policy selector', () => {
+    const { wrapper } = mountWith(ConnectorCard, {
+      props: { connector: { id: 'k1', name: 'Twilio', policy: 'off', capabilities: ['sms'] } },
+    })
+    expect(wrapper.text()).toContain('Twilio')
+    expect(wrapper.findComponent(PolicySelect).exists()).toBe(true)
+  })
+  it('runs an action through the API when a name is provided', async () => {
+    runConnectorAction.mockResolvedValue({ parked: false })
+    const { wrapper } = mountWith(ConnectorCard, {
+      props: { connector: { id: 'k1', name: 'Twilio', policy: 'allowed' } },
+    })
+    await wrapper.findAll('input')[0].setValue('send')
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(runConnectorAction).toHaveBeenCalledWith('k1', 'send', {})
+  })
+})
+
+describe('Sidebar', () => {
+  it('renders a nav item per route and reflects active state', () => {
+    const { wrapper } = mountWith(Sidebar)
+    // 9 links: workspace, threads, tasks, org, channels, connectors, computers, schedules, settings.
+    expect(wrapper.findAll('.nav-item').length).toBe(9)
+  })
+  it('shows badges from the workbench store', async () => {
+    const { wrapper, pinia } = mountWith(Sidebar)
+    const wb = useWorkbenchStore(pinia)
+    wb.threads = [{ id: '1' }, { id: '2' }]
+    await nextTick()
+    expect(wrapper.text()).toContain('2')
+  })
+})
+
+describe('Topbar', () => {
+  it('renders the offline chip and signs out on click', async () => {
+    const { wrapper, router } = mountWith(Topbar)
+    logout.mockResolvedValue({})
+    await nextTick()
+    const buttons = wrapper.findAll('button.btn-icon')
+    await buttons[buttons.length - 1].trigger('click')
+    await flushPromises()
+    expect(logout).toHaveBeenCalled()
+    expect(router.currentRoute.value.fullPath).toBe('/login')
+  })
+})

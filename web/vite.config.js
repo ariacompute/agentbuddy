@@ -20,5 +20,5 @@ export default defineConfig({
     },
   },
   build: { outDir: 'dist', emptyOutDir: true },
-  test: { environment: 'node', include: ['tests/**/*.spec.js'] },
+  test: { environment: 'node', include: ['tests/**/*.spec.js'], setupFiles: ['tests/setup.js'] },
 })
