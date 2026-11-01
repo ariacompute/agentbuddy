@@ -188,6 +188,23 @@
 | F16.2 | 云协作 / 实例互联：由 agenthub 服务端承担，客户端经既有 `/api` 端点读取跨实例专家/会话，不在客户端实现联邦 | openagents Network、Octop 云协作 |
 | F16.3 | 客户端职责限定为：按服务端返回的可见资源渲染，不缓存跨用户状态 | — |
 
+### F17 执行环境沙盒与执行节点
+
+大脑（agenthub 控制面）与双手（执行环境）分离后，agentbuddy 承担两件事：把执行环境**看清楚**，
+并可选地把自己变成一台**执行节点**（BYOM）。两类能力默认不产生任何特权。
+
+| 编号 | 需求 | 借鉴来源 |
+|---|---|---|
+| F17.1 | 「计算机」屏升级为**执行环境控制台**：页头节点胶囊 + 刷新；节点状态条（在线/离线/未启用 + 最后心跳 + 前往设置）；五指标水位条（活跃租约/待执行/在线节点/最近执行/上次清扫） | router 控制台同款 |
+| F17.2 | **沙盒类型目录**按隔离层分组横向排布（容器 / 用户态内核 / microVM / 进程沙盒 / 平台层 / 远端节点 / off），每项显示隔离强度与可用性徽标；不可用项给原因且保持可读对比度 | E2B、microsandbox、Daytona、CubeSandbox、OpenHands 对比 |
+| F17.3 | **租约卡片网格**：类型、状态胶囊、租约 id、所属 agent、作用域、执行后端、到期倒计时（≤3 分钟加粗而非变色）、执行次数；底部 44px 三操作：试跑 / 续租 / 终止（终止需二次确认） | — |
+| F17.4 | **审计抽屉**：右侧滑出，顶部租约 id，表格列命令摘要 / 退出码 / 耗时 / 时间 / `dry_run` 标记，失败行左缘 2px 实心竖条；抽屉内可直接试跑一条命令并就地看回执 | — |
+| F17.5 | **未接线语义**：服务端无控制面时整屏显示「沙盒已关闭」+ 一句如何开启，不渲染零值水位条、不显示错误横幅 | `feature_unavailable` |
+| F17.6 | **执行节点**（可选，**默认关闭**）：设置页开关 + 风险说明 + 确认；工作根目录（绝对路径）、命令白名单（逐行、精确匹配、禁 shell）、并发上限、节点 id（只读）、可选 API key、在线状态与最近拒绝原因 | BYOM |
+| F17.7 | 节点只在**本地 Rust 进程**执行：不经 shell、只跑白名单精确命令、只允许根目录内路径、超时杀进程组、输出截断；网页视图**不获得**任何文件系统或命令执行能力 | — |
+| F17.8 | 节点生命周期：开启后注册 → 心跳 → 长轮询领任务 → 执行 → 回传；退出即停止，重启自动重新上线；间歇在线不算故障，服务端据此显示离线 | — |
+| F17.9 | 客户端不自建沙盒、不做类型探测：目录、可用性与原因全部来自服务端，客户端只渲染 | 单一事实来源 |
+
 ---
 
 ## 3. 非功能需求
@@ -238,6 +255,18 @@
 | GET/PUT | `/api/router/policies`、`/api/router/policies/{source}` | `tasks:read` / `tasks:write` | 读 / 改写各类来源的程序层规则 |
 | POST | `/api/router/passes` | `tasks:write` | 立即推进一拍 |
 | GET | `/api/router/events` | `tasks:read` | 调度事件流（SSE，`?since=<seq>&subject=`，先回放再实时） |
+| GET | `/api/sandboxes` | `resources:read` | 可见租约列表 + 实例默认档案（F17） |
+| GET | `/api/sandboxes/{id}` | `resources:read` | 租约 + 最近 50 条执行审计 |
+| GET | `/api/sandboxes/stats` | `resources:read` | 五指标：活跃租约 / 待执行 job / 在线节点 / 最近执行 / 上次清扫 |
+| POST | `/api/sandboxes/{id}/exec` | `tasks:write` | **试跑**：直接执行一条命令（不经 router，审计标 `dry_run`） |
+| POST | `/api/sandboxes/{id}/renew` | `tasks:write` | 续租（超出 MaxTTL 返回 409 `sandbox_lease_lost`） |
+| DELETE | `/api/sandboxes/{id}` | `tasks:write` | 终止：销毁环境、关闭租约（204） |
+| GET | `/api/sandbox-providers` | `resources:read` | 类型目录，按隔离层分组，含可用性与原因 |
+| POST | `/api/sandbox-providers/refresh` | `tasks:write` | 立即重探所有后端（运维动作） |
+| GET | `/api/sandboxes/events` | `tasks:read` | 执行环境事件流（SSE，`?since=<seq>`，先回放再实时） |
+| GET/POST | `/api/sandbox-nodes` | `resources:read` / `resources:write` | 本机节点列表 / 注册（id 校验，他人 id 返回 404） |
+| GET | `/api/sandbox-nodes/{id}/jobs` | `resources:write` | 长轮询领任务（`?wait=<sec>`，空闲 204） |
+| POST | `/api/sandbox-nodes/{id}/jobs/{jobId}` | `resources:write` | 回传结果（非本节点领取的 job 返回 404） |
 
 > **F10 / F12 / F14 复用既有端点**：角色字段走 `POST/PUT /api/resources`（扩展 `persona`）、协作走
 > `GET/POST /api/threads*`（`origin` 015 已加列）、技能走既有 `kind=skill` 资源，**不新增端点**；知识库
@@ -275,6 +304,7 @@
 | `017_computers.sql` | `computers`（agent_id, kind∈browser/shell/screen, session_ref, status, last_action, created_at） |
 | `018_schedules.sql` | `schedules`（goal, trigger, cron_expr, enabled, next_run, owner, last_run_at, last_status） |
 | `019_knowledge.sql` | `knowledge`（agent_id, chunk_text, source_ref, created_at）；真实向量检索标 `TODO(real)` |
+| `021_sandboxes.sql` | `sandbox_leases`（归属/资源/作用域/provider/state/ref/expires_at）、`sandbox_execs`（命令摘要、退出码、耗时、输出 sha256、`dry_run`）、`sandbox_nodes`（id/归属/名称/能力/status/last_seen_at）、`sandbox_jobs`（完成后的审计行）、`sandbox_events`（seq/kind/subject/lease_id/payload）；并给 `computers` 增 `provider`/`lease_id`/`node_id`/`expires_at` |
 
 ## 5. 异常与降级
 
@@ -297,6 +327,14 @@
 | 目标未配置执行者（F13） | 409 `router_resource_unset`，提示先去资源页指定 Worker |
 | 知识库不可用（mock 缺数据） | 503 `knowledge_unavailable`，建议降级为无上下文委派 |
 | 技能蒸馏未启用 | 403 `skill_distill_disabled`，仅记录触发点不产出技能 |
+| 服务端未接线执行控制面（F17） | 全部 `/api/sandbox*` 返回 503 `feature_unavailable`；控制台整屏显示「沙盒已关闭」+ 开启命令，不渲染零值水位条、不出错误横幅 |
+| 配置的执行后端跑不起来（F17） | 目录项 `available:false` + 原因（如「未安装 bwrap」），执行返回 `sandbox_unsupported`；**不静默降级**到宿主 |
+| 沙盒策略拒绝 / 超时（F17） | 400 `sandbox_policy_denied` / 504 `sandbox_timeout`；抽屉内联提示，保留租约 |
+| 租约已终止或已过期（F17） | 409 `sandbox_lease_lost`；按钮按租约状态置灰（`terminated`/`expired` 只允许关闭抽屉） |
+| 租约上限（F17） | 409 `sandbox_limit_reached`，可重试语义，提示稍后再试而非报错 |
+| 执行节点离线（F17） | 503 `sandbox_node_offline`；节点胶囊显示离线，卡片保留 |
+| 节点开启参数非法（F17） | 400 + `code`：`root_unusable`（空/相对/不存在）、`command_not_allowed`（路径/含空格/shell）、`server_not_configured`；设置页内联显示对应 13 语文案 |
+| 节点执行越界（F17） | 任务请求根目录外路径 → `dir_outside_root`；请求未授权环境变量 → `env_not_allowed`；命令起不来 → `spawn_failed`。三者回传服务端，均不使任务进入 `failed` 之外的额外副作用 |
 
 ## 6. 验收标准
 
@@ -318,3 +356,6 @@
 15. 协作共享空间（F12）：会话内 `@mention` 派活与 Agent 自主认领均落 `thread_messages`（`origin` 标记来源）。
 16. 富结果（F15）：带证据的建议以会话消息卡片呈现，单色与 13 语文案完整。
 17. 会话持久化（F1.7）：登录后完全退出应用再启动，自动以已登录态进入工作台（session cookie 落盘还原），无需重新登录；登出后落盘副本被清除，重启回到登录页。
+18. 执行环境控制台（F17）：水位条五项与 `/api/sandboxes/stats` 一致；目录按层分组且不可用项写出原因；租约卡片显示到期倒计时（≤3 分钟加粗）；点击卡片打开审计抽屉，试跑一条命令后回执就地可见且刷新后仍在；终止需二次确认且确认后列表刷新。
+19. 未接线语义（F17）：服务端关闭沙盒时整屏显示「沙盒已关闭」与开启命令，**不**出现错误横幅、**不**出现零值水位条。
+20. 执行节点（F17）：默认关闭；开启需确认风险；根目录非绝对路径 / 白名单含 shell / 未选服务端时保存被拒并显示对应 13 语原因；节点 id 只读可见；关闭开关后节点立即停止心跳。

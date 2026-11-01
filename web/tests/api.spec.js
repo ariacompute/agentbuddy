@@ -51,6 +51,16 @@ import {
   dropRouterSubscription,
   saveRouterPolicy,
   kickRouterPass,
+  sandboxStats,
+  listSandboxes,
+  getSandbox,
+  execSandbox,
+  renewSandbox,
+  terminateSandbox,
+  listSandboxProviders,
+  refreshSandboxProviders,
+  listSandboxNodes,
+  subscribeSandboxEvents,
 } from '../src/lib/api.js'
 
 let fetchMock
@@ -318,6 +328,28 @@ describe('api endpoint helpers', () => {
     expect(FakeEventSource.last.url).toBe('/api/router/events')
   })
 
+  it('subscribeSandboxEvents replays from a seq and names the sandbox event', () => {
+    const handlers = { event: vi.fn(), error: vi.fn() }
+    const handle = subscribeSandboxEvents(12, handlers)
+    const src = FakeEventSource.last
+    expect(src.url).toBe('/api/sandboxes/events?since=12')
+
+    emit(src, 'sandbox_event', { seq: 13, kind: 'lease.created' })
+    expect(handlers.event).toHaveBeenCalledWith({ seq: 13, kind: 'lease.created' })
+
+    const err = new Error('stream dropped')
+    src.onerror(err)
+    expect(handlers.error).toHaveBeenCalledWith(err)
+
+    handle.close()
+    expect(src.closed).toBe(true)
+  })
+
+  it('subscribeSandboxEvents omits the query on a first connection', () => {
+    subscribeSandboxEvents(0)
+    expect(FakeEventSource.last.url).toBe('/api/sandboxes/events')
+  })
+
   it('subscribeTaskEvents forwards the since param and task events', () => {
     const handlers = { status: vi.fn(), artifact: vi.fn(), span: vi.fn(), message: vi.fn() }
     const handle = subscribeTaskEvents('t1', 7, handlers)
@@ -359,6 +391,41 @@ describe('F10–F16 api helpers', () => {
     await getComputer('c1')
     expect(lastCall()[0]).toBe('/api/computers/c1')
   })
+
+  it('sandbox helpers build the control-plane paths', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}))
+
+    await sandboxStats()
+    expect(lastCall()[0]).toBe('/api/sandboxes/stats')
+    await listSandboxes()
+    expect(lastCall()[0]).toBe('/api/sandboxes')
+    await getSandbox('sbx-1')
+    expect(lastCall()[0]).toBe('/api/sandboxes/sbx-1')
+
+    await execSandbox('sbx-1', { command: 'git', args: ['status'] })
+    expect(lastCall()[0]).toBe('/api/sandboxes/sbx-1/exec')
+    expect(lastCall()[1].method).toBe('POST')
+    expect(JSON.parse(lastCall()[1].body)).toEqual({ command: 'git', args: ['status'] })
+
+    await renewSandbox('sbx-1')
+    expect(lastCall()[0]).toBe('/api/sandboxes/sbx-1/renew')
+    expect(lastCall()[1].method).toBe('POST')
+
+    await terminateSandbox('sbx-1')
+    expect(lastCall()[0]).toBe('/api/sandboxes/sbx-1')
+    expect(lastCall()[1].method).toBe('DELETE')
+
+    await listSandboxProviders()
+    expect(lastCall()[0]).toBe('/api/sandbox-providers')
+    // Re-probing spawns runtimes, so it is a POST rather than a cache read.
+    await refreshSandboxProviders()
+    expect(lastCall()[0]).toBe('/api/sandbox-providers/refresh')
+    expect(lastCall()[1].method).toBe('POST')
+
+    await listSandboxNodes()
+    expect(lastCall()[0]).toBe('/api/sandbox-nodes')
+  })
+
 
   it('schedules helpers build paths and bodies', async () => {
     fetchMock.mockResolvedValue(jsonResponse([]))

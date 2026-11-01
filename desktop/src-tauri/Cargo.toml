@@ -23,7 +23,7 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "2.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "net", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "net", "sync", "time", "process"] }
 axum = { version = "0.8", features = ["macros"] }
 # rustls rather than the platform TLS stack: one implementation to reason about
 # on all three platforms, and no system OpenSSL to ship.

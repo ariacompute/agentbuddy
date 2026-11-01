@@ -92,10 +92,16 @@ desktop/
 - **托盘菜单语言跟随应用**：Rust 无法读取浏览器 `localStorage`，故工作台在 `setLang` 时把
   `agentbuddy.lang` 经 `/__shell/config` 推送到外壳 `config.lang`，托盘据此重建（`tray::refresh`）；
   连接页 `connect()` 同样会同步。即托盘语言 = 应用的 `agentbuddy.lang`，而非外壳独立设置。
+- **执行节点（BYOM）**：`src-tauri/src/executor/` 让本机可选地成为 agenthub 的执行节点，**默认关闭**，
+  开启必须先经 `window.confirm` 确认。安全边界全部落在 `policy.rs` / `spawn.rs`：命令按**精确名**白名单
+  匹配（`sh` / `bash` / `cmd` 在构造上拒绝）、**绝不拼 shell**（argv 直 exec）、工作根目录必须绝对路径且
+  只能在其内读写执行、环境变量按白名单直传、超时杀整个进程组、输出截断、并发有上限。
+  状态与开关只经 `GET|POST /__shell/executor` 暴露，**网页视图不获得任何文件系统或命令执行权限**；
+  拒绝原因是机器码（`root_unusable` / `command_not_allowed` / …），由工作台 13 语本地化。
 - **测试**：`cd desktop/src-tauri && cargo test`。本机（Windows）测试二进制因 Tauri 原生依赖
   入口缺失无法启动，只能 `cargo test --no-run` 做编译校验；纯逻辑用例（i18n 表、托盘映射、
-  会话存取）不依赖 AppHandle，在 CI 上一跑即知。`i18n/copy.rs` 用 `include_str!` 读
-  `web/src/lib/languages.js` 钉住 13 语代码集，改语言清单会在此处报错。
+  会话存取、执行节点的白名单/根目录/超时/截断）不依赖 AppHandle，在 CI 上一跑即知。
+  `i18n/copy.rs` 用 `include_str!` 读 `web/src/lib/languages.js` 钉住 13 语代码集，改语言清单会在此处报错。
 
 ### 服务端（agenthub，改动需谨慎）
 

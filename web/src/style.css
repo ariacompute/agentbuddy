@@ -1481,6 +1481,165 @@ audio {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* -------------------------------------------------- execution environments */
+
+/* The catalogue rail: one column per isolation layer, scrolled sideways. The
+   grouping is the point — a flat grid of eight providers hides which boundary is
+   stronger, which is the only thing that matters when choosing one. */
+.catalog-rail {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-block-end: 6px;
+  scrollbar-width: thin;
+}
+
+.catalog-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 172px;
+  flex: none;
+}
+
+.catalog-layer {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.catalog-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--stroke-1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  transition: border-color var(--dur-fast) ease;
+}
+
+/* An unavailable entry stays fully readable and carries its reason: dimming it
+   into unreadability would hide exactly what the operator needs to act on. */
+.catalog-off {
+  border-style: dashed;
+}
+
+.catalog-off .chip {
+  color: var(--text-3);
+}
+
+.catalog-reason {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-3);
+  word-break: break-word;
+}
+
+.lease-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.lease-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.lease-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Under three minutes the number gains weight instead of a hue: the palette has
+   no colour to spend on urgency. */
+.lease-urgent {
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.lease-actions {
+  display: flex;
+  gap: 6px;
+  margin-block-start: 4px;
+}
+
+.lease-actions .btn {
+  flex: 1;
+  min-height: 44px;
+  justify-content: center;
+}
+
+.trial-out {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--stroke-1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+}
+
+.trial-out pre {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-2);
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.audit-table th {
+  text-align: start;
+  font-weight: 500;
+  color: var(--text-3);
+  padding: 6px 8px;
+  border-block-end: 1px solid var(--stroke-1);
+}
+
+.audit-table td {
+  padding: 6px 8px;
+  border-block-end: 1px solid var(--stroke-1);
+  color: var(--text-2);
+}
+
+/* A failed run gets a solid bar on its leading edge, not a colour. */
+.audit-failed td:first-child {
+  border-inline-start: 2px solid var(--text-1);
+}
+
+.banner-error {
+  border-color: var(--stroke-3);
+  color: var(--text-1);
+}
+
+@media (max-width: 767px) {
+  .catalog-rail {
+    flex-direction: column;
+    overflow-x: visible;
+  }
+
+  .catalog-group {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
 /* -------------------------------------------------------------- responsive */
 
 @media (max-width: 1439px) {

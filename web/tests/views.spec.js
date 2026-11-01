@@ -18,6 +18,9 @@ import {
   logout, getDeliveries, request, retryDelivery,
   routerStats, listRouterTriggers, listRouterTickets, kickRouterPass, runSchedule,
   cancelRouterTicket, handbackRouterTrigger,
+  sandboxStats, listSandboxes, listSandboxProviders, listSandboxNodes,
+  getSandbox, execSandbox, renewSandbox, terminateSandbox, refreshSandboxProviders,
+  subscribeSandboxEvents,
 } from '../src/lib/api.js'
 import { errorMessage } from '../src/lib/errors.js'
 
@@ -372,58 +375,432 @@ describe('OrgView', () => {
 })
 
 describe('ComputersView', () => {
-  it('unwraps the list envelope and renders one card per computer', async () => {
-    listComputers.mockResolvedValue({
-      computers: [
-        { id: 'cmp-1', kind: 'browser', status: 'active' },
-        { id: 'cmp-2', kind: 'shell', status: 'disabled' },
+  // The console's dialogs are covered by base-dialog.spec.js; stubbing keeps the
+  // form inline so the test does not hunt through a teleported body.
+  const stubs = {
+    BaseDialog: {
+      props: ['modelValue', 'title'],
+      emits: ['update:modelValue'],
+      template: '<div v-if="modelValue" class="dialog-stub"><slot /><slot name="footer" /></div>',
+    },
+  }
+
+  const catalog = {
+    default: 'docker',
+    groups: [
+      {
+        layer: 'container',
+        providers: [
+          { name: 'docker', layer: 'container', isolation: 'container', source: 'builtin', available: true, default: true },
+          { name: 'podman', layer: 'container', isolation: 'container', source: 'builtin', available: false, reason: 'podman is not installed' },
+        ],
+      },
+      {
+        layer: 'process',
+        providers: [
+          { name: 'bwrap', layer: 'process', isolation: 'namespace', source: 'builtin', available: false, reason: 'bwrap is not installed' },
+        ],
+      },
+    ],
+  }
+
+  const lease = {
+    id: 'sbx-1',
+    ownerId: 'u1',
+    resourceId: 'agent-7',
+    scope: 'ticket-1',
+    provider: 'docker',
+    state: 'ready',
+    ref: 'c0ffee',
+    execs: 3,
+    expiresAt: new Date(Date.now() + 600000).toISOString(),
+  }
+
+  beforeEach(() => {
+    sandboxStats.mockResolvedValue({ activeLeases: 1, pendingJobs: 0, onlineNodes: 1, recentExecs: 4, lastSweepAt: new Date().toISOString() })
+    listSandboxes.mockResolvedValue({ leases: [lease], default: {} })
+    listSandboxProviders.mockResolvedValue(catalog)
+    listSandboxNodes.mockResolvedValue({ nodes: [{ id: 'node-1', name: 'laptop', status: 'online', lastSeenAt: new Date().toISOString() }] })
+    getSandbox.mockResolvedValue({ lease, execs: [] })
+    execSandbox.mockResolvedValue({ exitCode: 0, stdout: 'hello', durationMs: 5, truncated: false })
+    renewSandbox.mockResolvedValue({})
+    terminateSandbox.mockResolvedValue(null)
+    refreshSandboxProviders.mockResolvedValue(catalog)
+    createComputer.mockResolvedValue({ id: 'cmp-1' })
+  })
+
+  it('renders the water level, the catalogue by layer and one card per lease', async () => {
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    // Five metrics, read as one row rather than five unrelated boxes.
+    expect(wrapper.findAll('.stat')).toHaveLength(5)
+    expect(wrapper.text()).toContain('Active leases')
+    // The catalogue is grouped by isolation layer, and an unavailable entry says
+    // why instead of just being disabled.
+    expect(wrapper.text()).toContain('Container runtime')
+    expect(wrapper.text()).toContain('Process sandbox')
+    expect(wrapper.text()).toContain('podman is not installed')
+    // One card per leased environment, carrying the id an operator reports.
+    expect(wrapper.findAll('.lease-card')).toHaveLength(1)
+    expect(wrapper.text()).toContain('sbx-1')
+    expect(wrapper.text()).toContain('agent-7')
+    expect(wrapper.text()).toContain('Online')
+  })
+
+  it('says the sandboxes are off when the control plane is not wired in', async () => {
+    const off = Object.assign(new Error('off'), { code: 'feature_unavailable' })
+    sandboxStats.mockRejectedValue(off)
+    listSandboxes.mockRejectedValue(off)
+    listSandboxProviders.mockRejectedValue(off)
+    listSandboxNodes.mockRejectedValue(off)
+
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    // Not an error banner and not a level of zero: the feature is absent.
+    expect(wrapper.text()).toContain('Sandboxes are off')
+    expect(wrapper.findAll('.lease-card')).toHaveLength(0)
+    expect(wrapper.find('.banner-error').exists()).toBe(false)
+  })
+
+  it('shows the empty state and its hint when nothing is leased', async () => {
+    listSandboxes.mockResolvedValue({ leases: [], default: {} })
+    sandboxStats.mockResolvedValue({ activeLeases: 0 })
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+    expect(wrapper.text()).toContain('No environment is leased right now.')
+    expect(wrapper.text()).toContain('A lease is created when a task')
+  })
+
+  it('terminates a lease only after the confirmation', async () => {
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+    listSandboxes.mockClear()
+
+    await wrapper.find('.lease-card button:nth-of-type(3)').trigger('click')
+    await flushPromises()
+    expect(terminateSandbox).not.toHaveBeenCalled()
+
+    const confirm = wrapper.findAll('.dialog-stub button').find((b) => b.text() === 'Terminate')
+    expect(confirm).toBeTruthy()
+    await confirm.trigger('click')
+    await flushPromises()
+
+    expect(terminateSandbox).toHaveBeenCalledWith('sbx-1')
+    expect(listSandboxes).toHaveBeenCalled()
+  })
+
+  it('runs a trial command in the drawer and keeps the receipt on screen', async () => {
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    await wrapper.find('.lease-card').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.drawer').exists()).toBe(true)
+
+    await wrapper.find('.drawer input').setValue('git')
+    const run = wrapper.findAll('.drawer button').find((b) => b.text() === 'Run')
+    await run.trigger('click')
+    await flushPromises()
+
+    expect(execSandbox).toHaveBeenCalledWith('sbx-1', { command: 'git', args: [] })
+    // Reopening the drawer after the run would have cleared this.
+    expect(wrapper.text()).toContain('hello')
+  })
+
+  it('shows the reason a trial run was refused', async () => {
+    execSandbox.mockRejectedValue(Object.assign(new Error('no'), { code: 'sandbox_policy_denied' }))
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    await wrapper.find('.lease-card').trigger('click')
+    await flushPromises()
+    await wrapper.find('.drawer input').setValue('rm')
+    await wrapper.findAll('.drawer button').find((b) => b.text() === 'Run').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('sandbox_policy_denied'))
+  })
+
+  it('leases an environment through the dialog and reloads', async () => {
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+    listSandboxes.mockClear()
+
+    const open = wrapper.findAll('button').find((b) => b.text() === 'New execution environment')
+    await open.trigger('click')
+    await flushPromises()
+    await wrapper.find('.dialog-stub input').setValue('agent-9')
+    await wrapper.findAll('.dialog-stub button').find((b) => b.text() === 'Lease it').trigger('click')
+    await flushPromises()
+
+    expect(createComputer).toHaveBeenCalledWith('shell', 'agent-9')
+    expect(listSandboxes).toHaveBeenCalled()
+  })
+
+  it('shows the reason a lease was refused instead of an empty console', async () => {
+    createComputer.mockRejectedValue(Object.assign(new Error('no'), { code: 'sandbox_unsupported' }))
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'New execution environment').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('.dialog-stub button').find((b) => b.text() === 'Lease it').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('sandbox_unsupported'))
+  })
+
+  it('renews a lease and reloads the console behind it', async () => {
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+    listSandboxes.mockClear()
+
+    await wrapper.findAll('.lease-card button').find((b) => b.text() === 'Renew').trigger('click')
+    await flushPromises()
+
+    expect(renewSandbox).toHaveBeenCalledWith('sbx-1')
+    expect(listSandboxes).toHaveBeenCalled()
+  })
+
+  it('keeps the card and says why when a renewal is refused', async () => {
+    renewSandbox.mockRejectedValue(Object.assign(new Error('gone'), { code: 'sandbox_lease_lost' }))
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    await wrapper.findAll('.lease-card button').find((b) => b.text() === 'Renew').trigger('click')
+    await flushPromises()
+
+    // The console does not quietly drop a lease it failed to renew: the operator
+    // still sees the id they have to report.
+    expect(wrapper.text()).toContain(errorMessage('sandbox_lease_lost'))
+    expect(wrapper.findAll('.lease-card')).toHaveLength(1)
+  })
+
+  it('re-probes the backends on refresh and reloads the console', async () => {
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+    listSandboxes.mockClear()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Refresh').trigger('click')
+    await flushPromises()
+
+    expect(refreshSandboxProviders).toHaveBeenCalled()
+    expect(listSandboxes).toHaveBeenCalled()
+  })
+
+  it('reports a failed refresh instead of pretending the catalogue is fresh', async () => {
+    refreshSandboxProviders.mockRejectedValue(Object.assign(new Error('nope'), { code: 'sandbox_unsupported' }))
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Refresh').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('sandbox_unsupported'))
+  })
+
+  it('opens the audit from the keyboard and closes it again', async () => {
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    // Anything but Enter/Space leaves the drawer shut: the card is a button, not
+    // a div that opens on any key.
+    await wrapper.find('.lease-card').trigger('keydown', { key: 'a' })
+    await flushPromises()
+    expect(wrapper.find('.drawer').exists()).toBe(false)
+
+    await wrapper.find('.lease-card').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(wrapper.find('.drawer').exists()).toBe(true)
+    // No lease runs yet, so the table says so rather than rendering empty rows.
+    expect(wrapper.text()).toContain('Nothing has run in this environment yet.')
+
+    await wrapper.findAll('.drawer button').find((b) => b.text() === 'Close').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.drawer').exists()).toBe(false)
+  })
+
+  it('counts down to expiry, bolds the last three minutes and says when it has passed', async () => {
+    listSandboxes.mockResolvedValue({
+      leases: [
+        { ...lease, id: 'sbx-soon', expiresAt: new Date(Date.now() + 90000).toISOString() },
+        { ...lease, id: 'sbx-far', expiresAt: new Date(Date.now() + 600000).toISOString() },
+        // A lease without a deadline must not render as a countdown that never
+        // ends: it reads as expired, which is the honest answer.
+        { ...lease, id: 'sbx-nodate', expiresAt: '' },
+      ],
+      default: {},
+    })
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    const cards = wrapper.findAll('.lease-card')
+    expect(cards).toHaveLength(3)
+    expect(cards[0].find('.lease-count').classes()).toContain('lease-urgent')
+    expect(cards[0].find('.lease-count').text()).toMatch(/^1:\d\d$/)
+    expect(cards[1].find('.lease-count').classes()).not.toContain('lease-urgent')
+    expect(cards[2].find('.lease-count').text()).toBe('Expired')
+  })
+
+  it('shows which node is serving and whether it is alive', async () => {
+    // Not enrolled at all.
+    listSandboxNodes.mockResolvedValue({ nodes: [] })
+    let { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Not enabled')
+    expect(wrapper.text()).toContain('Never')
+    wrapper.unmount()
+
+    // Enrolled but silent for an hour: offline, and the heartbeat reads as age.
+    sandboxStats.mockResolvedValue({ lastSweepAt: new Date(Date.now() - 300000).toISOString() })
+    listSandboxNodes.mockResolvedValue({
+      nodes: [{ id: 'node-2', name: 'desk', status: 'idle', lastSeenAt: new Date(Date.now() - 3600000).toISOString() }],
+    })
+    ;({ wrapper } = mountWith(ComputersView, { stubs }))
+    await flushPromises()
+    expect(wrapper.text()).toContain('Offline')
+    expect(wrapper.text()).toContain('1h')
+    expect(wrapper.text()).toContain('5m')
+    wrapper.unmount()
+
+    // A long poll parks for a minute, so a node that answered 30s ago is alive
+    // even when its last write did not say "online".
+    listSandboxNodes.mockResolvedValue({
+      nodes: [{ id: 'node-3', name: 'desk', status: 'idle', lastSeenAt: new Date(Date.now() - 30000).toISOString() }],
+    })
+    ;({ wrapper } = mountWith(ComputersView, { stubs }))
+    await flushPromises()
+    expect(wrapper.text()).toContain('Online')
+    expect(wrapper.text()).toContain('30s')
+  })
+
+  it('prints the trial receipt with arguments, truncation and the empty-output case', async () => {
+    execSandbox.mockResolvedValue({ exitCode: 2, stdout: '', stderr: '', durationMs: 12, truncated: true })
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    await wrapper.find('.lease-card').trigger('click')
+    await flushPromises()
+    const inputs = wrapper.findAll('.drawer input')
+    await inputs[0].setValue('git')
+    await inputs[1].setValue('status  --short')
+    await wrapper.findAll('.drawer button').find((b) => b.text() === 'Run').trigger('click')
+    await flushPromises()
+
+    // Whitespace collapses, so a pasted command line does not become empty args.
+    expect(execSandbox).toHaveBeenCalledWith('sbx-1', { command: 'git', args: ['status', '--short'] })
+    expect(wrapper.text()).toContain('truncated')
+    expect(wrapper.text()).toContain('The command produced no output.')
+    expect(wrapper.find('.trial-out').text()).toContain('2')
+  })
+
+  it('lists the audit rows and marks a failed run', async () => {
+    getSandbox.mockResolvedValue({
+      lease,
+      execs: [
+        { id: 'e1', command: 'git status', exitCode: 0, durationMs: 40, at: new Date(Date.now() - 5000).toISOString() },
+        { id: 'e2', command: 'npm test', exitCode: 1, durationMs: 900, dryRun: true, at: new Date(Date.now() - 7200000).toISOString() },
       ],
     })
-    const { wrapper } = mountWith(ComputersView)
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+    await wrapper.find('.lease-card').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('cmp-1')
-    expect(wrapper.text()).toContain('cmp-2')
-    expect(wrapper.text()).toContain('Active')
-    expect(wrapper.text()).toContain('Disabled')
-    expect(wrapper.findAll('.card')).toHaveLength(2)
+    const rows = wrapper.findAll('.audit-table tbody tr')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].classes()).not.toContain('audit-failed')
+    expect(rows[1].classes()).toContain('audit-failed')
+    // A manual probe is labelled as such: it never went through the router.
+    expect(rows[1].text()).toContain('dry run')
+    expect(rows[1].text()).toContain('2h')
   })
 
-  it('starts a browser session and reloads the list', async () => {
-    listComputers.mockResolvedValue({ computers: [] })
-    createComputer.mockResolvedValue({})
-    const { wrapper } = mountWith(ComputersView)
+  it('closes the drawer when the lease it shows is terminated', async () => {
+    const { wrapper } = mountWith(ComputersView, { stubs })
     await flushPromises()
-    listComputers.mockClear()
+    await wrapper.find('.lease-card').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.drawer').exists()).toBe(true)
 
-    const browser = wrapper.findAll('button').find((b) => b.text().includes('browser'))
-    expect(browser).toBeTruthy()
-    await browser.trigger('click')
+    await wrapper.findAll('.lease-card button').find((b) => b.text() === 'Terminate').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('.dialog-stub button').find((b) => b.text() === 'Terminate').trigger('click')
     await flushPromises()
 
-    expect(createComputer).toHaveBeenCalledWith('browser', '')
-    expect(listComputers).toHaveBeenCalled()
+    expect(terminateSandbox).toHaveBeenCalledWith('sbx-1')
+    expect(wrapper.find('.drawer').exists()).toBe(false)
   })
 
-  it('shows the reason a create failed and re-enables the buttons', async () => {
-    listComputers.mockResolvedValue({ computers: [] })
-    createComputer.mockRejectedValue(Object.assign(new Error('nope'), { code: 'feature_unavailable' }))
-    const { wrapper } = mountWith(ComputersView)
+  it('keeps a failed read visible and retries from the banner', async () => {
+    sandboxStats.mockRejectedValue(Object.assign(new Error('down'), { code: 'service_unavailable' }))
+    const { wrapper } = mountWith(ComputersView, { stubs })
     await flushPromises()
 
-    await wrapper.findAll('button').find((b) => b.text().includes('shell')).trigger('click')
+    expect(wrapper.find('.banner-error').exists()).toBe(true)
+    expect(wrapper.text()).toContain(errorMessage('service_unavailable'))
+
+    sandboxStats.mockResolvedValue({ activeLeases: 1 })
+    await wrapper.findAll('.banner-error button').find((b) => b.text() === 'Try again').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain(errorMessage('feature_unavailable'))
-    const buttons = wrapper.findAll('button').filter((b) => b.text().startsWith('+'))
-    for (const b of buttons) expect(b.attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('.banner-error').exists()).toBe(false)
+    expect(wrapper.findAll('.lease-card')).toHaveLength(1)
   })
 
-  it('shows the empty state when the server returns no sessions', async () => {
-    listComputers.mockResolvedValue({ computers: [] })
-    const { wrapper } = mountWith(ComputersView)
+  it('falls back to the raw layer and state names it does not know', async () => {
+    listSandboxProviders.mockResolvedValue({
+      default: 'docker',
+      groups: [
+        {
+          layer: 'quantum',
+          providers: [
+            { name: 'qpu', layer: 'quantum', isolation: 'qubits', source: 'declarative', available: true, requires: ['qpu-daemon'] },
+          ],
+        },
+      ],
+    })
+    listSandboxes.mockResolvedValue({ leases: [{ ...lease, state: 'warming' }], default: {} })
+    const { wrapper } = mountWith(ComputersView, { stubs })
     await flushPromises()
-    expect(wrapper.text()).toContain('No computers yet.')
+
+    // A new layer needs no frontend release: the console prints what it was given.
+    expect(wrapper.text()).toContain('quantum')
+    expect(wrapper.text()).toContain('warming')
+    // An available backend still names what it depends on.
+    expect(wrapper.text()).toContain('qpu-daemon')
+  })
+
+  it('coalesces live frames into one reload and closes the stream on unmount', async () => {
+    // jsdom ships no EventSource, and the screen only subscribes when the
+    // browser can stream at all, so the test provides the transport marker.
+    vi.stubGlobal('EventSource', function EventSource() {})
+
+    let onEvent = null
+    const close = vi.fn()
+    subscribeSandboxEvents.mockImplementation((since, handlers) => {
+      // Replay starts at 0 so a screen opened mid-run still sees the leases.
+      expect(since).toBe(0)
+      onEvent = handlers.event
+      return { close }
+    })
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+    listSandboxes.mockClear()
+
+    vi.useFakeTimers()
+    onEvent()
+    onEvent()
+    await vi.advanceTimersByTimeAsync(1600)
+    vi.useRealTimers()
+
+    // A burst of frames is one refresh, not one refresh per frame.
+    expect(listSandboxes).toHaveBeenCalledTimes(1)
+
+    wrapper.unmount()
+    expect(close).toHaveBeenCalled()
   })
 })
 
@@ -709,6 +1086,132 @@ describe('SettingsView', () => {
     await flushPromises()
 
     expect(request).not.toHaveBeenCalled()
+  })
+
+  // ---- execution node -----------------------------------------------------
+
+  const executorSwitch = (wrapper) =>
+    wrapper.findAll('label.switch').find((l) => l.text().includes('Serve as an execution node'))
+
+  it('enables the execution node only after the risk is confirmed', async () => {
+    request.mockResolvedValue({ ok: true, status: { running: true, nodeId: 'node-1' } })
+    const { wrapper } = mountWith(SettingsView)
+    await flushPromises()
+    request.mockClear()
+
+    await executorSwitch(wrapper).find('input').setValue(true)
+    await flushPromises()
+
+    // The confirmation is the whole point: this is the one click with teeth.
+    expect(window.confirm).toHaveBeenCalled()
+    expect(request).toHaveBeenCalledWith(
+      '/__shell/executor',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"enabled":true'),
+      }),
+    )
+  })
+
+  it('leaves the node off when the risk is declined', async () => {
+    window.confirm = vi.fn(() => false)
+    const { wrapper } = mountWith(SettingsView)
+    await flushPromises()
+    request.mockClear()
+
+    await executorSwitch(wrapper).find('input').setValue(true)
+    await flushPromises()
+
+    expect(request).not.toHaveBeenCalledWith('/__shell/executor', expect.anything())
+    expect(executorSwitch(wrapper).find('input').element.checked).toBe(false)
+  })
+
+  it('shows the reason the shell refused the policy', async () => {
+    request.mockImplementation(async (path) => {
+      if (path === '/__shell/executor') {
+        throw Object.assign(new Error('refused'), { code: 'root_unusable', status: 400 })
+      }
+      return { executorEnabled: true, executorAllowlist: [] }
+    })
+    const { wrapper } = mountWith(SettingsView)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Save').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('The working root is empty, relative, or does not exist.')
+  })
+
+  it('reports the live node state the shell is in', async () => {
+    request.mockImplementation(async (path) =>
+      path === '/__shell/executor'
+        ? { status: { enabled: true, running: true, nodeId: 'node-7' }, limits: {} }
+        : { executorEnabled: true, executorNodeId: 'node-7' },
+    )
+    const { wrapper } = mountWith(SettingsView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Online')
+    expect(wrapper.text()).toContain('node-7')
+  })
+
+  it('stops the node without asking, because stopping is the safe direction', async () => {
+    request.mockImplementation(async (path) =>
+      path === '/__shell/executor'
+        ? { status: { enabled: false, running: false } }
+        : { executorEnabled: true, executorMaxConcurrency: 2 },
+    )
+    const { wrapper } = mountWith(SettingsView)
+    await flushPromises()
+    window.confirm.mockClear()
+
+    await executorSwitch(wrapper).find('input').setValue(false)
+    await flushPromises()
+
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(request).toHaveBeenCalledWith(
+      '/__shell/executor',
+      expect.objectContaining({ body: expect.stringContaining('"enabled":false') }),
+    )
+  })
+
+  it('saves the root, the allow-list, the concurrency and a fresh key', async () => {
+    request.mockResolvedValue({ status: { enabled: true, running: true, nodeId: 'node-1' } })
+    const { wrapper } = mountWith(SettingsView)
+    await flushPromises()
+    request.mockClear()
+
+    await wrapper.find('input[placeholder="/home/me/work"]').setValue('/home/me/work')
+    await wrapper.find('textarea').setValue('git\n  npm  \n\n')
+    // The first number input on the page is quiet hours; the node's is the second.
+    await wrapper.findAll('input[type="number"]')[1].setValue(3)
+    await wrapper.find('input[type="password"]').setValue('key-123')
+    await wrapper.findAll('button').find((b) => b.text() === 'Save').trigger('click')
+    await flushPromises()
+
+    const body = JSON.parse(request.mock.calls.find(([p]) => p === '/__shell/executor')[1].body)
+    // Blank lines and padding disappear: the shell receives exact names only.
+    expect(body.allowlist).toEqual(['git', 'npm'])
+    expect(body.root).toBe('/home/me/work')
+    expect(body.max_concurrency).toBe(3)
+    expect(body.api_key).toBe('key-123')
+    // The key is never echoed back: the field empties once it is stored.
+    expect(wrapper.find('input[type="password"]').element.value).toBe('')
+    expect(wrapper.text()).toContain('Saved')
+  })
+
+  it('shows the last refusal the node reported, in the local language', async () => {
+    request.mockImplementation(async (path) =>
+      path === '/__shell/executor'
+        ? { status: { enabled: true, running: true, lastError: 'command_not_allowed' } }
+        : { executorEnabled: true },
+    )
+    const { wrapper } = mountWith(SettingsView)
+    await flushPromises()
+
+    // The shell stores a machine code, not prose: otherwise the reason would be
+    // frozen in whichever language was current when it happened.
+    expect(wrapper.text()).toContain('A whitelisted entry is a path, a shell, or contains spaces.')
   })
 })
 

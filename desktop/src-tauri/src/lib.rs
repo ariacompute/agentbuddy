@@ -12,6 +12,7 @@ use std::sync::{Arc, RwLock as StdRwLock};
 use tauri::Manager;
 
 pub mod config;
+pub mod executor;
 pub mod i18n;
 pub mod notify;
 pub mod proxy;

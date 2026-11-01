@@ -72,6 +72,18 @@ export const CODE_KEYS = {
   router_handback_exhausted: 'routerHandbackExhausted',
   router_policy_invalid: 'routerPolicyInvalid',
   router_resource_unset: 'routerResourceUnset',
+
+  // Execution environments. sandbox_unsupported is deliberately distinct from
+  // sandbox_disabled: the first is "this host cannot run the backend" (install
+  // it), the second is "nobody switched the feature on here" (configure it).
+  sandbox_disabled: 'sandboxDisabled',
+  sandbox_unsupported: 'sandboxUnsupported',
+  sandbox_unknown_provider: 'sandboxUnknownProvider',
+  sandbox_policy_denied: 'sandboxPolicyDenied',
+  sandbox_timeout: 'sandboxTimeout',
+  sandbox_node_offline: 'sandboxNodeOffline',
+  sandbox_lease_lost: 'sandboxLeaseLost',
+  sandbox_limit_reached: 'sandboxLimitReached',
 }
 
 /** Returns the localised message for a machine readable code. */

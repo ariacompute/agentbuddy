@@ -40,6 +40,32 @@ pub struct AppConfig {
     /// 0 means "never quiet".
     #[serde(default)]
     pub notify_quiet_minutes: u16,
+    /// Whether this machine serves as an execution node for the configured
+    /// server. Off by default: a desktop does not start accepting commands just
+    /// because the feature exists. Turning it on is an explicit, warned decision
+    /// in the settings screen.
+    #[serde(default)]
+    pub executor_enabled: bool,
+    /// The only directory tree a job may read, write or run in. Empty means the
+    /// executor refuses to start: an unbounded node is not a sandbox.
+    #[serde(default)]
+    pub executor_root: String,
+    /// Exact command names that may run, never paths and never a shell. Empty
+    /// means nothing runs — a whitelist that lists nothing permits nothing.
+    #[serde(default)]
+    pub executor_allowlist: Vec<String>,
+    /// How many jobs run at once on this machine.
+    #[serde(default = "default_concurrency")]
+    pub executor_max_concurrency: u16,
+    /// Stable identity of this machine. Generated the first time the executor is
+    /// switched on, so a restart re-enrolls the same node instead of adding a
+    /// second one to the console.
+    #[serde(default)]
+    pub executor_node_id: String,
+    /// Optional API key. Empty means "use the session this app is already signed
+    /// in with", which is the common case: the node acts as its own user.
+    #[serde(default)]
+    pub executor_api_key: String,
 }
 
 impl Default for AppConfig {
@@ -51,12 +77,22 @@ impl Default for AppConfig {
             background: true,
             notify_enabled: true,
             notify_quiet_minutes: 0,
+            executor_enabled: false,
+            executor_root: String::new(),
+            executor_allowlist: Vec::new(),
+            executor_max_concurrency: default_concurrency(),
+            executor_node_id: String::new(),
+            executor_api_key: String::new(),
         }
     }
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_concurrency() -> u16 {
+    1
 }
 
 /// Shared between the tray (which reads it for menu labels) and the proxy
@@ -322,11 +358,42 @@ mod tests {
             background: true,
             notify_enabled: true,
             notify_quiet_minutes: 15,
+            executor_enabled: true,
+            executor_root: "/home/me/work".into(),
+            executor_allowlist: vec!["git".into(), "npm".into()],
+            executor_max_concurrency: 2,
+            executor_node_id: "node-abc".into(),
+            executor_api_key: "key".into(),
         };
         store.save(&config).unwrap();
         assert_eq!(store.load(), config);
         assert_eq!(store.load().lang(), "zh-TW");
         assert!(store.load().is_configured());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_execution_node_is_off_until_it_is_switched_on() {
+        let config = AppConfig::default();
+        assert!(!config.executor_enabled, "a desktop must not accept commands by default");
+        assert!(config.executor_allowlist.is_empty(), "an empty whitelist permits nothing");
+        assert_eq!(config.executor_max_concurrency, 1);
+        assert!(config.executor_root.is_empty());
+    }
+
+    #[test]
+    fn an_old_config_file_without_the_executor_block_still_loads() {
+        // The fields were added after the first release; a config written by an
+        // older build must keep working and must leave the node switched off.
+        let dir = std::env::temp_dir().join(format!("agentbuddy-cfg-old-{}", std::process::id()));
+        let store = ConfigStore::new(dir.clone());
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(store.path(), r#"{"server_url":"https://hub.example.com","background":false}"#).unwrap();
+        let loaded = store.load();
+        assert_eq!(loaded.server_url, "https://hub.example.com");
+        assert!(!loaded.background);
+        assert!(!loaded.executor_enabled);
+        assert_eq!(loaded.executor_max_concurrency, 1);
         let _ = fs::remove_dir_all(&dir);
     }
 

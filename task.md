@@ -380,3 +380,56 @@ Worker 层执行，双层调度），agentbuddy 把 `/schedules` 从「列表 + 
 注：desktop 测试在本机仍无法执行（`STATUS_ENTRYPOINT_NOT_FOUND`，与 M7/M14 同款环境问题），
 本轮只做编译校验；新增用例全部是纯逻辑（不含 `AppHandle`），CI 上可直接运行。
 `i18n` 键集一致性另用一次性脚本按同一断言离线复算过（13 块 × 30 键、13 语代码全部命中）。
+
+## M16 — 执行环境沙盒落地（F17，2026-11）
+
+背景：agenthub 新建 `internal/sandbox`（执行控制面，大脑与双手解耦），并交付 `/api/sandboxes*`。
+agentbuddy 把「计算机」屏从三张空卡片升级为**执行环境控制台**，并可选地把自己变成一台**执行节点**。
+范式沿用 M14 的调度器控制台：五指标水位条、状态胶囊、灰度徽标、hairline 分隔线。
+
+### 1. 接口与错误码
+- [x] `web/src/lib/api.js`：`listSandboxes`、`getSandbox`、`sandboxStats`、`execSandbox`、`renewSandbox`、
+  `terminateSandbox`、`listSandboxProviders`、`refreshSandboxProviders`、`listSandboxNodes`、
+  `deleteComputer` + `subscribeSandboxEvents`（SSE，`?since=` 回放）。
+- [x] `web/src/lib/copy/sandbox-copy.js`：独立表，`sandboxCopy` 并入 `hub`、`sandboxErrorCopy` 并入
+  `errors`；`withCopy` 折叠，13 语一次写齐。
+- [x] `errors.js` `CODE_KEYS`：8 个码（`sandbox_disabled/unsupported/unknown_provider/policy_denied/
+  timeout/node_offline/lease_lost/limit_reached`）。
+
+### 2. 执行环境控制台（`ComputersView.vue` 重写）
+- [x] 页头：标题 + 节点胶囊（实心=在线/空心=离线）+ 刷新；未接线时胶囊显示「沙盒已关闭」。
+- [x] 节点状态条：在线/离线/未启用、最后心跳相对时间、节点 id，右侧「前往设置」链接。
+- [x] 五指标水位条：活跃租约 / 待执行 / 在线节点 / 最近执行 / 上次清扫，等宽数字。
+- [x] 类型目录：按隔离层横向可滚动分组，每项显示名称、隔离强度、可用性徽标；不可用项写出原因（虚线框，保持可读）。
+- [x] 租约卡片：类型 + 状态胶囊 + 租约 id + 归属/作用域/后端/倒计时/执行次数；44px 三操作（试跑/续租/终止）。
+- [x] 审计抽屉：侧滑、租约 id、表格（命令/退出码/耗时/时间/`dry_run`）、失败行左缘 2px 实心竖条；
+  抽屉内可试跑并就地显示回执（`stdout || stderr || 无输出`）。
+- [x] 状态块：加载行、空态说明 + 申请入口、错误本地化文案 + 重试；`feature_unavailable` 整屏「沙盒已关闭」。
+- [x] 键盘/无障碍：卡片 `role=button` + Enter/Space 打开抽屉、Esc 关闭（`BaseDialog`）、44px 触控目标。
+
+### 3. 设置页执行节点区块（`SettingsView.vue`）
+- [x] 开关默认关；开启前 `window.confirm` 展示风险说明，拒绝则把勾选回滚（Vue 不会重渲染未变化的绑定值）。
+- [x] 工作根目录、命令白名单（逐行）、并发上限、节点 id（只读）、可选 API key（不回显，输入即覆盖）。
+- [x] 保存走 `/__shell/executor`，失败按 `code` 映射 13 语原因（`root_unusable` / `command_not_allowed` /
+  `server_not_configured` / …），未知码原样显示而不是吞掉。
+
+### 4. 桌面端执行节点（Rust）
+- [x] `executor/mod.rs`：状态机 enroll → poll → execute → report；启停、并发上限、退出钩子。
+- [x] `executor/policy.rs`：精确命令白名单（禁 shell）、根目录约束、环境变量白名单、超时、输出上限。
+- [x] `executor/spawn.rs`：直接 exec（不经 shell）、超时杀进程组、截断、退出码与耗时。
+- [x] `executor/jobs.rs`：长轮询领取、结果回传、失败退避与背压。
+- [x] `config.rs` / `lib.rs`：`executor_enabled`（默认 false）/ root / allowlist / max_concurrency / node_id / api_key。
+- [x] `proxy/shell.rs`：`GET|POST /__shell/executor`（状态、开关、根目录、白名单、节点 id、最近心跳）；
+  失败响应同时带 `code` 与 `reason`，让工作台的 `ApiError` 拿到机器码。
+
+### 5. 测试
+- [x] `web/tests/views.spec.js`：ComputersView 22 条（水位/目录/空态/未接线/终止确认/试跑与拒绝/申请与拒绝、
+  续租成功与失败、刷新成功与失败、键盘开合抽屉、倒计时与临期加粗、过期读作已过期、节点三种状态与心跳
+  相对时间、回执截断与空输出、审计表格与失败行、终止当前租约关闭抽屉、读取失败横幅重试、未知隔离层与
+  状态原样回退、事件burst 合并为一次刷新并在卸载时关闭流）、设置页执行节点 7 条（确认、拒绝回滚、拒绝
+  原因、在线状态、关闭不确认、四字段保存与 key 不回显、最近拒绝原因本地化）。
+- [x] `web/tests/api.spec.js`：sandbox 十个端点的路径/方法/请求体，以及 `subscribeSandboxEvents` 的
+  `?since=` 回放、事件名、错误回调与 `close()`；另有首次连接不带 query 的用例。
+- [x] `bun run test` 420 用例（原 401）全绿；`bun run test:coverage` 语句/行 99.06%、分支 84.69%、
+  函数 85.95%（补测前 98.37% / 82.18% / 79.82%，本轮回落到基线以下已补齐）；`bun run build` 通过。
+- [x] `cargo check --all-targets` + `cargo test --no-run` 通过（本机仍无法运行测试二进制，同 M7/M14/M15）。

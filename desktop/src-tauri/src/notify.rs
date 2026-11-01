@@ -88,6 +88,7 @@ mod tests {
         let jar = Arc::new(reqwest::cookie::Jar::default());
         let clients = forward::Clients::new(jar.clone()).expect("the forwarding client builds");
         let config = Arc::new(RwLock::new(AppConfig { notify_enabled, ..Default::default() }));
+        let executor = Arc::new(crate::executor::Executor::new(store.clone(), config.clone()));
         ProxyState {
             clients,
             config,
@@ -95,6 +96,7 @@ mod tests {
             self_url: "http://127.0.0.1:0".to_string(),
             app: None,
             jar,
+            executor,
         }
     }
 

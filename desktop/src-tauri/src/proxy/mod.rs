@@ -58,6 +58,10 @@ pub struct ProxyState {
     /// header is dropped before forwarding), so it is persisted to disk and
     /// re-seeded on launch to survive an app restart.
     pub jar: Arc<Jar>,
+    /// The execution node. It lives in this process, not in the webview, so the
+    /// workbench page never gains filesystem or command access — and it is the
+    /// same object the settings screen toggles.
+    pub executor: Arc<crate::executor::Executor>,
 }
 
 pub struct ProxyHandle {
@@ -109,13 +113,27 @@ async fn start_inner(
     let port = listener.local_addr().map_err(ProxyError::Bind)?.port();
     let url = format!("http://127.0.0.1:{port}");
 
-    let state = ProxyState { clients, config, store, self_url: url.clone(), app, jar };
+    let executor = Arc::new(crate::executor::Executor::new(store.clone(), config.clone()));
+    let state = ProxyState {
+        clients,
+        config,
+        store,
+        self_url: url.clone(),
+        app,
+        jar,
+        executor: executor.clone(),
+    };
     let router = Router::new().fallback(dispatch).with_state(state);
     let task = tokio::spawn(async move {
         if let Err(err) = axum::serve(listener, router).await {
             eprintln!("agentbuddy desktop: the loopback proxy stopped: {err}");
         }
     });
+
+    // The node starts after the listener, in its own task: a server that is down
+    // must not delay the window, and the settings screen has to answer while the
+    // loop is still retrying its first enrollment.
+    tokio::spawn(async move { executor.apply().await });
 
     Ok(ProxyHandle { port, url, _task: task })
 }

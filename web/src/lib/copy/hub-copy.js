@@ -5,6 +5,7 @@
 // below: the namespace the app resolves stays single, and the router's words stay
 // reviewable on their own.
 import { schedulerCopy, withCopy } from './scheduler-copy.js'
+import { sandboxCopy } from './sandbox-copy.js'
 
 const baseCopy = {
   en: { navComputers: 'Computers', navSchedules: 'Schedules', computersTitle: 'Agent computers', computersEmpty: 'No computers yet.', computerAttach: 'Attach', computerIdle: 'Idle', computerActive: 'Active', computerDisabled: 'Disabled', schedulesTitle: 'Goals & schedules', schedulesEmpty: 'No goals yet.', scheduleGoal: 'Goal', scheduleCron: 'Cron expression', scheduleEnabled: 'Enabled', scheduleNew: 'New goal', personaTitle: 'Agent persona', personaName: 'Display name', personaInstruction: 'Instructions', personaMbti: 'Personality (MBTI)', personaSave: 'Save persona', suggestionTitle: 'Suggestions', knowledgeTitle: 'Knowledge', knowledgeEmpty: 'No knowledge chunks yet.', featureOff: 'This server feature is switched off.' },
@@ -22,4 +23,7 @@ const baseCopy = {
   hi: { navComputers: 'कंप्यूटर', navSchedules: 'अनुसूचियाँ', computersTitle: 'एजेंट के कंप्यूटर', computersEmpty: 'अभी कोई कंप्यूटर नहीं।', computerAttach: 'जोड़ें', computerIdle: 'निष्क्रिय', computerActive: 'सक्रिय', computerDisabled: 'अक्षम', schedulesTitle: 'लक्ष्य और अनुसूचियाँ', schedulesEmpty: 'अभी कोई लक्ष्य नहीं।', scheduleGoal: 'लक्ष्य', scheduleCron: 'Cron अभिव्यक्ति', scheduleEnabled: 'सक्षम', scheduleNew: 'नया लक्ष्य', personaTitle: 'एजेंट की पहचान', personaName: 'प्रदर्शित नाम', personaInstruction: 'निर्देश', personaMbti: 'व्यक्तित्व (MBTI)', personaSave: 'पहचान सहेजें', suggestionTitle: 'सुझाव', knowledgeTitle: 'ज्ञान', knowledgeEmpty: 'अभी कोई ज्ञान अंश नहीं।', featureOff: 'यह सर्वर सुविधा बंद है।' },
 }
 
-export const hubCopy = withCopy(baseCopy, schedulerCopy)
+// Two sibling tables fold in: the scheduler's vocabulary and the execution
+// environment's. The namespace the app resolves stays single, and each table
+// stays reviewable on its own.
+export const hubCopy = withCopy(withCopy(baseCopy, schedulerCopy), sandboxCopy)

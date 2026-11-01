@@ -62,6 +62,34 @@ Publishes installers through [`.github/workflows/release.yml`](.github/workflows
 | macOS aarch64 | `macos-aarch64.tar.gz`  | `aarch64.dmg`    |
 | Windows x86_64| `windows-x86_64.zip`    | `x64.msi`        |
 
+## Execution environments
+
+The console's **Computers** screen is an execution-environment control plane viewer: the
+provider catalogue grouped by isolation layer (container / user-space kernel / microVM /
+process / platform / remote / off) with each backend's availability and the reason it is
+unavailable, a five-metric water level, lease cards with a countdown, and an audit drawer
+with a try-it runner. Everything is read from agenthub — the desktop never probes a runtime
+and never decides which backend is safe.
+
+The screen is honest about absence: when the server has no control plane wired in, it says
+"sandboxes are off" and how to turn them on, instead of drawing a water level of zero.
+
+### Serving as an execution node (optional, off by default)
+
+Settings → **Execution node** lets this machine run commands for the server, inside limits
+the desktop enforces locally:
+
+- **no shell** — the argv is executed directly, and only an exact name from the allow list
+  is accepted;
+- **one root** — nothing outside the configured absolute directory can be read, written or
+  run;
+- **bounded** — a timeout kills the process group, output is truncated, and the number of
+  concurrent jobs is capped;
+- **revocable** — the switch stops the node immediately, and the server shows it offline.
+
+The web view gets no filesystem or command access from this: the capability lives in the
+Rust process, and the workbench only reads its state through `/__shell/executor`.
+
 ## Comparison
 
 | Capability | agentbuddy | OpenDots | openmuse | openbot | Octop | openagents | Velozity |
@@ -69,12 +97,13 @@ Publishes installers through [`.github/workflows/release.yml`](.github/workflows
 | Form | Tauri v2 desktop + Vue 3 workbench | Web+Mobile template | RN/Expo/Web app | Electron desktop | Self-hosted single process | Agent collaboration OS | Cloud AI Office (SaaS) |
 | Backend | agenthub (self-host) | CopilotKit runtime | CopilotKit runtime | Local agent CLIs | Octop Harness | Network SDK (self-host) | Closed cloud |
 | Multi-agent | Roles via `persona` (F10) | Specialist Dots | Single personal agent | Many persistent agents | Expert teams + AgentTeams | Any agent in one workspace | User-built AI workforce |
-| Computer use | Mock adapter `TODO(real)` (F11) | OpenBot container | Playwright browser | Computer Use (cua) | Browser AI+ / remote desktop | Shared browser | Not public |
+| Computer use | Leased sandbox: docker (default), gVisor, Kata, bubblewrap, hosted runtime or a node you enrolled (F17) | OpenBot container | Playwright browser | Computer Use (cua) | Browser AI+ / remote desktop | Shared browser | Not public |
 | Human-in-loop | HITL park/resume (F4) | Approve & save/run | Review before send | Full access (preview) | Tool approval + PII redact | @mention / autonomous | Human + agent collab |
 | Scheduling | Trigger router: cron / thread / channel / manual → rules → batched assessor → ticket → worker (F13) | Background turns | Goals & tracking | Webhook routines | Natural-language cron | Channel pickup | Smart scheduling |
 | Skills / Knowledge | `kind=skill` + mock RAG (F14) | Auto-learn | — | Local skills | Company Brain | — | Company Brain |
 | Channels | Slack / Teams / Telegram / SMS (F6) | Slack | Gmail / Calendar | Desktop / Mobile | IM omnichannel | Workspace threads | Chat + voice cabins |
 | Voice | Record → transcribe → delegate (F8) | WebRTC calls | — | Mobile WebRTC | — | — | Voice / video cabins |
+| Execution isolation | Server-side leases; this desktop can also serve as a node (BYOM) | — | — | — | — | — | — |
 | Self-host | Yes (desktop + agenthub) | Docker | Docker / Render | Local / server | Single process | Self-host network | No (SaaS) |
 
 ## License

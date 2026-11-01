@@ -106,6 +106,39 @@ export const listComputers = () => get('/api/computers')
 export const createComputer = (kind, agentId) =>
   post('/api/computers', { kind, agentId })
 export const getComputer = (id) => get(`/api/computers/${id}`)
+/** Terminates the lease behind a computer before dropping its card. */
+export const deleteComputer = (id) => del(`/api/computers/${id}`)
+
+// ---- Execution environments (sandboxes) -----------------------------------
+
+/** The water level: leases, queued jobs, online nodes, recent runs, last sweep. */
+export const sandboxStats = () => get('/api/sandboxes/stats')
+export const listSandboxes = () => get('/api/sandboxes')
+export const getSandbox = (id) => get(`/api/sandboxes/${id}`)
+/** Runs one command in a lease. A manual probe, not a routed task. */
+export const execSandbox = (id, body) => post(`/api/sandboxes/${id}/exec`, body)
+export const renewSandbox = (id) => post(`/api/sandboxes/${id}/renew`)
+export const terminateSandbox = (id) => del(`/api/sandboxes/${id}`)
+
+/** The catalogue, grouped by isolation layer on the server. */
+export const listSandboxProviders = () => get('/api/sandbox-providers')
+/** Re-probes every backend; a POST because it spawns the runtime binaries. */
+export const refreshSandboxProviders = () => post('/api/sandbox-providers/refresh')
+
+export const listSandboxNodes = () => get('/api/sandbox-nodes')
+
+/** Streams environment frames (replay from `since`, then live). */
+export function subscribeSandboxEvents(since, handlers = {}) {
+  const q = since ? `?since=${encodeURIComponent(since)}` : ''
+  const source = new EventSource(`/api/sandboxes/events${q}`)
+  source.addEventListener('sandbox_event', (ev) => {
+    if (handlers.event) handlers.event(JSON.parse(ev.data))
+  })
+  source.onerror = (err) => {
+    if (handlers.error) handlers.error(err)
+  }
+  return { close: () => source.close() }
+}
 
 // ---- Schedules (F13) ----------------------------------------------------
 

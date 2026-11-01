@@ -66,9 +66,13 @@ surface. The scheduler drives agenthub's real trigger router; the rest are
 deterministic scaffolds, with deep behaviours still marked `TODO(real)` on the
 server side:
 
-- **Computers**: lists and creates per-agent `browser` / `shell` / `screen`
-  sandboxes (`GET/POST /api/computers`, `GET /api/computers/{id}`), and renders
-  the returned envelope instead of silently treating it as an empty array.
+- **Execution environments**: the Computers screen is now a console over agenthub's
+  sandbox control plane — a provider catalogue grouped by isolation layer with each
+  backend's availability *and its reason*, a five-metric water level (active leases /
+  queued jobs / online nodes / recent runs / last sweep), lease cards with an expiry
+  countdown, and an audit drawer with a try-it runner. Revoking a lease asks first;
+  a screen with the feature switched off says "sandboxes are off" and how to turn it
+  on, rather than drawing a water level of zero.
 - **Scheduler**: reads agenthub's trigger router instead of a mock ticker — a
   water-level strip (to decide / running / awaiting a person / last batch /
   last pass), the goal's run history as a timeline that links into the real
@@ -85,24 +89,43 @@ server side:
   avatar and title — and persists it to agenthub through the resource update
   endpoint.
 
-## 6. Auth & Offline Resilience
+## 6. Execution Node (BYOM)
+
+Settings gains an **Execution node** block, off by default. Turning it on asks for
+confirmation first, because it lets the server run commands on this machine under the
+user's identity. What it does *not* do is as important as what it does:
+
+- **no shell** — the argv is executed directly; only an exact name from the allow list is
+  accepted, so `sh`, `bash` and `cmd` are refused by construction;
+- **one root** — the working root must be an absolute path, and nothing outside it can be
+  read, written or run;
+- **bounded** — a timeout kills the process group, output is truncated, concurrency is
+  capped;
+- **visible** — node id, last heartbeat and the last refusal reason are shown in the block,
+  localised from the machine code the shell returns.
+
+The node lives in the Rust process. The web view only reads its state through
+`/__shell/executor`, so a compromised console page gains no filesystem or command access.
+
+## 7. Auth & Offline Resilience
 
 - The workbench distinguishes an expired session from a server that is down, so
   it prompts a re-login instead of reporting a false offline state, and returns
   to the login page on sign-out.
 
-## 7. Cross-platform Build & Release
+## 8. Cross-platform Build & Release
 
 - `deb` + portable tarball (Linux), `dmg` + portable tarball (macOS aarch64),
   `msi` + portable zip (Windows), plus `SHA256SUMS`.
 
-## 8. Tests
+## 9. Tests
 
 - Vitest covers i18n completeness, the monochrome guard, connector policy,
   monitor, notifications, voice, the auth guard and shell root, the modal and
   the recorder, plus a suite per view (filters, budget, persona switching,
   goal create/toggle/delete, schedule water level and countdown, channel
-  create/delete/retry, computer sessions, sign-in). 393 cases, all offline.
+  create/delete/retry, the execution-environment console and its lease actions,
+  sign-in). 420 cases, all offline.
 - `bun run test:coverage` (v8, `make web-coverage`) reports 99% of statements,
   84% of branches and 85% of functions.
 - `cargo test` covers the proxy, config (language fallback, per-server session
