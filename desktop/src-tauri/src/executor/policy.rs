@@ -205,8 +205,15 @@ fn is_shell(command: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// One root per call: the tests run in parallel and remove their directory
+    /// afterwards, so sharing a per-process path made them fail each other.
     fn root() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("agentbuddy-policy-{}", std::process::id()));
+        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "agentbuddy-policy-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

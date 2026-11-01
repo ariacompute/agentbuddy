@@ -217,13 +217,15 @@ async fn switching_the_node_off_interrupts_a_pending_wait() {
     let (stop_tx, mut stop_rx) = tokio::sync::watch::channel(false);
     let waiter = tokio::spawn(async move {
         let started = std::time::Instant::now();
-        let stopped = sleep_or_stop(&mut stop_rx, std::time::Duration::from_secs(30)).await;
-        (stopped, started.elapsed())
+        // `sleep_or_stop` answers "did the delay run to completion?", so being cut
+        // short is a false here.
+        let slept_fully = sleep_or_stop(&mut stop_rx, std::time::Duration::from_secs(30)).await;
+        (slept_fully, started.elapsed())
     });
 
     stop_tx.send(true).unwrap();
-    let (stopped, elapsed) = waiter.await.unwrap();
-    assert!(stopped, "the wait must report that it was cut short");
+    let (slept_fully, elapsed) = waiter.await.unwrap();
+    assert!(!slept_fully, "the wait must report that it was cut short");
     assert!(
         elapsed < std::time::Duration::from_secs(5),
         "stopping must not wait for the timer: {elapsed:?}"

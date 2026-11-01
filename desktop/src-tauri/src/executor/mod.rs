@@ -335,6 +335,13 @@ fn note(status: &Arc<Mutex<Status>>, result: Result<(), &JobError>) {
 
 /// Sleeps unless the node is stopped first. Returns false when it was stopped.
 async fn sleep_or_stop(stop: &mut watch::Receiver<bool>, delay: Duration) -> bool {
+    // A stop that landed before this call would be missed by the clone below: a
+    // freshly cloned receiver counts the current value as seen, so `changed()`
+    // would only fire on the *next* send and the caller would park for the whole
+    // delay. Checking the value first closes that window.
+    if *stop.borrow() {
+        return false;
+    }
     // The clone shares the channel, so waiting on it leaves `stop` readable in the
     // other arm: the alternative is one borrow too many for the compiler.
     let mut change = stop.clone();

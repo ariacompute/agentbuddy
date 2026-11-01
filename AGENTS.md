@@ -102,6 +102,9 @@ desktop/
   入口缺失无法启动，只能 `cargo test --no-run` 做编译校验；纯逻辑用例（i18n 表、托盘映射、
   会话存取、执行节点的白名单/根目录/超时/截断）不依赖 AppHandle，在 CI 上一跑即知。
   `i18n/copy.rs` 用 `include_str!` 读 `web/src/lib/languages.js` 钉住 13 语代码集，改语言清单会在此处报错。
+  **CI 跑 `cargo test` 前必须先 `make icons`**：`tauri::generate_context!` 在编译期读 `icons/`，
+  而该目录被 gitignore，缺了连 `cargo check` 都过不去（`make desktop-test` / `make desktop-check`
+  已依赖 `icons`，裸 `cargo test` 不会代劳）。
 
 ### 服务端（agenthub，改动需谨慎）
 

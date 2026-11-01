@@ -486,7 +486,9 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_a_notification_when_disabled() {
-        let proxy = proxy_with(AppConfig::default()).await;
+        // Notifications are on by default, so the test has to turn them off: a
+        // default config would take the `no_app` branch instead.
+        let proxy = proxy_with(AppConfig { notify_enabled: false, ..AppConfig::default() }).await;
         let client = reqwest::Client::new();
         let resp: serde_json::Value = client
             .post(format!("{}/__shell/notify", proxy.url))

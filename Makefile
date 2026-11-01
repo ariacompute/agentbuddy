@@ -54,11 +54,11 @@ desktop-build: desktop-install web-build icons ## Produce installers for the hos
 	cd $(DESK) && $(BUN) run build
 
 .PHONY: desktop-test
-desktop-test: desktop-install ## Rust unit tests (proxy, config, i18n).
+desktop-test: desktop-install icons ## Rust unit tests (proxy, config, i18n).
 	cd $(DESK)/src-tauri && cargo test
 
 .PHONY: desktop-check
-desktop-check: ## cargo check without bundling (fast feedback in CI).
+desktop-check: desktop-install icons ## cargo check without bundling (fast feedback in CI).
 	cd $(DESK)/src-tauri && cargo check --all-targets
 
 .PHONY: icons

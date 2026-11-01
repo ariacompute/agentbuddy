@@ -30,14 +30,21 @@ struct NotifyPayload {
 
 pub async fn handle(state: &ProxyState, req: Request) -> Response {
     let payload = match axum::body::to_bytes(req.into_body(), 64 * 1024).await {
-        Ok(bytes) => serde_json::from_slice::<NotifyPayload>(&bytes).unwrap_or_default(),
+        // A body that does not parse is the webview's bug, not the user's: it is
+        // the only case that answers with an HTTP error, so the caller notices.
+        Ok(bytes) => match serde_json::from_slice::<NotifyPayload>(&bytes) {
+            Ok(payload) => payload,
+            Err(_) => return invalid("invalid_json"),
+        },
         Err(_) => return invalid("invalid_json"),
     };
 
     let title = payload.title.filter(|t| !t.trim().is_empty());
     let body = payload.body.filter(|b| !b.trim().is_empty());
     let (Some(title), Some(body)) = (title, body) else {
-        return invalid("missing_fields");
+        // An empty title or body is a normal "nothing to say" case: the webview
+        // silently drops it, so it is reported as a refusal, not an error.
+        return denied("missing_fields");
     };
 
     // The building-level master switch: when it is off, never disturb the user.

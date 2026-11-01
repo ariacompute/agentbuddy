@@ -205,9 +205,18 @@ async fn join_output(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
+    /// A workspace of its own per call: cargo runs these tests in parallel and each
+    /// one removes its directory at the end, so a shared per-process path made them
+    /// tear each other's root away (`root_unusable`, missing output).
     fn workspace() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("agentbuddy-spawn-{}", std::process::id()));
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "agentbuddy-spawn-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
