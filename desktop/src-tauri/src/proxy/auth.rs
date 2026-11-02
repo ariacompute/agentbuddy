@@ -70,19 +70,30 @@ impl Auth {
         value
     }
 
-    /// Consumes the outstanding nonce. It is cleared whether or not it matched,
-    /// so one guess is all an attacker gets.
+    /// Consumes the outstanding nonce on a match, and leaves it alone on a
+    /// mismatch.
+    ///
+    /// Clearing it on a wrong guess looks like hardening but is the opposite: the
+    /// value is 256 bits, so guessing it is hopeless and unlimited attempts buy
+    /// an attacker nothing — while any local process could then kill the window's
+    /// bootstrap for good with one request, because the URL is only ever used
+    /// once. An expired nonce is dead either way, so that one is dropped.
     pub fn take_nonce(&self, candidate: &str) -> bool {
         let Ok(mut slot) = self.nonce.lock() else {
             return false;
         };
-        let Some(pending) = slot.take() else {
+        let Some(pending) = slot.as_ref() else {
             return false;
         };
         if pending.issued.elapsed() > NONCE_TTL {
+            *slot = None;
             return false;
         }
-        constant_time_eq(pending.value.as_bytes(), candidate.as_bytes())
+        if !constant_time_eq(pending.value.as_bytes(), candidate.as_bytes()) {
+            return false;
+        }
+        *slot = None;
+        true
     }
 
     /// Reports whether a request carries the token, as a cookie or a bearer
@@ -247,6 +258,19 @@ mod tests {
         });
         assert!(!auth.take_nonce("stale"));
         assert!(auth.nonce.lock().unwrap().is_none(), "an expired nonce is still spent");
+    }
+
+    #[test]
+    fn a_wrong_guess_does_not_burn_the_real_nonce() {
+        // The window boots exactly once, so a nonce spent by somebody else is a
+        // startup that never happens. Guessing is hopeless against 256 bits, so
+        // the safe move is to leave the outstanding value untouched.
+        let auth = Auth::new();
+        let real = auth.new_nonce();
+        assert!(!auth.take_nonce("guess"));
+        assert!(!auth.take_nonce(""));
+        assert!(auth.take_nonce(&real), "the real nonce must survive a wrong guess");
+        assert!(!auth.take_nonce(&real), "and it must not be redeemable twice");
     }
 
     #[test]

@@ -228,7 +228,20 @@ CSP 与上游安全头被丢弃、会话明文落盘。三条一并收口，均�
 - [x] `cargo check --all-targets` 无告警；`cargo test --no-run` 通过
       （本机测试二进制仍因 Tauri 原生依赖入口缺失无法启动，属环境问题）
 - [x] `bun run build`（web）+ `bun run test` 全绿；单色守卫不受影响
+- [x] **WSL2（Linux）实机跑通**：`cargo test` 153 passed / 0 failed，`cargo check --all-targets` 通过。
+      `keyring` 以 `sync-secret-service + crypto-rust` 在 Linux 完成链接；该机无 D-Bus 会话与
+      keyring 守护进程，`Keyring::probe` 返回不可用，实际走的是「属主可读文件」回退路径
+      （真钥匙串路径无自动化用例，见下）
 - 待办：Linux 构建需 `libdbus-1-dev`（Secret Service 后端），已在 README 说明
+
+### 5. 实机验证发现并修掉的问题（nonce 一次性语义）
+- [x] `proxy/auth.rs` 的 `take_nonce` 原先「无论是否匹配都清空」，注释理由是「一次猜错就结束」。
+      但 nonce 是 256 位、猜测毫无意义，而清空带来一个真问题：本机任何进程只要对
+      `/__shell/bootstrap?nonce=x` 发一次错误请求，就能**把窗口唯一的那次引导永久作废**——
+      引导 URL 只在启动时用一次，于是控制台再也拿不到 Cookie。改为「命中才消费，未命中保持原值；
+      过期的照样丢弃」，并补 `a_wrong_guess_does_not_burn_the_real_nonce` 用例
+- [x] 该缺陷由 `reissuing_a_nonce_retires_the_earlier_url` 在 WSL2 上暴露（Windows 上此前无法运行
+      测试二进制，因此一直是「编译通过」而非「行为正确」）
 
 ## M13 — 测试补强与覆盖率（2026-11）
 
