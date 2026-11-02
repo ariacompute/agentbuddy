@@ -79,7 +79,7 @@
 | F5.1 | 关闭窗口 = 最小化到托盘（保留环回代理与事件循环）；**仅托盘「退出」** 终止进程 |
 | F5.2 | 事件聚合：轮询 `/api/workspace` + `/api/tasks`（可见 5s / 隐藏 20s / 失败指数退避 5s→30s）+ 对非终态任务按需开 per-task SSE（**并发上限 6**，LRU 淘汰） |
 | F5.3 | 通知去重纯函数 `decide()`：幂等键 `taskID:state`（1h 窗口，与 `HTTPNotifier` 对齐）、同键 30s 静默、每分钟 >8 条合并为摘要、静默期内只入站内中心 |
-| F5.4 | 系统通知经环回端点 `POST /__shell/notify`；未获权限 `ok:false` 时降级为应用内红点 |
+| F5.4 | 系统通知**真实投递**：`decide()` 判定需要打扰后，工作台经环回端点 `POST /__shell/notify` 发一条本地化标题 + 摘要 + 深链（`title` 在发送时用当前语言解析，不是 copy key）。外壳的 `notify_enabled` 与 `notify_quiet_minutes` 由工作台读 `/__shell/config` 后喂给 `decide({settings:{enabled, quietUntil}})`，因此设置页的「通知开关」与「静默期」真的生效，而不只是写进配置文件。投递为 fire-and-forget：`ok:false`（`disabled` / `quiet` / `no_app` / `denied` / `missing_fields`）是正常回应，降级为应用内红点，不报错、不重试、不阻塞轮询；纯 Web 构建没有 `/__shell`，请求失败被静默吞掉 |
 | F5.5 | 托盘角标显示未读计数，点击通知深链到对应会话 / 任务 |
 | F5.6 | 断线重放：`?since=<seq>`；SSE 无 `[DONE]` 哨兵，终态由状态判定 |
 
@@ -135,7 +135,7 @@
 | 编号 | 需求 | 借鉴来源 |
 |---|---|---|
 | F10.1 | 新增「新建/编辑 Agent」流程：名称、显示名、头衔、角色指令（system prompt）、MBTI 人格模板（16 型 + 互动测验）、头像 | OpenDots Dots、Octop 专家 + MBTI、Velozity AI Workforce |
-| F10.2 | 角色数据持久化于 `registry.Entry.persona`（013 已加 `persona JSONB` 列），结构扩展为 `{role, instruction, mbti, avatar_ref, title}` | — |
+| F10.2 | 角色数据持久化于 `registry.Entry.persona`（013 已加 `persona JSONB` 列），结构为 `{role, instruction, mbti, avatar_ref, title}`，服务端 `normalizePersona` 统一 trim、长度截断、MBTI 只接受 16 型（不合规一律清空，不猜）；编辑表单五个字段全部可往返保存（`role` 曾在界面上缺席，导致保存时被覆盖为空，已补回） | — |
 | F10.3 | 客户端经 `POST/PUT /api/resources` 写入/更新角色字段；列表经 `GET /api/resources` 按 `kind` 分组展示 | — |
 | F10.4 | 工作台（F2）与 Threads（F3）按 persona 渲染 Agent 头像/头衔/人格标签，单色下以文本标签区分 | — |
 
@@ -146,7 +146,7 @@
 | F11.1 | 新增「Agent 计算机」视图：共享浏览器、Shell 终端、屏幕镜像三类面板 | OpenDots Dot Computers、openmuse Agent Computer、openbot Computer Use、Octop Browser AI+ / 远程桌面 |
 | F11.2 | 服务端经 adapter 承接：复用 `kind=cli`（Shell）/ `kind=mcp`（浏览器自动化），或新增 `/api/computers`（见 §4.1） | — |
 | F11.3 | **已落地（F17）**：computers 卡片创建时向服务端申请**真实执行环境租约**（回写 `provider` / `leaseId` / `nodeId` / `expiresAt`），删除先终止租约；浏览器自动化本身由服务端提供方承担，客户端只渲染、不引入子进程 | openbot `cua-driver`、Octop CDP 远程桌面 |
-| F11.4 | 人工接管：mock 阶段提供「接管」开关（仅 UI 态），真实接管待 `TODO(real)` | openmuse takeover console、OpenDots 人工接管 |
+| F11.4 | 人工接管：首版提供「接管」开关（仅 UI 态，不改变执行归属），真实接管待 `TODO(real)`——服务端尚未提供接管通道 | openmuse takeover console、OpenDots 人工接管 |
 
 ### F12 Agent 间协作与共享空间
 
@@ -206,7 +206,7 @@
 | F17.4 | **审计抽屉**：右侧滑出，顶部租约 id，表格列命令摘要 / 退出码 / 耗时 / 时间 / `dry_run` 标记，失败行左缘 2px 实心竖条；抽屉内可直接试跑一条命令并就地看回执 | — |
 | F17.5 | **未接线语义**：服务端无控制面时整屏显示「沙盒已关闭」+ 一句如何开启，不渲染零值水位条、不显示错误横幅 | `feature_unavailable` |
 | F17.6 | **执行节点**（可选，**默认关闭**）：设置页开关 + 风险说明 + 确认；工作根目录（绝对路径）、命令白名单（逐行、精确匹配、禁 shell）、并发上限、节点 id（只读）、可选 API key、在线状态与最近拒绝原因 | BYOM |
-| F17.7 | 节点只在**本地 Rust 进程**执行：不经 shell、只跑白名单精确命令、只允许根目录内路径、超时杀进程组、输出截断；网页视图**不获得**任何文件系统或命令执行能力 | — |
+| F17.7 | 节点只在**本地 Rust 进程**执行：不经 shell、只跑白名单精确命令、只允许根目录内路径、超时**终止整棵进程组**、输出截断；网页视图**不获得**任何文件系统或命令执行能力。进程组语义仅 unix 具备（`process_group(0)` + `kill(-pgid)`，TERM → 250ms 宽限 → KILL → `wait()` 收尸）；Windows 没有等价原语，退回 `kill_on_drop` + 直接子进程 `start_kill`，并在代码中明确标注不支持，而不是假装已清场 | — |
 | F17.8 | 节点生命周期：开启后注册 → 心跳 → 长轮询领任务 → 执行 → 回传；退出即停止，重启自动重新上线；间歇在线不算故障，服务端据此显示离线 | — |
 | F17.9 | 客户端不自建沙盒、不做类型探测：目录、可用性与原因全部来自服务端，客户端只渲染 | 单一事实来源 |
 
@@ -407,3 +407,8 @@
 24. 登录表单校验（F1）：邮箱与密码为空、注册模式下两次密码不一致或未填显示名时，提交按钮保持 disabled，且**在输入框内回车同样被拦截**（`submit()` 自查 `canSubmit`），不发请求、不回显错误码。
 25. 通道重试（F6）：出站失败落 `failed` 回执并保留原文；点重试 → 200 且该回执原地变 `delivered`（不新增行）；已送达 / 入站 / 无原文 → 409 `delivery_not_retryable`；提供方仍失败 → 502 `delivery_failed` 且回执保持可重试。
 26. 可见性（M3）：`visibility=restricted` 且无授权的资源不出现在任何列表；直接调用返回 404 而非 403，空列表不提示「权限不足」。
+27. 通知投递（F5.4）：任务 `completed` / `input-required` / `failed` 时工作台向 `/__shell/notify` 发送**已本地化的标题**（不是 `notifyResult` 这类 copy key）与深链；外壳 `notify_enabled=false` 或处于静默期时不发；`ok:false` 不报错、不重试、不影响站内通知中心。
+28. 桌面密钥与文件权限（F18）：执行节点 API key 在凭据库可用时写入凭据库，`config.json` 中该字段为空，重启后 `load()` 回填且节点仍能认证；无凭据库时保留在 owner-only `config.json`；会话文件与配置文件均**创建即 `0600`**（unix），Windows 用 `icacls /inheritance:r /grant:r <user>:F` 显式收紧，失败只记一次日志。
+29. 超时清场（F17.7）：unix 下超时后先对整棵进程组 TERM、250ms 宽限后 KILL，孙进程不残留；`pid <= 1` 或 `kill` 失败时降级为直接子进程 `start_kill`，绝不向自身组发信号。Windows 无组语义，明确退回直接子进程终止。
+30. 跨进程冒烟：`make smoke` 用真实 socket 跑通两条链路——「工作台 store → 真实 `node:http` 桩」（含 401 透传与断连不被误判为会话过期）与「真实上游 → 外壳代理 → bootstrap nonce → Cookie → `/api` 转发 → `/__shell/notify` → 外来 Origin 403」；全部只走 `127.0.0.1`，不触外网。
+31. 登录与人格（F1.3 / F10.2）：点击 OAuth 提供方按钮即 `window.open` 跳转，不抛异常；Agent 人格表单可编辑 `role` 并在保存后再次打开仍在（不再被覆盖为空）。

@@ -80,8 +80,12 @@ onMounted(load)
         </select>
       </label>
       <label class="field">
-        <span>{{ t('personaName') }} ({{ t('personaMbti') }})</span>
+        <span>{{ t('personaJobTitle') }}</span>
         <input v-model="form.title" type="text" />
+      </label>
+      <label class="field">
+        <span>{{ t('personaRole') }}</span>
+        <input v-model="form.role" type="text" />
       </label>
       <label class="field">
         <span>{{ t('personaMbti') }}</span>

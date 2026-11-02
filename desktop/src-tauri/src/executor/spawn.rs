@@ -7,18 +7,27 @@
 //! `git --exec-path=/tmp/evil`.
 //!
 //! The child gets its own process group on unix so a timeout signal cannot be
-//! mistaken for the app being interrupted, and `kill_on_drop` guarantees a
-//! dropped job does not leave the direct child running.
+//! mistaken for the app being interrupted — and so that the same group can be
+//! signalled as a whole when the deadline passes, which is what stops a
+//! grandchild from outliving the job. `kill_on_drop` guarantees a dropped job
+//! does not leave the direct child running.
 
 use std::collections::BTreeMap;
 use std::process::Stdio;
 use std::time::Instant;
+#[cfg(unix)]
+use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::time::timeout;
 
 use super::policy::{Policy, PolicyError};
+
+/// How long a timed-out job gets between "please stop" and "stop", so a program
+/// that handles SIGTERM can flush its work instead of being cut off mid-write.
+#[cfg(unix)]
+const GROUP_GRACE: Duration = Duration::from_millis(250);
 
 /// One request as it arrives from the server (`ExecRequest` on the Go side).
 #[derive(Debug, Clone, Default, serde::Deserialize)]
@@ -90,7 +99,7 @@ pub async fn run(policy: &Policy, request: &ExecRequest) -> ExecOutcome {
     {
         use std::os::unix::process::CommandExt;
         // Own process group: a signal aimed at the app must not reach a job, and
-        // the group is what a future group-kill would target.
+        // the group (the child is its leader) is exactly what a timeout signals.
         command.as_std_mut().process_group(0);
     }
 
@@ -130,8 +139,7 @@ pub async fn run(policy: &Policy, request: &ExecRequest) -> ExecOutcome {
         // refused): report it as a failed run rather than inventing a code.
         Ok(Err(_)) => false,
         Err(_) => {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+            terminate_tree(&mut child).await;
             true
         }
     };
@@ -157,6 +165,41 @@ pub async fn run(policy: &Policy, request: &ExecRequest) -> ExecOutcome {
         duration_ms,
         error: String::new(),
     }
+}
+
+/// Stops a job whose deadline has passed, then reaps it.
+///
+/// On unix the child leads its own process group, so the whole tree is addressed:
+/// TERM first (a program that handles it can flush its work), a short grace, then
+/// KILL for whatever is still there. Killing only the direct child used to leave
+/// grandchildren running — and those inherit the stdout pipe, so the node could
+/// not even finish reading the output it was about to report.
+///
+/// Windows has no equivalent here; the fallback is the direct kill, and the
+/// platform module answers `false` rather than pretending.
+async fn terminate_tree(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    {
+        // `process_group(0)` made the child the leader, so its pid is the group id.
+        if let Some(pid) = child.id() {
+            let pgid = pid as i32;
+            if super::procgroup::terminate_group(pgid) {
+                tokio::time::sleep(GROUP_GRACE).await;
+            }
+            // Anything that ignored TERM, or that started during the grace
+            // period, goes now. A refused signal means the group is already
+            // gone, and the direct kill covers that case.
+            if !super::procgroup::kill_group(pgid) {
+                let _ = child.start_kill();
+            }
+        }
+        // No pid means it was already reaped: nothing left to signal.
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.start_kill();
+    }
+    let _ = child.wait().await;
 }
 
 /// Reads a stream up to `cap` bytes and keeps draining afterwards: stopping at

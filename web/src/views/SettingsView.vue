@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useCopy, useLang, setLang } from '../lib/use-copy.js'
 import { LANGUAGES } from '../lib/languages.js'
 import { checkHealth, request } from '../lib/api.js'
+import { applyShellNotifySettings } from '../lib/shell-settings.js'
 
 const { t } = useCopy('settings')
 // The execution-node block speaks the execution-environment vocabulary, which
@@ -198,6 +199,10 @@ async function save() {
       }),
     })
   } catch (e) { /* not running inside the desktop shell */ }
+  // The switch has to take effect now, not after the next reload: the workbench
+  // reads these through shell-settings.js, and the cache would otherwise serve
+  // the previous answer for up to a minute.
+  applyShellNotifySettings({ notifyEnabled: notify.value, notifyQuietMinutes: quiet.value })
 }
 
 function reset() {

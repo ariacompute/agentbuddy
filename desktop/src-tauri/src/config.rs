@@ -17,6 +17,9 @@ use tokio::sync::RwLock;
 use crate::i18n;
 use crate::session::{self, SessionBackend};
 
+/// The credential-store account name the execution node's API key lives under.
+const EXECUTOR_SECRET: &str = "executor_api_key";
+
 /// The persisted shape. `server_url` empty means "not configured yet", which is
 /// what sends the shell to the connection page.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -288,22 +291,68 @@ impl ConfigStore {
 
     /// Missing or unreadable config is not an error: it means "first run".
     pub fn load(&self) -> AppConfig {
-        match fs::read_to_string(&self.path) {
+        let mut config = match fs::read_to_string(&self.path) {
             Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
             Err(_) => AppConfig::default(),
+        };
+        self.fill_api_key(&mut config);
+        config
+    }
+
+    /// The execution node's API key is a bearer credential, so it belongs in the
+    /// credential store and not in a JSON file. The running process keeps the
+    /// key in memory either way — only the copy on disk is blanked.
+    pub fn save(&self, config: &AppConfig) -> Result<(), ConfigError> {
+        let mut persisted = config.clone();
+        self.keep_api_key_out_of_the_file(&mut persisted);
+        let text = serde_json::to_string_pretty(&persisted)?;
+        // The config can hold a URL with credentials, so keep it to the current
+        // user as well — created at `0600`, never written and then narrowed.
+        session::write_private_file(&self.path, &text)?;
+        Ok(())
+    }
+
+    /// Moves a non-empty key into the credential store and clears the copy that
+    /// goes to disk. A backend that cannot keep secrets (`File`) leaves the key
+    /// where it was: owner-only `config.json` is the honest fallback, and the
+    /// alternative — dropping the key — would silently stop the node.
+    fn keep_api_key_out_of_the_file(&self, persisted: &mut AppConfig) {
+        if !self.session.stores_secrets() {
+            return;
+        }
+        let key = persisted.executor_api_key.trim().to_string();
+        if key.is_empty() {
+            if self.session.load_secret(EXECUTOR_SECRET).is_some() {
+                let _ = self.session.save_secret(EXECUTOR_SECRET, "");
+                eprintln!("agentbuddy desktop: the executor API key was removed from the credential store");
+            }
+            return;
+        }
+        // Already stored: avoid rewriting the credential on every settings save.
+        if self.session.load_secret(EXECUTOR_SECRET).as_deref() == Some(key.as_str()) {
+            persisted.executor_api_key.clear();
+            return;
+        }
+        match self.session.save_secret(EXECUTOR_SECRET, &key) {
+            Ok(()) => {
+                persisted.executor_api_key.clear();
+                eprintln!("agentbuddy desktop: the executor API key moved into the credential store");
+            }
+            Err(err) => eprintln!(
+                "agentbuddy desktop: cannot move the executor API key into the credential store ({err}); it stays in config.json, which is owner-only"
+            ),
         }
     }
 
-    pub fn save(&self, config: &AppConfig) -> Result<(), ConfigError> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)?;
+    /// A key written by an older build lives in `config.json`; it is read from
+    /// there first and migrated into the store on the next save.
+    fn fill_api_key(&self, config: &mut AppConfig) {
+        if !config.executor_api_key.trim().is_empty() || !self.session.stores_secrets() {
+            return;
         }
-        let text = serde_json::to_string_pretty(config)?;
-        fs::write(&self.path, text)?;
-        // The config can hold a URL with credentials, so keep it to the current
-        // user as well.
-        session::restrict_to_owner(&self.path);
-        Ok(())
+        if let Some(secret) = self.session.load_secret(EXECUTOR_SECRET) {
+            config.executor_api_key = secret;
+        }
     }
 }
 
@@ -536,6 +585,80 @@ mod tests {
         store.save_session("https://a.example.com", "sid=1").unwrap();
         assert!(!stale.exists());
         assert_eq!(store.session_backend(), "memory");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The execution node's key is a bearer credential: the file must not carry
+    /// it when the machine has a credential store, and the running node must
+    /// still see it after a restart-simulating `load`.
+    #[test]
+    fn the_executor_api_key_never_reaches_the_config_file() {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-key-store-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let backend = Arc::new(crate::session::Memory::new());
+        let store = ConfigStore::with_session(dir.clone(), backend.clone());
+        let config = AppConfig {
+            server_url: "https://hub.example.com".into(),
+            executor_enabled: true,
+            executor_api_key: "sk-live-1".into(),
+            ..Default::default()
+        };
+
+        store.save(&config).unwrap();
+
+        let on_disk = fs::read_to_string(store.path()).unwrap();
+        assert!(!on_disk.contains("sk-live-1"), "the key must not be written to disk");
+        assert_eq!(backend.load_secret("executor_api_key").as_deref(), Some("sk-live-1"));
+        // Reading it back refills the in-memory field, so the node keeps working.
+        assert_eq!(store.load(), config);
+
+        // Saving again must not rewrite the credential, and clearing the key
+        // must clear it from the store too.
+        store.save(&config).unwrap();
+        let cleared = AppConfig { executor_api_key: String::new(), ..config.clone() };
+        store.save(&cleared).unwrap();
+        assert_eq!(backend.load_secret("executor_api_key"), None);
+        assert_eq!(store.load().executor_api_key, "");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Without a credential store the key stays where it always was; dropping it
+    /// would silently stop the node.
+    #[test]
+    fn a_file_only_install_keeps_the_key_in_the_owner_only_config() {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-key-file-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let store = ConfigStore::new(dir.clone());
+        assert!(!store.session.stores_secrets(), "the session file is not a credential store");
+
+        let config = AppConfig { executor_api_key: "sk-live-2".into(), ..Default::default() };
+        store.save(&config).unwrap();
+        assert_eq!(store.load().executor_api_key, "sk-live-2");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// An older build wrote the key in plaintext next to everything else; the
+    /// next save moves it into the store and narrows the file copy.
+    #[test]
+    fn an_api_key_written_by_an_older_build_is_migrated_on_the_next_save() {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-key-migrate-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let backend = Arc::new(crate::session::Memory::new());
+        let store = ConfigStore::with_session(dir.clone(), backend.clone());
+        fs::write(
+            store.path(),
+            r#"{"server_url":"https://hub.example.com","executor_api_key":"sk-old-3"}"#,
+        )
+        .unwrap();
+
+        let loaded = store.load();
+        assert_eq!(loaded.executor_api_key, "sk-old-3");
+        store.save(&loaded).unwrap();
+
+        assert!(!fs::read_to_string(store.path()).unwrap().contains("sk-old-3"));
+        assert_eq!(backend.load_secret("executor_api_key").as_deref(), Some("sk-old-3"));
+        assert_eq!(store.load().executor_api_key, "sk-old-3");
         let _ = fs::remove_dir_all(&dir);
     }
 

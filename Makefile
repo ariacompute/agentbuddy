@@ -39,6 +39,10 @@ web-test: web-install ## Vitest suite (i18n completeness + monochrome guard).
 web-coverage: web-install ## Same suite plus a v8 coverage report.
 	cd $(WEB) && $(BUN) run test:coverage
 
+.PHONY: web-smoke
+web-smoke: web-install ## Smoke: the real API client and store against a real HTTP stub.
+	cd $(WEB) && $(BUN) run test tests/smoke.e2e.spec.js
+
 # ------------------------------------------------------------------- desktop
 
 .PHONY: desktop-install
@@ -61,6 +65,10 @@ desktop-test: desktop-install icons ## Rust unit tests (proxy, config, i18n).
 desktop-check: desktop-install icons ## cargo check without bundling (fast feedback in CI).
 	cd $(DESK)/src-tauri && cargo check --all-targets
 
+.PHONY: desktop-smoke
+desktop-smoke: desktop-install icons ## Smoke: bootstrap → cookie → forward → notify over real sockets.
+	cd $(DESK)/src-tauri && cargo test proxy::tests::a_whole_shell_session_over_real_sockets
+
 .PHONY: icons
 icons: desktop-install ## Re-derive every icon size from assets/app-icon.png.
 	cd $(DESK) && $(BUN) run icons
@@ -70,6 +78,9 @@ stamp: desktop-install ## Write $(VERSION) into Cargo.toml + tauri.conf.json.
 	cd $(DESK) && $(BUN) run stamp $(VERSION)
 
 # ---------------------------------------------------------------- aggregate
+
+.PHONY: smoke
+smoke: web-smoke desktop-smoke ## Both cross-process smoke tests (loopback only, no network).
 
 .PHONY: test
 test: web-test desktop-test ## Everything that runs offline.

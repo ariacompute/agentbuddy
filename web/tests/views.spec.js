@@ -1904,6 +1904,30 @@ describe('PersonaEditor', () => {
     expect(wrapper.findAll('select')[1].element.value).toBe('')
   })
 
+  it('keeps the role field and round-trips it', async () => {
+    // The role is what the operator reads on a card ("Research lead"), and it was
+    // the one field with no input: whatever the record held was re-sent unchanged,
+    // so editing it was impossible and clearing it was silent data loss.
+    listResources.mockResolvedValue({
+      resources: [{ id: 'a1', name: 'Agent', kind: 'agent', persona: { role: 'Research lead' } }],
+    })
+    updateResource.mockResolvedValue({})
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    // text inputs are, in order: job title, role, avatar reference.
+    const inputs = wrapper.findAll('input[type="text"]')
+    expect(inputs[1].element.value).toBe('Research lead')
+
+    await inputs[1].setValue('Delivery lead')
+    await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
+    await flushPromises()
+
+    expect(updateResource).toHaveBeenCalledWith('a1', {
+      persona: expect.objectContaining({ role: 'Delivery lead' }),
+    })
+  })
+
   it('reports a rejected save and lets the user try again', async () => {
     listResources.mockResolvedValue({ resources: [{ id: 'a1', name: 'Agent', kind: 'agent', persona: {} }] })
     updateResource.mockRejectedValue(Object.assign(new Error('nope'), { code: 'forbidden' }))
@@ -2078,5 +2102,40 @@ describe('LoginView', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('v0.4.0@1a2b3c4')
     delete window.__AGENTBUDDY_VERSION__
+  })
+
+  it('navigates when an OAuth provider is clicked', async () => {
+    // The handler used to be `@click="window.open(p.url, '_self')"` in the
+    // template. A template expression resolves identifiers on the component
+    // instance, so `window` was undefined and every provider click threw before
+    // the browser could navigate. This asserts the click reaches window.open.
+    authConfig.mockResolvedValue({
+      oauth: [{ id: 'google', name: 'Google', url: '/api/auth/oauth/google/start' }],
+    })
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+
+    const { wrapper } = mountWith(LoginView)
+    await flushPromises()
+
+    const provider = wrapper.findAll('button').find((b) => b.text().includes('Google'))
+    expect(provider).toBeTruthy()
+    await provider.trigger('click')
+
+    expect(open).toHaveBeenCalledWith('/api/auth/oauth/google/start', '_self')
+  })
+
+  it('ignores a provider that arrived without a URL', async () => {
+    // An older server can list a provider whose start URL is blank; clicking it
+    // must not open an empty tab.
+    authConfig.mockResolvedValue({ oauth: [{ id: 'github', name: 'GitHub' }] })
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+
+    const { wrapper } = mountWith(LoginView)
+    await flushPromises()
+    await wrapper.findAll('button').find((b) => b.text().includes('GitHub')).trigger('click')
+
+    expect(open).not.toHaveBeenCalled()
   })
 })

@@ -784,4 +784,138 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// A proxy with admission control, served from a real port.
+    ///
+    /// `start_inner` can only build the gate when a window exists, so this
+    /// assembles the same state and serves it with `axum::serve`: the test then
+    /// drives the handshake with a real HTTP client instead of calling
+    /// `dispatch` directly, which is the only way to prove the cookie actually
+    /// survives a socket.
+    async fn spawn_gated_proxy(config: AppConfig) -> (String, Arc<auth::Auth>) {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-gated-{}", port_stamp()));
+        let store = Arc::new(ConfigStore::new(dir));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}");
+
+        let jar = Arc::new(reqwest::cookie::Jar::default());
+        let clients = forward::Clients::new(jar.clone()).expect("the forwarding client builds");
+        let config = Arc::new(tokio::sync::RwLock::new(config));
+        let executor = Arc::new(crate::executor::Executor::new(store.clone(), config.clone()));
+        let gate = Arc::new(auth::Auth::new());
+        let state = ProxyState {
+            clients,
+            config,
+            store: store.clone(),
+            self_url: url.clone(),
+            app: None,
+            jar,
+            executor,
+            auth: Some(gate.clone()),
+        };
+        let router = Router::new().fallback(dispatch).with_state(state);
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+        (url, gate)
+    }
+
+    /// Bounds every step so a broken proxy fails the test instead of parking it.
+    async fn within(
+        label: &str,
+        fut: impl std::future::Future<Output = Result<reqwest::Response, reqwest::Error>>,
+    ) -> reqwest::Response {
+        tokio::time::timeout(std::time::Duration::from_secs(5), fut)
+            .await
+            .unwrap_or_else(|_| panic!("{label} did not answer in time"))
+            .unwrap_or_else(|err| panic!("{label} failed: {err}"))
+    }
+
+    /// The whole shell session over real sockets, in one flow:
+    /// no token → bootstrap → cookie → forwarded API call → shell notify →
+    /// foreign origin. Each step is covered on its own above; together they are
+    /// what catches "wired up but never reachable".
+    #[tokio::test]
+    async fn a_whole_shell_session_over_real_sockets() {
+        use axum::http::header::{COOKIE, LOCATION, ORIGIN, SET_COOKIE};
+
+        let server = spawn_server().await;
+        let (url, gate) =
+            spawn_gated_proxy(AppConfig { server_url: server, ..AppConfig::default() }).await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        // 1. No token: refused before the upstream is ever contacted.
+        let denied = within("no-token request", client.get(format!("{url}/api/me")).send()).await;
+        assert_eq!(denied.status(), 401);
+        let body: serde_json::Value = denied.json().await.unwrap();
+        assert_eq!(body["code"], "proxy_unauthorized");
+
+        // 2. The URL the window opens: a single-use nonce becomes the cookie.
+        let nonce = gate.new_nonce();
+        let boot = within(
+            "bootstrap",
+            client.get(format!("{url}{BOOTSTRAP_PATH}?nonce={nonce}")).send(),
+        )
+        .await;
+        assert_eq!(boot.status(), 303);
+        assert_eq!(boot.headers().get(LOCATION).unwrap().to_str().unwrap(), "/");
+        let set_cookie = boot.headers().get(SET_COOKIE).unwrap().to_str().unwrap().to_string();
+        assert!(set_cookie.contains("HttpOnly"), "the script must not read the token");
+        // What a browser keeps and sends back on every later request.
+        let cookie = set_cookie.split(';').next().unwrap().to_string();
+        assert!(cookie.starts_with(&format!("{}=", auth::COOKIE_NAME)));
+
+        // 3. With the cookie, a real upstream call goes through and the server's
+        //    session cookie is rewritten for the loopback origin.
+        let forwarded = within(
+            "forwarded request",
+            client.get(format!("{url}/api/me")).header(COOKIE, &cookie).send(),
+        )
+        .await;
+        assert_eq!(forwarded.status(), 200);
+        let cookies: Vec<String> = forwarded
+            .headers()
+            .get_all(SET_COOKIE)
+            .iter()
+            .map(|value| value.to_str().unwrap().to_string())
+            .collect();
+        assert_eq!(cookies, vec!["session=abc; HttpOnly; SameSite=Lax; Path=/".to_string()]);
+        let who: serde_json::Value = forwarded.json().await.unwrap();
+        assert_eq!(who["email"], "owner@example.com");
+
+        // 4. The shell's own endpoint answers with a machine code — a headless
+        //    process has nothing to raise a toast on, and the workbench treats a
+        //    refusal as normal, not as an error.
+        let notified = within(
+            "shell notify",
+            client
+                .post(format!("{url}/__shell/notify"))
+                .header(COOKIE, &cookie)
+                .json(&serde_json::json!({ "title": "Task finished", "body": "all green", "link": "/threads/1" }))
+                .send(),
+        )
+        .await;
+        assert_eq!(notified.status(), 200);
+        let answer: serde_json::Value = notified.json().await.unwrap();
+        assert_eq!(answer["ok"], false);
+        assert_eq!(answer["reason"], "no_app");
+
+        // 5. A page on another site is refused even holding a valid cookie.
+        let foreign = within(
+            "foreign origin",
+            client
+                .get(format!("{url}/api/me"))
+                .header(COOKIE, &cookie)
+                .header(ORIGIN, "https://evil.example")
+                .send(),
+        )
+        .await;
+        assert_eq!(foreign.status(), 403);
+        let body: serde_json::Value = foreign.json().await.unwrap();
+        assert_eq!(body["code"], "proxy_origin_refused");
+    }
 }

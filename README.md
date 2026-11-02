@@ -12,6 +12,11 @@ interconnection platform.
 - Agents, threads, task tracing, approvals (HITL park/resume), channels
   (Slack / Teams / Telegram / SMS webhooks), connectors (policy-gated actions),
   and voice (record → transcribe → delegate).
+- **System notifications that actually arrive**: when a task finishes, waits for
+  your approval or fails, the workbench asks the shell to raise a localised OS
+  toast (clicking it opens the thread). The switch and the quiet period in
+  Settings are read back from the shell and really steer the decision — before
+  this, they were written to the config and never used.
 
 ## Snapshot
 
@@ -50,7 +55,20 @@ make test                           # web Vitest + desktop cargo tests, fully of
 cd web && bun run test              # Vitest: i18n completeness, monochrome guard, lib units
 cd web && bun run test:coverage     # same suite, plus a v8 coverage report
 cd desktop/src-tauri && cargo test  # proxy / config / i18n units
+make smoke                          # both cross-process smoke tests (see below)
 ```
+
+`make smoke` runs the two tests that talk over a real socket, on `127.0.0.1`
+only — nothing leaves the machine:
+
+- `make web-smoke` — the real API client and Pinia store against a `node:http`
+  stub: `refreshAll()` reaches every endpoint, the OS-toast POST arrives with a
+  localised title, a 401 becomes `authExpired`, and a closed socket becomes
+  `offline` (never "session expired").
+- `make desktop-smoke` — a real upstream `TcpListener` plus a real `axum::serve`
+  proxy driven by a real `reqwest` client: no token → 401, bootstrap nonce →
+  Cookie, `/api` forwarded with the upstream `Set-Cookie` rewritten,
+  `/__shell/notify` answers with a machine code, foreign `Origin` → 403.
 
 ## Release
 
@@ -71,9 +89,6 @@ unavailable, a five-metric water level, lease cards with a countdown, and an aud
 with a try-it runner. Everything is read from agenthub — the desktop never probes a runtime
 and never decides which backend is safe.
 
-The screen is honest about absence: when the server has no control plane wired in, it says
-"sandboxes are off" and how to turn them on, instead of drawing a water level of zero.
-
 ### Serving as an execution node (optional, off by default)
 
 Settings → **Execution node** lets this machine run commands for the server, inside limits
@@ -83,12 +98,11 @@ the desktop enforces locally:
   is accepted;
 - **one root** — nothing outside the configured absolute directory can be read, written or
   run;
-- **bounded** — a timeout kills the process group, output is truncated, and the number of
-  concurrent jobs is capped;
+- **bounded** — a timeout kills the whole process group on unix (TERM, a 250ms grace, then
+  KILL, so a grandchild cannot outlive the job), output is truncated, and the number of
+  concurrent jobs is capped. Windows has no process groups, so it falls back to killing
+  the direct child and says so instead of pretending;
 - **revocable** — the switch stops the node immediately, and the server shows it offline.
-
-The web view gets no filesystem or command access from this: the capability lives in the
-Rust process, and the workbench only reads its state through `/__shell/executor`.
 
 ## Comparison
 

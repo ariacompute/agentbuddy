@@ -18,6 +18,7 @@
 
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -26,8 +27,9 @@ use serde::{Deserialize, Serialize};
 /// The service name the credential store shows the user.
 pub const SERVICE: &str = "agenthub";
 
-/// How the session cookie is stored. Implementations are cheap and only ever
-/// touched on login, logout and launch.
+/// How the session cookie — and, where the backend allows it, the execution
+/// node's API key — is stored. Implementations are cheap and only ever touched
+/// on login, logout, save and launch.
 pub trait SessionBackend: Send + Sync {
     /// The saved cookie for `server`, or `None` when there is none.
     fn load(&self, server: &str) -> Option<String>;
@@ -36,6 +38,25 @@ pub trait SessionBackend: Send + Sync {
     /// A stable name for logs and for `/__shell/config` ("keyring", "file",
     /// "memory").
     fn kind(&self) -> &'static str;
+
+    /// Whether arbitrary named secrets can live here. The session file cannot:
+    /// it has exactly one slot, and writing a second copy of a credential into
+    /// it would not be an improvement over `config.json`.
+    fn stores_secrets(&self) -> bool {
+        false
+    }
+
+    /// A named secret, or `None` when there is none (or the backend cannot
+    /// keep one). Never an error: a missing secret is the normal first-run
+    /// state.
+    fn load_secret(&self, _name: &str) -> Option<String> {
+        None
+    }
+
+    /// Saves a named secret; an empty value deletes it.
+    fn save_secret(&self, name: &str, _value: &str) -> Result<(), String> {
+        Err(format!("the {} backend cannot store the secret `{name}`", self.kind()))
+    }
 }
 
 /// The credential-store backend.
@@ -60,12 +81,22 @@ impl Keyring {
     fn entry(&self, server: &str) -> Result<keyring::Entry, String> {
         keyring::Entry::new(&self.service, &account(server)).map_err(|err| err.to_string())
     }
+
+    fn secret_entry(&self, name: &str) -> Result<keyring::Entry, String> {
+        keyring::Entry::new(&self.service, &secret_account(name)).map_err(|err| err.to_string())
+    }
 }
 
 /// One account per server, so a session can never be replayed against a
 /// different agenthub after the user re-points the shell.
 fn account(server: &str) -> String {
     format!("session:{server}")
+}
+
+/// Named secrets are a distinct account namespace from sessions, so an account
+/// name can never be mistaken for a cookie (or the other way round).
+fn secret_account(name: &str) -> String {
+    format!("secret:{name}")
 }
 
 impl SessionBackend for Keyring {
@@ -88,6 +119,26 @@ impl SessionBackend for Keyring {
 
     fn kind(&self) -> &'static str {
         "keyring"
+    }
+
+    fn stores_secrets(&self) -> bool {
+        true
+    }
+
+    fn load_secret(&self, name: &str) -> Option<String> {
+        let entry = self.secret_entry(name).ok()?;
+        entry.get_password().ok().filter(|value| !value.is_empty())
+    }
+
+    fn save_secret(&self, name: &str, value: &str) -> Result<(), String> {
+        if value.is_empty() {
+            return match self.secret_entry(name)?.delete_credential() {
+                Ok(()) => Ok(()),
+                Err(keyring::Error::NoEntry) => Ok(()),
+                Err(err) => Err(err.to_string()),
+            };
+        }
+        self.secret_entry(name)?.set_password(value).map_err(|err| err.to_string())
     }
 }
 
@@ -126,6 +177,10 @@ impl SessionBackend for File {
     fn kind(&self) -> &'static str {
         "file"
     }
+
+    // `stores_secrets` stays false: a file that can only hold one session must
+    // not pretend to be a credential store. The key then stays in `config.json`,
+    // which is owner-only, and the caller reports that plainly.
 }
 
 /// An in-process backend. The tests use it so a unit test never touches the
@@ -163,6 +218,25 @@ impl SessionBackend for Memory {
     fn kind(&self) -> &'static str {
         "memory"
     }
+
+    fn stores_secrets(&self) -> bool {
+        true
+    }
+
+    fn load_secret(&self, name: &str) -> Option<String> {
+        self.entries.lock().ok()?.get(&secret_account(name)).cloned()
+    }
+
+    fn save_secret(&self, name: &str, value: &str) -> Result<(), String> {
+        let mut entries = self.entries.lock().map_err(|_| "the session map is poisoned")?;
+        let key = secret_account(name);
+        if value.is_empty() {
+            entries.remove(&key);
+        } else {
+            entries.insert(key, value.to_string());
+        }
+        Ok(())
+    }
 }
 
 /// Reads a session from the legacy plaintext file. Also used by the migration
@@ -185,31 +259,95 @@ pub fn write_session_file(path: &Path, server: &str, cookie: &str) -> std::io::R
         }
         return Ok(());
     }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
     let text = serde_json::to_string(&SessionFile {
         server: server.to_string(),
         cookie: cookie.to_string(),
     })
     .map_err(std::io::Error::other)?;
-    fs::write(path, text)?;
+    write_private_file(path, &text)?;
+    Ok(())
+}
+
+/// Writes `text` to `path`, creating the file with owner-only permissions
+/// *before* any byte is written.
+///
+/// `fs::write` followed by a `chmod` leaves a window in which the token (or the
+/// config, which can hold a URL with credentials) is readable by whoever the
+/// umask or the inherited ACL allows. Opening with `mode(0o600)` closes that
+/// window: the file never exists with wider permissions.
+pub fn write_private_file(path: &Path, text: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = open_private(path)?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()?;
+    drop(file);
+    // An existing file keeps the mode it was created with, so a file left at
+    // 0644 by an older build is still tightened here.
     restrict_to_owner(path);
     Ok(())
 }
 
+#[cfg(unix)]
+fn open_private(path: &Path) -> std::io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)
+}
+
+#[cfg(not(unix))]
+fn open_private(path: &Path) -> std::io::Result<fs::File> {
+    fs::OpenOptions::new().write(true).create(true).truncate(true).open(path)
+}
+
 /// The file holds a token, so keep it to the current user.
 ///
-/// On Windows the file lives under the user's own `%APPDATA%`, whose inherited
-/// ACL already denies other users; the credential store is the real answer
-/// there, and this is only the path taken when it is unavailable.
+/// On Unix this is `0600`. On Windows the inherited ACL of `%APPDATA%` is
+/// usually narrow enough, but "usually" is not a permission boundary: the
+/// directory can be redirected (roaming profiles, a synced folder) and the
+/// inherited entries then include other principals. `icacls` is the supported
+/// way to drop inheritance and grant only the current account, so the fallback
+/// file is as narrow as the credential store it stands in for.
 #[cfg(unix)]
 pub fn restrict_to_owner(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub fn restrict_to_owner(path: &Path) {
+    use std::process::{Command, Stdio};
+    let Ok(user) = std::env::var("USERNAME") else {
+        return;
+    };
+    if user.is_empty() {
+        return;
+    }
+    // argv array, not a shell string: a path with spaces or quotes cannot turn
+    // into a second argument.
+    let output = Command::new("icacls")
+        .arg(path)
+        .arg("/inheritance:r")
+        .arg("/grant:r")
+        .arg(format!("{user}:F"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match output {
+        Ok(status) if status.success() => {}
+        Ok(status) => eprintln!(
+            "agentbuddy desktop: cannot restrict {} to the current user (icacls exited with {status})",
+            path.display()
+        ),
+        Err(err) => eprintln!(
+            "agentbuddy desktop: cannot restrict {} to the current user ({err})",
+            path.display()
+        ),
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn restrict_to_owner(_path: &Path) {}
 
 #[cfg(test)]
@@ -258,5 +396,67 @@ mod tests {
     fn every_backend_names_itself_for_the_log() {
         assert_eq!(Memory::new().kind(), "memory");
         assert_eq!(File::new(PathBuf::from("x")).kind(), "file");
+    }
+
+    #[test]
+    fn a_secret_lives_in_its_own_slot_and_clears_when_empty() {
+        let backend = Memory::new();
+        assert!(backend.stores_secrets());
+        assert_eq!(backend.load_secret("executor_api_key"), None);
+
+        backend.save_secret("executor_api_key", "sk-1").unwrap();
+        assert_eq!(backend.load_secret("executor_api_key").as_deref(), Some("sk-1"));
+        // A secret must never be mistaken for a session for the same name.
+        assert_eq!(backend.load("executor_api_key"), None);
+        // ... and a session must never be read back as that secret.
+        backend.save("https://a.example.com", "sid=1").unwrap();
+        assert_eq!(backend.load_secret("https://a.example.com"), None);
+
+        backend.save_secret("executor_api_key", "").unwrap();
+        assert_eq!(backend.load_secret("executor_api_key"), None);
+        // Deleting twice is not an error: a logout can race a removal.
+        backend.save_secret("executor_api_key", "").unwrap();
+        assert_eq!(backend.load("https://a.example.com").as_deref(), Some("sid=1"));
+    }
+
+    #[test]
+    fn the_file_backend_says_it_cannot_keep_secrets() {
+        let backend = File::new(PathBuf::from("session.json"));
+        assert!(!backend.stores_secrets());
+        assert_eq!(backend.load_secret("executor_api_key"), None);
+        let err = backend.save_secret("executor_api_key", "sk-1").unwrap_err();
+        assert!(err.contains("file"), "the error names the backend: {err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_session_file_is_created_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("agentbuddy-session-mode-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join("session.json");
+
+        write_session_file(&path, "https://a.example.com", "sid=1").unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "the token must never be world-readable, not even briefly");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_wide_session_file_is_narrowed_when_rewritten() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("agentbuddy-session-narrow-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("session.json");
+        // What an older build (plain `fs::write` under a 022 umask) left behind.
+        fs::write(&path, "{}").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_session_file(&path, "https://a.example.com", "sid=1").unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

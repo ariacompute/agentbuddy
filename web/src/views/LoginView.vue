@@ -42,6 +42,15 @@ async function submit() {
   else errorCode.value = res.code
 }
 
+// A template expression cannot touch `window`: the compiled render function
+// resolves it on the component instance, so `window.open` threw a TypeError the
+// instant an OAuth provider was clicked. Keeping the call in the script also
+// gives the provider button one place to add guards later.
+function openProvider(url) {
+  if (!url) return
+  window.open(url, '_self')
+}
+
 onMounted(() => {
   auth.loadConfig()
   appVersion.value = window.__AGENTBUDDY_VERSION__ || ''
@@ -96,7 +105,7 @@ onMounted(() => {
           v-for="p in auth.oauthProviders"
           :key="p.id"
           class="btn btn-ghost"
-          @click="window.open(p.url, '_self')"
+          @click="openProvider(p.url)"
         >
           {{ p.name }}
         </button>

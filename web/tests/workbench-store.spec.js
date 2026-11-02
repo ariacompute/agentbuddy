@@ -11,18 +11,22 @@ vi.mock('../src/lib/api.js', () => ({
   resumeTask: vi.fn(),
   cancelTask: vi.fn(),
   isAuthError: vi.fn(),
+  notifyShell: vi.fn(),
+  getShellConfig: vi.fn(),
 }))
 
 import { useWorkbenchStore } from '../src/lib/workbench-store.js'
 import {
   getWorkspace, listThreads, listTasks, listChannels, listConnectors, getDeliveries,
-  resumeTask, cancelTask, isAuthError,
+  resumeTask, cancelTask, isAuthError, notifyShell, getShellConfig,
 } from '../src/lib/api.js'
+import { resetShellNotifySettings } from '../src/lib/shell-settings.js'
 
 describe('workbench-store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    notifyShell.mockResolvedValue({ ok: true })
   })
 
   describe('getters', () => {
@@ -272,6 +276,87 @@ describe('workbench-store', () => {
       s.clearNotifications()
       expect(s.notifications).toEqual([])
       expect(s.seen).toEqual({})
+    })
+  })
+
+  // The shell has had a working /__shell/notify since F5; nothing ever called
+  // it, so "task finished" only ever appeared inside the window the user was
+  // already looking at. These cases pin the wiring end (the shell's own branch is
+  // covered by cargo tests).
+  describe('system notifications', () => {
+    beforeEach(() => {
+      resetShellNotifySettings()
+      notifyShell.mockResolvedValue({ ok: true })
+      getShellConfig.mockRejectedValue(Object.assign(new Error('404'), { code: 'not_found' }))
+    })
+
+    it('asks the shell for an OS toast with a localised title', () => {
+      const s = useWorkbenchStore()
+      const now = 2_000_000
+      const note = s.ingestTask({ id: 't9', status: { state: 'failed' }, resourceId: 'agent' }, now)
+
+      expect(note.system).toBe(true)
+      expect(notifyShell).toHaveBeenCalledTimes(1)
+      const payload = notifyShell.mock.calls[0][0]
+      expect(payload.link).toBe('/tasks/t9')
+      expect(payload.body).toBe('agent')
+      // A copy key is not prose: the shell renders whatever it is given.
+      expect(payload.title).not.toBe(note.titleKey)
+      expect(payload.title.length).toBeGreaterThan(0)
+    })
+
+    it('stays in the app during the quiet period', () => {
+      const s = useWorkbenchStore()
+      const now = 3_000_000
+      s.notifySettings = { enabled: true, quietUntil: now + 60_000, quietMinutes: 5, inShell: true }
+
+      const note = s.ingestTask({ id: 't10', status: { state: 'completed' } }, now)
+
+      // Still queued in the centre: quiet means "do not pop up", not "drop it".
+      expect(note).not.toBeNull()
+      expect(note.system).toBe(false)
+      expect(notifyShell).not.toHaveBeenCalled()
+    })
+
+    it('does not pop up when the master switch is off', () => {
+      const s = useWorkbenchStore()
+      s.notifySettings = { enabled: false, quietUntil: 0, quietMinutes: 0, inShell: true }
+
+      s.ingestTask({ id: 't11', status: { state: 'completed' } }, 4_000_000)
+
+      expect(notifyShell).not.toHaveBeenCalled()
+    })
+
+    it('survives a shell that refuses or is absent', async () => {
+      notifyShell.mockRejectedValue(new Error('no shell'))
+      const s = useWorkbenchStore()
+
+      // Not awaited anywhere in the store: a rejection must not become an
+      // unhandled rejection or break the ingest.
+      expect(() => s.ingestTask({ id: 't12', status: { state: 'completed' } }, 5_000_000)).not.toThrow()
+      await Promise.resolve()
+      expect(s.notifications).toHaveLength(1)
+    })
+
+    it('reads the preferences from the shell and falls back to defaults', async () => {
+      const s = useWorkbenchStore()
+      await s.refreshNotifySettings()
+      // No shell in a browser build: permissive defaults keep the centre alive.
+      expect(s.notifySettings).toMatchObject({ enabled: true, quietUntil: 0, inShell: false })
+
+      getShellConfig.mockResolvedValue({ notifyEnabled: false, notifyQuietMinutes: 0 })
+      await s.refreshNotifySettings({ force: true })
+      expect(s.notifySettings.enabled).toBe(false)
+      expect(s.notifySettings.inShell).toBe(true)
+    })
+
+    it('turns the quiet minutes into a deadline', async () => {
+      getShellConfig.mockResolvedValue({ notifyEnabled: true, notifyQuietMinutes: 10 })
+      const s = useWorkbenchStore()
+      await s.refreshNotifySettings()
+
+      expect(s.notifySettings.quietMinutes).toBe(10)
+      expect(s.notifySettings.quietUntil).toBeGreaterThan(Date.now() + 9 * 60 * 1000)
     })
   })
 })

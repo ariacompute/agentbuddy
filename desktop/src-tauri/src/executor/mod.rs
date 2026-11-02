@@ -22,6 +22,16 @@ pub mod jobs;
 pub mod policy;
 pub mod spawn;
 
+#[cfg(unix)]
+#[path = "procgroup_unix.rs"]
+mod procgroup;
+// The stub keeps the module surface symmetrical; `spawn` only signals groups on
+// unix, so on Windows nothing calls it and that is the point.
+#[cfg(windows)]
+#[allow(dead_code)]
+#[path = "procgroup_windows.rs"]
+mod procgroup;
+
 pub use jobs::{Credential, Job, JobError, NodeClient};
 pub use policy::{Policy, PolicyError};
 pub use spawn::{ExecOutcome, ExecRequest};

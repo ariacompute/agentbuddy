@@ -15,6 +15,9 @@ let monitor = null
 onMounted(async () => {
   await auth.refresh()
   if (!auth.signedIn) return
+  // The shell owns the notify switch and the quiet period; the workbench decides
+  // what to announce, so it has to read them before the first task arrives.
+  await workbench.refreshNotifySettings()
   await workbench.refreshAll()
   monitor = new ActivityMonitor(workbench, {
     visible: () => document.visibilityState === 'visible',

@@ -11,6 +11,15 @@ import { errorMessage } from './errors.js'
 
 export const BASE = ''
 
+// One seam, used only by the end-to-end smoke test: a real HTTP server can stand
+// in for the loopback proxy by setting `globalThis.__AGENTBUDDY_BASE__` before
+// the first request. Production never sets it, so BASE stays '' and every path
+// remains same-origin (which is what makes the cookie flow work at all).
+function baseUrl() {
+  const override = typeof globalThis === 'undefined' ? '' : globalThis.__AGENTBUDDY_BASE__
+  return typeof override === 'string' && override ? override : BASE
+}
+
 export class ApiError extends Error {
   constructor(code, status) {
     super(errorMessage(code) || code)
@@ -50,7 +59,7 @@ export function isAuthError(err) {
 }
 
 export async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${baseUrl()}${path}`, {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
@@ -269,13 +278,30 @@ export const getConnectorActions = (id) => get(`/api/connectors/${id}/actions`)
 export const runConnectorAction = (id, name, args) =>
   post(`/api/connectors/${id}/actions`, { name, args: args || {} })
 
+// ---- Desktop shell -------------------------------------------------------
+//
+// `/__shell/*` is served by the loopback proxy, not by agenthub. In a plain web
+// build the paths 404 and every caller treats that as "no shell" — which is why
+// these are safe to call from shared code.
+
+/** The shell's own config: language, close behaviour and the notify preferences. */
+export const getShellConfig = () => get('/__shell/config')
+
+/**
+ * Asks the shell to raise an OS notification. The shell answers
+ * `{ok:false, reason}` for a disabled or impossible notification; a refusal is a
+ * normal answer, not a failure, so callers ignore the body.
+ */
+export const notifyShell = ({ title, body, link }) =>
+  post('/__shell/notify', { title, body, link })
+
 // ---- Speech --------------------------------------------------------------
 
 /** Uploads a recorded audio blob to be transcribed, delegated and answered. */
 export async function postThreadAudio(id, blob) {
   const form = new FormData()
   form.append('audio', blob, 'voice.webm')
-  const res = await fetch(`${BASE}/api/threads/${id}/audio`, {
+  const res = await fetch(`${baseUrl()}/api/threads/${id}/audio`, {
     method: 'POST',
     credentials: 'include',
     body: form,

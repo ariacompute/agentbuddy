@@ -10,6 +10,9 @@
   工作台始终以同源方式通信。
 - Agent、会话线程、任务追踪、审批（HITL 挂起/恢复）、通道（Slack / Teams / Telegram / SMS
   webhook）、连接器（按策略放行的动作），以及语音（录音 → 转写 → 委派）。
+- **系统通知真的会到**：任务完成、等待审批或失败时，工作台请外壳弹出本地化的系统通知
+  （点击跳到对应会话）。设置页的「通知开关」与「静默期」会被读回来真正参与判定——此前它们
+  只是写进配置文件，没有任何人读。
 
 ## 快照
 
@@ -47,7 +50,16 @@ make test                           # 前端 Vitest + 桌面 cargo 测试，全�
 cd web && bun run test              # Vitest：i18n 完整性、单色守卫、lib 单测
 cd web && bun run test:coverage     # 同一批用例 + v8 覆盖率报告
 cd desktop/src-tauri && cargo test  # proxy / config / i18n 单测
+make smoke                          # 两条跨进程冒烟（见下）
 ```
+
+`make smoke` 跑那两条真正走 socket 的用例，且只连 `127.0.0.1`，不出机器：
+
+- `make web-smoke`——真 `api.js` + Pinia store 对 `node:http` 桩：`refreshAll()` 打到每个端点、
+  通知 POST 带本地化标题到达、401 记为 `authExpired`、连接被拒记为 `offline`（绝不误判为会话过期）。
+- `make desktop-smoke`——真上游 `TcpListener` + 真 `axum::serve` 代理 + 真 `reqwest` 客户端：
+  无 token → 401，bootstrap nonce → Cookie，`/api` 转发且上游 `Set-Cookie` 被重写，
+  `/__shell/notify` 回机器码，外来 `Origin` → 403。
 
 ## 发布
 
@@ -65,20 +77,15 @@ cd desktop/src-tauri && cargo test  # proxy / config / i18n 单测
 进程沙盒 / 平台层 / 远端节点 / off）、每一项的可用性与不可用原因、五指标水位条、带倒计时的租约卡片，
 以及可试跑命令的审计抽屉。全部数据来自 agenthub——桌面端不探测运行时，也不自行判断哪种后端安全。
 
-屏幕对「不存在」是诚实的：服务端没有接线控制面时，它显示「沙盒已关闭」与开启方式，而不是画一条
-数值为零的水位条。
-
 ### 作为执行节点（可选，默认关闭）
 
 设置 → **执行节点** 允许这台机器为服务端执行命令，限制由桌面端在本地强制：
 
 - **不经 shell**——argv 直接执行，只接受白名单里精确匹配的命令名；
 - **一个根目录**——配置的绝对路径之外不可读取、写入或执行；
-- **有界**——超时杀进程组，输出截断，并发数受限；
+- **有界**——unix 下超时终止**整棵进程组**（TERM → 250ms 宽限 → KILL，孙进程无法留下）、
+  输出截断、并发数受限；Windows 没有进程组语义，退回只杀直接子进程并如实说明，不假装已清场；
 - **可撤销**——关掉开关立即停止，服务端随即显示离线。
-
-网页视图不会因此获得任何文件系统或命令执行能力：能力只存在于 Rust 进程，工作台经
-`/__shell/executor` 读取其状态。
 
 ## 对比
 

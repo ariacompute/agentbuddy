@@ -5,9 +5,16 @@
 import { defineStore } from 'pinia'
 import {
   getWorkspace, listThreads, listTasks, listChannels, listConnectors, getDeliveries,
-  resumeTask, cancelTask, isAuthError,
+  resumeTask, cancelTask, isAuthError, notifyShell,
 } from './api.js'
 import { decide, markSeen, pruneSeen } from './notifications.js'
+import { loadShellNotifySettings } from './shell-settings.js'
+import { useCopy } from './use-copy.js'
+
+// The OS toast needs a sentence, not a copy key, so the store resolves the title
+// through the workspace namespace at the moment it announces. Reading the table
+// through useCopy keeps it reactive to a language switch.
+const workspaceCopy = useCopy('workspace')
 
 const ACTIVE_STATES = ['submitted', 'working', 'input-required']
 
@@ -43,6 +50,9 @@ export const useWorkbenchStore = defineStore('workbench', {
     deliveries: {}, // channelId -> []
     notifications: [],
     seen: {},
+    // The shell's notify preferences. Defaults are permissive so the workbench
+    // behaves the same when it is not running inside the desktop shell.
+    notifySettings: { enabled: true, quietUntil: 0, quietMinutes: 0, inShell: false },
     offline: false,
     // Set when a poll/refresh fails with an auth error (401/403): the server is
     // reachable but the session expired. Drives a "re-login" prompt instead of the
@@ -145,6 +155,29 @@ export const useWorkbenchStore = defineStore('workbench', {
       this.loading = false
     },
 
+    /** Re-reads the shell's notify preferences (quiet period, master switch). */
+    async refreshNotifySettings({ force = false } = {}) {
+      this.notifySettings = await loadShellNotifySettings({ force })
+      return this.notifySettings
+    },
+
+    /**
+     * Hands one announcement to the desktop shell so it can raise an OS toast.
+     * Fire-and-forget by design: the in-app centre already holds the note, a
+     * plain web build has no `/__shell`, and the shell answers `{ok:false}` for
+     * a perfectly normal "quiet" or "unsupported" case.
+     */
+    announce(note) {
+      try {
+        const title = workspaceCopy.t(note.titleKey) || note.titleKey
+        // Promise.resolve keeps a shell that answers synchronously (or not at all)
+        // from turning a notification into an exception inside the poll loop.
+        Promise.resolve(notifyShell({ title, body: note.body, link: note.link })).catch(() => {})
+      } catch (error) {
+        console.error('agentbuddy: system notification failed', error)
+      }
+    },
+
     /** Runs one task through the notification decision and queues it if needed. */
     ingestTask(task, now = Date.now()) {
       const event = {
@@ -154,11 +187,15 @@ export const useWorkbenchStore = defineStore('workbench', {
         agentName: task.resourceId,
         summary: task.status?.message?.parts?.map((p) => p.text).join(' ') || '',
       }
+      const settings = this.notifySettings || {}
       const decision = decide({
         event,
         seen: this.seen,
         now,
-        settings: { enabled: true },
+        settings: {
+          enabled: settings.enabled !== false,
+          quietUntil: settings.quietUntil || 0,
+        },
       })
       if (!decision) return null
       const note = {
@@ -173,6 +210,7 @@ export const useWorkbenchStore = defineStore('workbench', {
       this.notifications.unshift(note)
       if (this.notifications.length > 50) this.notifications.length = 50
       this.seen = markSeen(this.seen, decision.key, now)
+      if (note.system) this.announce(note)
       return note
     },
 

@@ -166,7 +166,7 @@ bun 构建/测试运行时与桌面端（Rust/Tauri）对 agenthub 服务端的�
 
 - [x] `requirements.md`：在 §2 与 §3 间新增 `## 2B. 融合标杆项目的扩展特性（F10–F16）`
   - F10 Agent 角色与人格（persona 角色/指令/MBTI/头像，扩展 `registry.Entry.persona`）
-  - F11 Agent 计算机 / Computer Use（mock 适配器 `TODO(real)`）
+  - F11 Agent 计算机 / Computer Use（computers 已接真实执行环境租约；浏览器自动化由服务端提供方承担）
   - F12 Agent 间协作与共享空间（增强 F3 Threads，`origin` 015 已加列）
   - F13 目标与主动调度（复用 hub tasks + `schedules` 表，mock 调度器 `TODO(real)`）
   - F14 技能与知识库（`kind=skill` 版本/共享 + `knowledge` 表，mock RAG `TODO(real)`）
@@ -551,3 +551,67 @@ agentbuddy 把「计算机」屏从三张空卡片升级为**执行环境控制�
 - [x] `executor/tests.rs` 新增 2 条（`unix_seconds` 为墙钟秒、停机可中断长等待），Rust 侧共 120 条。
 - [x] `cargo check --all-targets` + `cargo test --no-run` 通过（本机仍无法运行测试二进制：0xc0000139
   `STATUS_ENTRYPOINT_NOT_FOUND`，补齐 x64 `WebView2Loader.dll` 后仍复现，属宿主限制，同 M7/M14/M15）。
+
+## M17 — 特性评估第 6 节缺口补齐（2026-11-02）
+
+背景：《agenthub + agentbuddy 特性完整度评估》点名若干「已写进规格但没做到」的地方。本轮只补这些缺口，
+不新增路由、权限码或依赖。
+
+### 1. 登录与人格（F1.3 / F10.2）
+- [x] `web/src/views/LoginView.vue`：OAuth 提供方按钮的 `window.open` 移进 `<script setup>` 的
+  `openProvider(url)`。模板内联调用在编译后拿不到作用域，点击即抛异常；现改为一次函数调用。
+- [x] `web/src/views/PersonaEditor.vue`：补「角色（role）」输入框并纳入保存载荷，修正 `title` 字段标签，
+  保存仍整体走 `PUT /api/resources/{id}`。
+- [x] `web/src/lib/copy/hub-copy.js`：新增 `personaRole`、`personaTitleLabel`（13 语）。
+- [x] 服务端 `registry.Persona` 扩展 `role/instruction/mbti/avatar_ref` 并加 `normalizePersona`
+  （trim、长度截断、MBTI 仅 16 型），因此界面上的 `role` 真正落库而不再被覆盖为空。
+
+### 2. 系统通知投递（F5.4）
+- [x] `web/src/lib/shell-settings.js`（新）：读 `/__shell/config` 的 `notifyEnabled` /
+  `notifyQuietMinutes`，换算成 `decide()` 需要的 `{enabled, quietUntil, quietMinutes, inShell}`；
+  带 TTL、`force`、`apply`、`reset`；非外壳环境返回宽容默认值。
+- [x] `web/src/lib/api.js`：新增 `notifyShell({title, body, link})` → `POST /__shell/notify`；
+  `request()` 读 `globalThis.__AGENTBUDDY_BASE__`（默认为空，保持相对 URL 语义），供冒烟用例打到真桩。
+- [x] `web/src/lib/workbench-store.js`：`ingestTask` 把外壳通知设置喂给 `decide()`；命中时
+  `announce()` 在发送瞬间用当前语言解析标题（不是 copy key），并以
+  `Promise.resolve(...).catch()` + `try/catch` 包裹 fire-and-forget 调用，外壳同步抛错也不会击穿轮询。
+- [x] `web/src/App.vue`：登录后加载一次外壳通知设置并在设置变更时 `apply`。
+- [x] 用例：`workbench-store.spec.js` 三路径（发系统通知 / 静默期不发 / 被拒也不抛错）、
+  `shell-settings.spec.js`（有/无 `/__shell`、TTL、静默期锚点）、`views.spec.js`（OAuth 点击、role 往返）。
+
+### 3. 桌面密钥与文件权限（F18）
+- [x] `desktop/src-tauri/src/session.rs`：`write_private_file()` 用
+  `OpenOptionsExt::mode(0o600)` **创建即私有**（不再「先写后改权限」），写后仍 `restrict_to_owner`
+  以收紧旧版本留下的宽权限文件；Windows 走 `icacls <path> /inheritance:r /grant:r <user>:F`
+  （argv 直调，失败只 `eprintln` 一次）。
+- [x] `SessionBackend` 增加 `stores_secrets()` / `load_secret()` / `save_secret()`：`Keyring` 用
+  `secret:<name>` 账户，`Memory` 供测试，`File` 明确答「不能存」（默认实现报错）。
+- [x] `desktop/src-tauri/src/config.rs`：`save()` 把非空 `executor_api_key` 存进凭据库并把**写盘副本**
+  置空（内存里的配置不动，节点照常可用）；`load()` 在字段为空时回填；旧版本留在 `config.json` 的
+  明文 key 在下次保存时迁移并清空。凭据库不可用时保留 owner-only 文件，行为与今天一致。
+- [x] 用例：会话文件 0600（新建 + 旧宽文件被收紧，`cfg(unix)`）、密钥往返、旧明文迁移、文件后端保留密钥。
+
+### 4. 超时清场（F17.7）
+- [x] `desktop/src-tauri/src/executor/procgroup_unix.rs`（新）：`extern "C" kill` + `terminate_group`
+  （TERM）/ `kill_group`（KILL），`pgid <= 1` 一律拒绝；`procgroup_windows.rs`（新）如实返回 `false`。
+- [x] `executor/spawn.rs`：超时改为 `terminate_tree()`——对整组 TERM → 250ms 宽限 → KILL → `wait()`
+  收尸；组信号被拒时降级为直接子进程 `start_kill`，绝不向自身组发信号。头注释与 `process_group(0)`
+  的说明同步更新。
+- [x] 用例：`sh -c 'sleep 30 & …'` 拉起孙进程后整组终止，断言孙进程不残留、直接子进程被回收；
+  守卫用例（0/1/负数）断言不会误伤自身。
+
+### 5. 跨进程冒烟
+- [x] `web/tests/smoke.e2e.spec.js`（新，`@vitest-environment node`）：`node:http` 真桩 + 真 socket，
+  跑通 `refreshAll()`（五个端点）→ `POST /__shell/notify`（标题已本地化、link 正确）、401 透传为
+  `authExpired`、连接被拒判为 `offline` 且 `isAuthError` 为假。
+- [x] `desktop/src-tauri/src/proxy/mod.rs`：`spawn_gated_proxy()` + `a_whole_shell_session_over_real_sockets`
+  ——真 `TcpListener` 上游 + 真 `axum::serve` 代理 + 真 `reqwest`：无 token 401 → bootstrap nonce →
+  Cookie → `/api` 转发（上游 `Set-Cookie` 被重写）→ `/__shell/notify` 回机器码 → 外来 Origin 403；
+  每步带 5s 超时。
+- [x] `Makefile`：新增 `web-smoke` / `desktop-smoke` / `smoke`。
+
+### 6. 校验
+- [x] `cd web && bun run test`：24 文件 541 用例全绿（含新增冒烟与新通知用例）。
+- [x] `cd desktop/src-tauri && cargo check --all-targets` 通过（无告警）。
+- [ ] `cargo test` 本机仍因宿主缺失 Tauri 入口无法启动（0xc0000139 `STATUS_ENTRYPOINT_NOT_FOUND`），
+  进程组用例仅 unix 编译，需在 CI 上执行。
