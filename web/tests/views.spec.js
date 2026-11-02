@@ -478,7 +478,7 @@ describe('ChannelsView', () => {
     retryDelivery.mockResolvedValue({})
     listChannels.mockResolvedValue({ channels: [{ id: 'c1', name: 'Slack', kind: 'slack', enabled: true }], deliveries: {} })
     getDeliveries.mockResolvedValue({
-      deliveries: [{ id: 'd1', status: 'failed', errorCode: 'delivery_failed', at: '2026-11-01T10:00:00Z' }],
+      deliveries: [{ id: 'd1', direction: 'outbound', status: 'failed', errorCode: 'delivery_failed', at: '2026-11-01T10:00:00Z' }],
     })
     const { wrapper } = mountWith(ChannelsView)
     await flushPromises()
@@ -496,7 +496,7 @@ describe('ChannelsView', () => {
     retryDelivery.mockRejectedValue(Object.assign(new Error('nope'), { code: 'channel_not_found' }))
     listChannels.mockResolvedValue({ channels: [{ id: 'c1', name: 'Slack', kind: 'slack', enabled: true }], deliveries: {} })
     getDeliveries.mockResolvedValue({
-      deliveries: [{ id: 'd1', status: 'failed', errorCode: 'delivery_failed', at: '2026-11-01T10:00:00Z' }],
+      deliveries: [{ id: 'd1', direction: 'outbound', status: 'failed', errorCode: 'delivery_failed', at: '2026-11-01T10:00:00Z' }],
     })
     const { wrapper } = mountWith(ChannelsView)
     await flushPromises()
@@ -520,6 +520,23 @@ describe('ChannelsView', () => {
     await wrapper.findAll('button').find((b) => b.text().includes('Deliveries')).trigger('click')
     await nextTick()
 
+    expect(wrapper.find('button[aria-label="Try again"]').exists()).toBe(false)
+  })
+
+  it('shows an inbound receipt as received and offers no retry', async () => {
+    // An inbound message arrived here: there is nothing of ours to re-send, and it
+    // must not be labelled a failure just because it never went out.
+    listChannels.mockResolvedValue({ channels: [{ id: 'c1', name: 'Slack', kind: 'slack', enabled: true }], deliveries: {} })
+    getDeliveries.mockResolvedValue({
+      deliveries: [{ id: 'd1', direction: 'inbound', status: 'received', at: '2026-11-01T10:00:00Z' }],
+    })
+    const { wrapper } = mountWith(ChannelsView)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text().includes('Deliveries')).trigger('click')
+    await nextTick()
+
+    expect(wrapper.text()).toContain('Received')
     expect(wrapper.find('button[aria-label="Try again"]').exists()).toBe(false)
   })
 })

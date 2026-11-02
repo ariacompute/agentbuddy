@@ -45,6 +45,9 @@ export const CODE_KEYS = {
   channel_timestamp_expired: 'channelTimestampExpired',
   channel_payload_invalid: 'channelPayloadInvalid',
   delivery_failed: 'deliveryFailed',
+  // A retry only means something for one outbound receipt that never left.
+  delivery_not_found: 'deliveryNotFound',
+  delivery_not_retryable: 'deliveryNotRetryable',
   connector_not_found: 'connectorNotFound',
   connector_action_denied: 'connectorActionDenied',
   connector_policy_off: 'connectorPolicyOff',

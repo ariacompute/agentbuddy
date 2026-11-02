@@ -8,91 +8,91 @@
 2. [x] `Makefile`：web-install/dev/build/test、desktop-install/dev/build/test/check、icons、stamp
 3. [x] `AGENTS.md`：工程上下文入口（架构、目录、硬性约定、常用命令、开发流程）
 4. [x] `requirements.md`：功能边界（F1–F9）、非功能（N1–N7）、服务端契约、机器码、验收标准
-5. [ ] `README.md` / `README_cn.md`
-6. [ ] `.github/workflows/release.yml`：三平台矩阵 deb / dmg+app / msi + 便携包 + SHA256SUMS
+5. [x] `README.md` / `README_cn.md`
+6. [x] `.github/workflows/release.yml`：三平台矩阵 deb / dmg+app / msi + 便携包 + SHA256SUMS
 
 ## M1 — web 基座（单色 + 13 语 + api）
 
-10. [ ] `web/package.json`：vue/vue-router/pinia/lucide-vue-next + vite/vitest/@vitejs/plugin-vue（版本对齐 agenthub）
-11. [ ] `web/vite.config.js`：proxy `/api` `/a2a` `/healthz` `/.well-known`；`test.environment='node'`
-12. [ ] `web/index.html`：pre-paint 主题脚本（键名 `agentbuddy.theme`）
-13. [ ] `web/src/style.css`：`:root` 暗色令牌 + `[data-theme='light']` 翻转 + 组件类 + reduced-motion
-14. [ ] `web/src/lib/languages.js`：13 语目录 + matchLang/isRTL/hreflangFor/ogLocaleFor
-15. [ ] `web/src/lib/use-copy.js`：STORAGE_KEY='agentbuddy.lang'；resolve/detectLang/setLang/useCopy/enumLabel
-16. [ ] `web/src/lib/copy/*-copy.js`：shell/workspace/thread/task/org/channel/connector/settings/errors/enums（10 × 13 语）
-17. [ ] `web/src/lib/errors.js` + `copy/errors-copy.js`：CODE_KEYS（含本轮新增 14 个机器码）+ 13 语
-18. [ ] `web/src/lib/api.js`：auth/workspace/threads/tasks/resources/channels/connectors/audio + SSE + multipart
-19. [ ] `web/src/lib/auth-store.js`：PERMISSIONS 词表 + signedIn/isOwner/can
-20. [ ] `web/src/lib/workbench-store.js`：agents/threads/tasks/approvals/channels/connectors/notifications
-21. [ ] `web/src/lib/monitor.js`：ActivityMonitor（轮询 + 按需 SSE，上限 6 + 退避）
-22. [ ] `web/src/lib/notifications.js`：decide() 纯函数（幂等/静默/合并/深链）
-23. [ ] `web/src/lib/voice.js`：录音状态机纯逻辑（降级）
-24. [ ] `web/src/lib/connector-policy.js`：策略判定纯函数
-25. [ ] `web/src/lib/format.js`、`use-dismiss.js`
+10. [x] `web/package.json`：vue/vue-router/pinia/lucide-vue-next + vite/vitest/@vitejs/plugin-vue（版本对齐 agenthub）
+11. [x] `web/vite.config.js`：proxy `/api` `/a2a` `/healthz` `/.well-known`；`test.environment='node'`
+12. [x] `web/index.html`：pre-paint 主题脚本（键名 `agentbuddy.theme`）
+13. [x] `web/src/style.css`：`:root` 暗色令牌 + `[data-theme='light']` 翻转 + 组件类 + reduced-motion
+14. [x] `web/src/lib/languages.js`：13 语目录 + matchLang/isRTL/hreflangFor/ogLocaleFor
+15. [x] `web/src/lib/use-copy.js`：STORAGE_KEY='agentbuddy.lang'；resolve/detectLang/setLang/useCopy/enumLabel
+16. [x] `web/src/lib/copy/*-copy.js`：shell/workspace/thread/task/org/channel/connector/settings/errors/enums（10 × 13 语）
+17. [x] `web/src/lib/errors.js` + `copy/errors-copy.js`：CODE_KEYS（含本轮新增 14 个机器码）+ 13 语
+18. [x] `web/src/lib/api.js`：auth/workspace/threads/tasks/resources/channels/connectors/audio + SSE + multipart
+19. [x] `web/src/lib/auth-store.js`：PERMISSIONS 词表 + signedIn/isOwner/can
+20. [x] `web/src/lib/workbench-store.js`：agents/threads/tasks/approvals/channels/connectors/notifications
+21. [x] `web/src/lib/monitor.js`：ActivityMonitor（轮询 + 按需 SSE，上限 6 + 退避）
+22. [x] `web/src/lib/notifications.js`：decide() 纯函数（幂等/静默/合并/深链）
+23. [x] `web/src/lib/voice.js`：录音状态机纯逻辑（降级）
+24. [x] `web/src/lib/connector-policy.js`：策略判定纯函数
+25. [x] `web/src/lib/format.js`、`use-dismiss.js`
 
 ## M2 — agenthub 增补：persona + channels
 
-30. [ ] `migrations/013_persona.sql`：`ALTER TABLE resources ADD COLUMN IF NOT EXISTS persona JSONB;`
-31. [ ] `migrations/014_channels.sql`：`channels` + `channel_messages`（external_ref 唯一键）
-32. [ ] `internal/registry/registry.go`：`Entry.Persona` + `normalizePersona`
-33. [ ] `internal/model/model.go`：`Resource.Persona` + `Channel` / `ChannelMessage` 模型
-34. [ ] `internal/store/resource_store.go`：3 处（updateColumns / fromEntry / entryFrom）
-35. [ ] `internal/channels/`：类型、签名校验（Slack/Teams/Telegram）、投递、Store 端口
-36. [ ] `internal/store/channels_store.go`：GORM 实现
-37. [ ] `internal/handlers/channels.go`：`/api/channels*` + public webhook
-38. [ ] `internal/handlers/handlers.go`：`Deps` 增 Channels；注册路由
-39. [ ] `internal/handlers/listen.go` + `listen_test.go`：Listeners 与 probes 同步
-40. [ ] `internal/store/store_test.go`：迁移清单 `want` 追加 013/014
-41. [ ] `internal/config/config.go`：`AGENTHUB_CHANNELS_ENABLED`
-42. [ ] `internal/httputil/json.go`：通道相关机器码常量
-43. [ ] `cmd/agenthub-server/main.go`：注入 channels 服务
-44. [ ] 单测：签名校验、幂等、路由覆盖、迁移顺序
+30. [x] `migrations/013_persona.sql`：`ALTER TABLE resources ADD COLUMN IF NOT EXISTS persona JSONB;`
+31. [x] `migrations/014_channels.sql`：`channels` + `channel_messages`（external_ref 唯一键）
+32. [x] `internal/registry/registry.go`：`Entry.Persona` + `normalizePersona`
+33. [x] `internal/model/model.go`：`Resource.Persona` + `Channel` / `ChannelMessage` 模型
+34. [x] `internal/store/resource_store.go`：3 处（updateColumns / fromEntry / entryFrom）
+35. [x] `internal/channels/`：类型、签名校验（Slack/Teams/Telegram）、投递、Store 端口
+36. [x] `internal/store/channels_store.go`：GORM 实现
+37. [x] `internal/handlers/channels.go`：`/api/channels*` + public webhook
+38. [x] `internal/handlers/handlers.go`：`Deps` 增 Channels；注册路由
+39. [x] `internal/handlers/listen.go` + `listen_test.go`：Listeners 与 probes 同步
+40. [x] `internal/store/store_test.go`：迁移清单 `want` 追加 013/014
+41. [x] `internal/config/config.go`：`AGENTHUB_CHANNELS_ENABLED`
+42. [x] `internal/httputil/json.go`：通道相关机器码常量
+43. [x] `cmd/agenthub-server/main.go`：注入 channels 服务
+44. [x] 单测：签名校验、幂等、路由覆盖、迁移顺序
 
 ## M3 — agenthub 增补：connectors + speech
 
-50. [ ] `migrations/015_thread_origin.sql`：`thread_messages.origin`
-51. [ ] 连接器策略持久化（MCPConfig / Metadata，jsonb 无迁移）
-52. [ ] `internal/adapter/speech.go`：确定性 mock STT/TTS（`TODO(real)`）
-53. [ ] `internal/handlers/connectors.go`：`/api/connectors*` + 动作审批网关
-54. [ ] 二次 park 防护：`Hub.Resume` 注入 approved 标记 → `InvokeRequest.Metadata`
-55. [ ] `internal/handlers/speech.go`：`POST /api/threads/{id}/audio`（multipart 16 MiB）
-56. [ ] `internal/store/threads_store.go`：`origin` 读写
-57. [ ] `internal/config/config.go`：`AGENTHUB_SPEECH_MODE` / `AGENTHUB_AUDIO_MAX_BYTES`
-58. [ ] Listen/probes/迁移清单同步；单测
+50. [x] `migrations/015_thread_origin.sql`：`thread_messages.origin`
+51. [x] 连接器策略持久化（MCPConfig / Metadata，jsonb 无迁移）
+52. [x] `internal/adapter/speech.go`：确定性 mock STT/TTS（`TODO(real)`）
+53. [x] `internal/handlers/connectors.go`：`/api/connectors*` + 动作审批网关
+54. [x] 二次 park 防护：`Hub.Resume` 注入 approved 标记 → `InvokeRequest.Metadata`
+55. [x] `internal/handlers/speech.go`：`POST /api/threads/{id}/audio`（multipart 16 MiB）
+56. [x] `internal/store/threads_store.go`：`origin` 读写
+57. [x] `internal/config/config.go`：`AGENTHUB_SPEECH_MODE` / `AGENTHUB_AUDIO_MAX_BYTES`
+58. [x] Listen/probes/迁移清单同步；单测
 
 ## M4 — web 核心六屏
 
-60. [ ] `App.vue` / `router.js` / `main.js`
-61. [ ] 组件：Sidebar / Topbar / LanguageSwitcher / ThemeToggle / StateDot / PersonaAvatar
-62. [ ] `LoginView.vue`
-63. [ ] `WorkspaceView.vue`
-64. [ ] `ThreadView.vue`
-65. [ ] `TaskTraceView.vue`
-66. [ ] `OrgView.vue`
-67. [ ] `SettingsView.vue`
+60. [x] `App.vue` / `router.js` / `main.js`
+61. [x] 组件：Sidebar / Topbar / LanguageSwitcher / ThemeToggle / StateDot / PersonaAvatar
+62. [x] `LoginView.vue`
+63. [x] `WorkspaceView.vue`
+64. [x] `ThreadView.vue`
+65. [x] `TaskTraceView.vue`
+66. [x] `OrgView.vue`
+67. [x] `SettingsView.vue`
 
 ## M5 — web 通道 / 连接器 / 语音
 
-70. [ ] `ChannelsView.vue` + ChannelCard / DeliveryList
-71. [ ] `ConnectorsView.vue` + ConnectorCard / PolicySelect / ApprovalCard
-72. [ ] `VoiceRecorder.vue` / `AudioPlayer.vue`
-73. [ ] `ArtifactList.vue`（含音频内联播放）
-74. [ ] `NotificationCenter.vue` / `ConnectionBanner.vue`
+70. [x] `ChannelsView.vue` + ChannelCard / DeliveryList
+71. [x] `ConnectorsView.vue` + ConnectorCard / PolicySelect / ApprovalCard
+72. [x] `VoiceRecorder.vue` / `AudioPlayer.vue`
+73. [x] `ArtifactList.vue`（含音频内联播放）
+74. [x] `NotificationCenter.vue` / `ConnectionBanner.vue`
 
 ## M6 — Rust 桌面外壳
 
-80. [ ] `Cargo.toml` / `build.rs` / `tauri.conf.json` / `capabilities/default.json`
-81. [ ] `src/lib.rs`：配置 → 托盘 → CloseRequested 隐藏 → 启动代理 → 导航
-82. [ ] `src/config.rs`：AppConfig（含后台运行、通知、静默期）
-83. [ ] `src/proxy/{mod,forward,shell,static_files}.rs`：真流式 + cookie 重写 + `/__shell/*`
-84. [ ] `src/tray.rs`：显示/隐藏/设置/关于/退出，13 语
-85. [ ] `src/notify.rs`：`tauri-plugin-notification` → `/__shell/notify`
-86. [ ] `src/i18n/{mod,copy}.rs`：13 语外壳文案
-87. [ ] `assets/shell.html`：连接页 + 关于页
-88. [ ] `frontend-stub/index.html`：灰阶启动占位页
-89. [ ] `Info.plist`：`NSMicrophoneUsageDescription`
-90. [ ] `assets/app-icon.png`（单色）+ `scripts/make-icon.mjs`（降级生成器）
-91. [ ] `scripts/stamp.mjs`
+80. [x] `Cargo.toml` / `build.rs` / `tauri.conf.json` / `capabilities/default.json`
+81. [x] `src/lib.rs`：配置 → 托盘 → CloseRequested 隐藏 → 启动代理 → 导航
+82. [x] `src/config.rs`：AppConfig（含后台运行、通知、静默期）
+83. [x] `src/proxy/{mod,forward,shell,static_files}.rs`：真流式 + cookie 重写 + `/__shell/*`
+84. [x] `src/tray.rs`：显示/隐藏/设置/关于/退出，13 语
+85. [x] `src/notify.rs`：`tauri-plugin-notification` → `/__shell/notify`
+86. [x] `src/i18n/{mod,copy}.rs`：13 语外壳文案
+87. [x] `assets/shell.html`：连接页 + 关于页
+88. [x] `frontend-stub/index.html`：灰阶启动占位页
+89. [x] `Info.plist`：`NSMicrophoneUsageDescription`
+90. [x] `assets/app-icon.png`（单色）+ `scripts/make-icon.mjs`（降级生成器）
+91. [x] `scripts/stamp.mjs`
 
 ## M7 — 测试与发布
 
@@ -109,10 +109,10 @@
        `connection_test_rejects_an_empty_url`；`cargo check --tests` 通过。
        - 注：本机测试二进制因 Tauri 原生依赖的 DLL 入口缺失
          （`STATUS_ENTRYPOINT_NOT_FOUND`）无法启动，属环境问题，与测试代码无关。
-102. [ ] agenthub `go build` + `go vet` + `go test -race ./...`
-103. [ ] `.github/workflows/release.yml`：三平台矩阵
-104. [ ] `README.md` / `README_cn.md` 收尾
-105. [ ] `requirements.md` / `AGENTS.md` 与实现对齐复核
+102. [x] agenthub `go build` + `go vet` + `go test -race ./...`（后续里程碑各自复验，见 M11/M14/M16）
+103. [x] `.github/workflows/release.yml`：三平台矩阵
+104. [x] `README.md` / `README_cn.md` 收尾
+105. [x] `requirements.md` / `AGENTS.md` 与实现对齐复核
 
 ## M9 — 登录页右上角语言 / 主题切换（2026-10）
 

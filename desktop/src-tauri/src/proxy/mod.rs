@@ -199,9 +199,9 @@ async fn dispatch(State(state): State<ProxyState>, req: Request) -> Response {
 /// The paths that belong to the server rather than to the console bundle.
 ///
 /// `/.well-known/` is easy to miss — the Vite dev proxy does not list it — but
-/// it is how another agent discovers this one. The new server endpoints
-/// (`/api/channels`, `/api/connectors`, `/api/threads/{id}/audio`) are all under
-/// `/api`, so they need no extra entry here.
+/// it is how another agent discovers this one. Every server endpoint added since
+/// (channels, connectors, audio, backups, computers, schedules, router, sandboxes)
+/// hangs off `/api`, so a new one needs no entry here — only a new *prefix* would.
 pub fn is_remote_path(path: &str) -> bool {
     path == "/api"
         || path.starts_with("/api/")

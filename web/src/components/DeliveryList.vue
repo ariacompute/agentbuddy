@@ -8,15 +8,20 @@ import { RefreshCw } from 'lucide-vue-next'
 const props = defineProps({
   deliveries: { type: Array, default: () => [] },
 })
-// A delivery that never left is the only one worth retrying: a delivered row
-// would just post the same message twice.
 const emit = defineEmits(['retry'])
 const { t } = useCopy('channel')
 
 function statusKey(d) {
   if (d.status === 'delivered') return 'deliveryOk'
+  if (d.status === 'received') return 'deliveryReceived'
   if (d.status === 'pending') return 'deliveryPending'
   return 'deliveryFailed'
+}
+
+// Only an outbound receipt that never left can be retried: an inbound one has
+// no message of ours to re-send, and a delivered one would post twice.
+function canRetry(d) {
+  return d.direction === 'outbound' && d.status !== 'delivered'
 }
 </script>
 
@@ -29,7 +34,7 @@ function statusKey(d) {
       <span class="spacer truncate">{{ d.errorCode ? errorMessage(d.errorCode) : '' }}</span>
       <span class="dur">{{ formatTime(d.at) }}</span>
       <button
-        v-if="d.status !== 'delivered'"
+        v-if="canRetry(d)"
         class="btn btn-ghost btn-sm"
         :aria-label="t('deliveryRetry')"
         :title="t('deliveryRetry')"

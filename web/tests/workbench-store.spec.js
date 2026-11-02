@@ -185,6 +185,50 @@ describe('workbench-store', () => {
       expect(s.deliveries['c1']).toEqual([{ id: 'd1' }])
     })
 
+    it('accepts a bare array where the list used to arrive wrapped', async () => {
+      // channels, connectors and deliveries come back bare; agents/threads/tasks
+      // stay wrapped. A shape change on either side must not blank a screen.
+      listChannels.mockResolvedValue([{ id: 'c1' }])
+      getDeliveries.mockResolvedValue([{ id: 'd1' }])
+      listConnectors.mockResolvedValue([{ id: 'm1' }])
+      const s = useWorkbenchStore()
+      await s.refreshChannels()
+      await s.refreshConnectors()
+      expect(s.channels).toEqual([{ id: 'c1' }])
+      expect(s.deliveries.c1).toEqual([{ id: 'd1' }])
+      expect(s.connectors).toEqual([{ id: 'm1' }])
+    })
+
+    it('normalises a receipt to the row shape the rest of the app reads', async () => {
+      listChannels.mockResolvedValue([{ id: 'c1' }])
+      getDeliveries.mockResolvedValue([{ id: 'd1', createdAt: 42, error: 'invalid_signature' }])
+      const s = useWorkbenchStore()
+      await s.refreshChannels()
+      expect(s.deliveries.c1[0]).toMatchObject({ id: 'd1', at: 42, errorCode: 'invalid_signature' })
+    })
+
+    it('prefers the canonical receipt field when both names are present', async () => {
+      listChannels.mockResolvedValue([{ id: 'c1' }])
+      getDeliveries.mockResolvedValue([
+        { id: 'd1', at: 7, createdAt: 1, errorCode: 'kept', error: 'dropped' },
+      ])
+      const s = useWorkbenchStore()
+      await s.refreshChannels()
+      expect(s.deliveries.c1[0].at).toBe(7)
+      expect(s.deliveries.c1[0].errorCode).toBe('kept')
+    })
+
+    it('treats an unusable payload as empty instead of throwing', async () => {
+      listChannels.mockResolvedValue(null)
+      listConnectors.mockResolvedValue({ items: [] })
+      const s = useWorkbenchStore()
+      await s.refreshChannels()
+      await s.refreshConnectors()
+      expect(s.channels).toEqual([])
+      expect(s.connectors).toEqual([])
+      expect(s.errorCode).toBeNull()
+    })
+
     it('refreshAll fans out to every source', async () => {
       getWorkspace.mockResolvedValue({ agents: [] })
       listThreads.mockResolvedValue({ threads: [] })

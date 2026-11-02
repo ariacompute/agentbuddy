@@ -22,9 +22,14 @@
   以及 `registry.Entry.persona` 列（`013_persona.sql`）。
 - **本轮（F10–F16）新增**（见 §4）：`/api/computers*`（Agent 计算机，F11）、`/api/schedules*`（目标调度，F13），
   并扩展 `registry.Entry.persona` 角色字段（F10）；新增 `computers` / `schedules` / `knowledge` 表（`017`–`019`）。
-- **本轮（调度器）新增**：`POST /api/schedules/{id}/run` 与 `/api/router/*`（14 个端点，见 §4.1），
+- **本轮（调度器）新增**：`POST /api/schedules/{id}/run` 与 `/api/router/*`（13 个端点，见 §4.1），
   对应 agenthub 迁移 `020_router.sql`（8 张表）；服务端开关 `AGENTHUB_ROUTER_ENABLED` 关闭时全部 503
   `feature_unavailable`，前端按「调度器已关闭」降级。
+- **本轮（执行沙盒）新增**：`/api/sandboxes*`、`/api/sandbox-providers*`、`/api/sandbox-nodes*`
+  （15 个端点，见 §4.1，F17），对应迁移 `021_sandboxes.sql`；控制面未接线时全部 503
+  `feature_unavailable`，控制台整屏降级为「沙盒已关闭」。
+- **本轮（外壳安全）新增**：外壳自有的 `/__shell/bootstrap?nonce=…`（唯一免 token 的入口）与
+  `/__shell/hide`，以及 Cookie 准入、CSP nonce、系统凭据库会话（F18）；它们不经环回代理转发到上游。
 
 ## 2. 功能需求
 
@@ -36,9 +41,9 @@
 | F1.2 | 连接测试探测 `{base}/healthz`，15s 超时，失败返回 `empty/invalid/timeout/certificate/unreachable/unexpected` |
 | F1.3 | 登录/注册/OAuth（提供方由 `GET /api/auth/config` 决定，无凭据的提供方不渲染） |
 | F1.4 | 会话为 agenthub 的 HttpOnly Cookie；前端所有请求 `credentials: 'include'` |
-| F1.5 | 路由守卫：`/login` 之外均需登录；权限不足转 `/workspace` |
+| F1.5 | 路由守卫：`/login` 之外均需登录，未登录带 `?next=` 回跳；**不做权限重定向**——权限由服务端 403 表达，前端就地提示。工作台路由是 `/`，没有 `/workspace` |
 | F1.6 | 登录页右上角提供「语言切换」与「light/dark 主题切换」；二者复用 `LanguageSwitcher` / `ThemeToggle`（与 `Topbar` 同一套组件），主题经 `agentbuddy.theme` localStorage 持久、语言经 `agentbuddy.lang` 持久并镜像到 `<html lang|dir>` |
-| F1.7 | 会话跨应用重启保持：环回代理把上游 session cookie 落盘（`session.json`，与 `config.json` 同目录、仅当前用户可读、按 `server` 归属），并在启动/切换服务端时还原进代理的 `reqwest::Jar`；登出或 cookie 过期时清跌落盘副本。落盘的是会话令牌（等同 bearer），须 owner-only |
+| F1.7 | 会话跨应用重启保持：环回代理把上游 session cookie 存进**系统凭据库**（Windows 凭据管理器 / macOS 钥匙串 / Linux Secret Service），按 `server` 归属，并在启动/切换服务端时还原进代理的 `reqwest::Jar`；无可用凭据库时回退为仅属主可读的 `session.json` 并告警；首次读取时把旧的明文会话迁入凭据库再删除明文；登出或 cookie 过期时清除副本。`/__shell/config` 的 `sessionBackend`（`keyring` / `file` / `memory`）供设置页显示 |
 
 ### F2 Agent 工作台
 
@@ -46,7 +51,7 @@
 |---|---|
 | F2.1 | `GET /api/workspace` → agent 卡片（形象头像、显示名、头衔、健康态）+ 最近活动流 |
 | F2.2 | 待审批分组：`state == input-required` 的任务单独成组，提供「批准 / 拒绝 / 查看」 |
-| F2.3 | 连接与健康 chip：`/healthz` 的 `status` / `auth` / `database` |
+| F2.3 | 连接与健康 chip 读 `/healthz` 的 `status` / `auth`（`session` \| `anonymous` \| `disabled`）/ `database`；设置页另显示服务端 `version` 与 `commit` |
 
 ### F3 协作会话 Threads
 
@@ -83,7 +88,7 @@
 | 编号 | 需求 |
 |---|---|
 | F6.1 | 通道类型：`slack` / `teams` / `telegram`（入站 webhook + 出站回复）、`sms`（仅出站） |
-| F6.2 | 客户端：通道列表、新建/编辑、启用开关、绑定线程与参与者、投递回执列表（方向/状态/错误码）；未送达的回执带「重试」按钮（`POST /api/channels/{id}/deliveries/{did}/retry`），已送达的不给重试入口，删除/重试失败用本地化文案内联提示而非静默吞错 |
+| F6.2 | 客户端：通道列表、新建/编辑、启用开关、绑定线程与参与者、投递回执列表（方向/状态/错误码）；**出站失败也落一条 `failed` 回执并保留原文**，未送达的回执带「重试」按钮（`POST /api/channels/{id}/deliveries/{did}/retry`，重试成功即原地翻成 `delivered`，不新增回执行），已送达/入站/无原文的不给重试入口（服务端 409），删除/重试失败用本地化文案内联提示而非静默吞错 |
 | F6.3 | 服务端入站：`POST /api/channels/{id}/webhook` 为 **public**，靠平台签名校验 |
 | F6.4 | Slack：`X-Slack-Signature` = HMAC-SHA256(`v0:{ts}:{body}`)，5 分钟重放窗；Teams：HMAC；Telegram：`X-Telegram-Bot-Api-Secret-Token`。一律 `hmac.Equal` 常量时间比较 |
 | F6.5 | `external_ref` 唯一键幂等去重；复用既有 `RateLimit` |
@@ -119,7 +124,7 @@
 | F9.2 | 技能册：`kind=skill` + capabilities |
 | F9.3 | 预算：由 `/api/tasks` 派生（任务数、状态分布、产物字节、span 时长），固定展示「派生估算，非真实计费」 |
 
-## 2B. 融合标杆项目的扩展特性（F10–F16）
+## 2B. 融合标杆项目的扩展特性（F10–F18）
 
 > 下列特性提取自 OpenDots / openmuse / openbot / Octop / openagents / Velozity 六个项目的可借鉴能力，
 > agentbuddy 作为纯桌面客户端，agenthub 作为唯一服务端（执行/编排/通道/语音）。真实第三方对接首版为
@@ -140,7 +145,7 @@
 |---|---|---|
 | F11.1 | 新增「Agent 计算机」视图：共享浏览器、Shell 终端、屏幕镜像三类面板 | OpenDots Dot Computers、openmuse Agent Computer、openbot Computer Use、Octop Browser AI+ / 远程桌面 |
 | F11.2 | 服务端经 adapter 承接：复用 `kind=cli`（Shell）/ `kind=mcp`（浏览器自动化），或新增 `/api/computers`（见 §4.1） | — |
-| F11.3 | 首版为**确定性 mock 适配器**：浏览器/Shell/屏幕返回静态占位与脚本化回放，真实桌面控制标 `TODO(real)`（不引入子进程/网络） | openbot `cua-driver`、Octop CDP 远程桌面 |
+| F11.3 | **已落地（F17）**：computers 卡片创建时向服务端申请**真实执行环境租约**（回写 `provider` / `leaseId` / `nodeId` / `expiresAt`），删除先终止租约；浏览器自动化本身由服务端提供方承担，客户端只渲染、不引入子进程 | openbot `cua-driver`、Octop CDP 远程桌面 |
 | F11.4 | 人工接管：mock 阶段提供「接管」开关（仅 UI 态），真实接管待 `TODO(real)` | openmuse takeover console、OpenDots 人工接管 |
 
 ### F12 Agent 间协作与共享空间
@@ -157,7 +162,7 @@
 | 编号 | 需求 | 借鉴来源 |
 |---|---|---|
 | F13.1 | 新增「目标 / 周期任务」：目标描述 + 触发器（自然语言或斜杠命令）+ 周期（cron 表达式或间隔） | openmuse Goals、Octop Cron、OpenDots 后台回合、openbot Routines |
-| F13.2 | 服务端复用 hub task 状态机推进；调度元数据落 `schedules` 表（见 §4.3 `017_schedules.sql`） | — |
+| F13.2 | 服务端复用 hub task 状态机推进；调度元数据落 `schedules` 表（见 §4.3 `018_schedules.sql`） | — |
 | F13.3 | **已落地**：调度器为「Router 层 + Worker 层」双层结构。cron 到期 / 会话消息 / 渠道 webhook / 手动注入统一入 Trigger 队列并按去重键幂等；程序层规则（来源模式 `off\|candidate\|request_only`、发起者白名单、@提及、关键词、静默时段）先筛，候选再一拍批量一次语义判定（模型不可用时逐条回退规则，绝不放行）；通过的生成 Ticket 交 Worker 执行，复用 hub 任务状态机（`input-required` 即人工介入） | Octop APScheduler、dsh superagent router |
 | F13.4 | 主动推送：触发后生成会话消息/任务并走 F5 通知；失败按退避重试（默认 3 次，槽位上限 8） | openmuse 退避告警、Octop 主动推送 |
 | F13.5 | **已落地**：订阅直通——Ticket 与 Thread 多对多订阅，同一 Thread 后续事件直接扇出到已订阅 Worker（人类消息优先），支持退订、交回 Router（每条触发仅一次）、Ticket 结束时未读事件回流判定 | dsh superagent router |
@@ -184,7 +189,7 @@
 
 | 编号 | 需求 | 借鉴来源 |
 |---|---|---|
-| F16.1 | 多用户/团队：由 agenthub 服务端提供账号与隔离（JWT 等），agentbuddy 客户端**不内置账号体系**，仅消费 `GET /api/auth/me` 与权限 | Octop 多用户、云协作 |
+| F16.1 | 多用户/团队：由 agenthub 服务端提供账号与隔离（会话 Cookie + RBAC 权限矩阵，共享 admin token 已移除），agentbuddy 客户端**不内置账号体系**，仅消费 `GET /api/auth/me` 与权限 | Octop 多用户、云协作 |
 | F16.2 | 云协作 / 实例互联：由 agenthub 服务端承担，客户端经既有 `/api` 端点读取跨实例专家/会话，不在客户端实现联邦 | openagents Network、Octop 云协作 |
 | F16.3 | 客户端职责限定为：按服务端返回的可见资源渲染，不缓存跨用户状态 | — |
 
@@ -204,6 +209,22 @@
 | F17.7 | 节点只在**本地 Rust 进程**执行：不经 shell、只跑白名单精确命令、只允许根目录内路径、超时杀进程组、输出截断；网页视图**不获得**任何文件系统或命令执行能力 | — |
 | F17.8 | 节点生命周期：开启后注册 → 心跳 → 长轮询领任务 → 执行 → 回传；退出即停止，重启自动重新上线；间歇在线不算故障，服务端据此显示离线 | — |
 | F17.9 | 客户端不自建沙盒、不做类型探测：目录、可用性与原因全部来自服务端，客户端只渲染 | 单一事实来源 |
+
+### F18 环回代理准入与内容安全
+
+环回代理监听 `127.0.0.1`，本机任何进程都能访问；没有准入时
+`http://127.0.0.1:<port>/api/...` 就是一条免认证、通往用户 agenthub 会话的通道。F18 把
+「只有本窗口能用」变成可验证的边界，并让会话令牌离开明文文件。
+
+| 编号 | 需求 |
+|---|---|
+| F18.1 | 每次启动生成 256 位 token 与一个**一次性** nonce（TTL 60s）；窗口打开 `/__shell/bootstrap?nonce=…` 兑换 `ab_proxy` Cookie（`HttpOnly; SameSite=Strict; Path=/`）后 `303` 落到 `/`。token 只存在于代理内存与 Cookie，绝不进入 JS、绝不转发上游 |
+| F18.2 | 除 bootstrap 外的所有路由（`/api`、`/a2a`、静态资源、`/__shell/*`）都要求该 Cookie，原生客户端可用 `Authorization: Bearer`；外来 `Origin` 在任何鉴权之前以 `403 proxy_origin_refused` 拒绝，无 token 为 `401 proxy_unauthorized` |
+| F18.3 | nonce 只在**匹配时**消费：错猜不消耗有效 nonce（否则本机一次错误请求就能让窗口永久打不开），重发 nonce 使旧 URL 失效，过期 nonce 一律丢弃 |
+| F18.4 | 代理为自己输出的 HTML 发 `Content-Security-Policy`，`script-src 'self' 'nonce-<每响应随机>'`（不含 `unsafe-inline`）；首屏主题解析外置为 `web/public/theme-init.js`；外壳注入的版本戳脚本声明该 nonce；`style-src` 保留 `'unsafe-inline'`（Vue 的逐元素样式无法用 nonce 覆盖，且内联样式不能执行） |
+| F18.5 | 转发上游时只丢逐跳头，上游的 `Content-Security-Policy` / `Strict-Transport-Security` / `X-Frame-Options` 原样透传 |
+| F18.6 | 会话凭据存系统凭据库（F1.7）；设置页显示 `sessionBackend`，回退到文件时给出可读告警 |
+| F18.7 | 无窗口的测试路由器（`auth: None`）保持原转发行为；关闭准入时 `/__shell/bootstrap` 返回 404 |
 
 ---
 
@@ -227,10 +248,13 @@
 |---|---|---|---|
 | GET | `/api/channels` | `tasks:read` | 通道列表 |
 | POST | `/api/channels` | `tasks:write` | 新建通道 |
+| GET | `/api/channels/{id}` | `tasks:read` | 单个通道（编辑回显） |
 | PUT | `/api/channels/{id}` | `tasks:write` | 编辑（名称、启用、绑定线程、参与者、签名密钥环境变量名） |
 | DELETE | `/api/channels/{id}` | `tasks:write` | 删除 |
 | POST | `/api/channels/{id}/webhook` | **public** | 平台入站，签名校验 |
-| GET | `/api/channels/{id}/deliveries` | `tasks:read` | 投递回执 |
+| POST | `/api/channels/{id}/deliver` | `tasks:write` | 出站发送一条消息；失败也落 `failed` 回执并保留原文 |
+| GET | `/api/channels/{id}/deliveries` | `tasks:read` | 投递回执（方向 / 状态 / 错误码 / 时间） |
+| POST | `/api/channels/{id}/deliveries/{did}/retry` | `tasks:write` | 重试一条未送达的**出站**回执：原地翻成 `delivered`，不新增行；已送达 / 入站 / 无原文 → 409 `delivery_not_retryable`，回执不存在 → 404 `delivery_not_found` |
 | GET | `/api/connectors` | `resources:read` | `kind=mcp` 资源 + 策略 |
 | PUT | `/api/connectors/{id}/policy` | `resources:write` | 设置 `allowed`/`ask`/`off` |
 | GET | `/api/connectors/{id}/actions` | `resources:read` | 动作历史 |
@@ -239,6 +263,7 @@
 | GET | `/api/computers` | `resources:read` | Agent 计算机会话列表（F11） |
 | POST | `/api/computers` | `resources:write` | 新建计算机会话（browser/shell/screen） |
 | GET | `/api/computers/{id}` | `resources:read` | 计算机会话详情 + 最近动作回显 |
+| DELETE | `/api/computers/{id}` | `resources:write` | 删除会话：先终止其执行租约再删行（F17） |
 | GET | `/api/schedules` | `tasks:read` | 目标/周期任务列表（F13） |
 | POST | `/api/schedules` | `tasks:write` | 新建目标/周期任务 |
 | PUT | `/api/schedules/{id}` | `tasks:write` | 启停/编辑调度 |
@@ -258,15 +283,17 @@
 | GET | `/api/sandboxes` | `resources:read` | 可见租约列表 + 实例默认档案（F17） |
 | GET | `/api/sandboxes/{id}` | `resources:read` | 租约 + 最近 50 条执行审计 |
 | GET | `/api/sandboxes/stats` | `resources:read` | 五指标：活跃租约 / 待执行 job / 在线节点 / 最近执行 / 上次清扫 |
-| POST | `/api/sandboxes/{id}/exec` | `tasks:write` | **试跑**：直接执行一条命令（不经 router，审计标 `dry_run`） |
-| POST | `/api/sandboxes/{id}/renew` | `tasks:write` | 续租（超出 MaxTTL 返回 409 `sandbox_lease_lost`） |
-| DELETE | `/api/sandboxes/{id}` | `tasks:write` | 终止：销毁环境、关闭租约（204） |
+| GET | `/api/sandboxes/events` | `resources:read` | 执行环境事件流（SSE，`?since=<seq>`，先回放再实时） |
+| POST | `/api/sandboxes/{id}/exec` | `resources:write` | **试跑**：直接执行一条命令（不经 router，审计标 `dry_run`） |
+| POST | `/api/sandboxes/{id}/renew` | `resources:write` | 续租（超出 MaxTTL 返回 409 `sandbox_lease_lost`） |
+| DELETE | `/api/sandboxes/{id}` | `resources:write` | 终止：销毁环境、关闭租约（204） |
 | GET | `/api/sandbox-providers` | `resources:read` | 类型目录，按隔离层分组，含可用性与原因 |
-| POST | `/api/sandbox-providers/refresh` | `tasks:write` | 立即重探所有后端（运维动作） |
-| GET | `/api/sandboxes/events` | `tasks:read` | 执行环境事件流（SSE，`?since=<seq>`，先回放再实时） |
-| GET/POST | `/api/sandbox-nodes` | `resources:read` / `resources:write` | 本机节点列表 / 注册（id 校验，他人 id 返回 404） |
-| GET | `/api/sandbox-nodes/{id}/jobs` | `resources:write` | 长轮询领任务（`?wait=<sec>`，空闲 204） |
-| POST | `/api/sandbox-nodes/{id}/jobs/{jobId}` | `resources:write` | 回传结果（非本节点领取的 job 返回 404） |
+| POST | `/api/sandbox-providers/refresh` | `resources:write` | 立即重探所有后端（运维动作） |
+| GET/POST | `/api/sandbox-nodes` | `resources:read` / `resources:write` | 本机节点列表 / 注册（id 校验：非法 400 `bad_request`，他人 id 404） |
+| DELETE | `/api/sandbox-nodes/{id}` | `resources:write` | 撤销节点（不销毁其租约，下次调用透明重建） |
+| POST | `/api/sandbox-nodes/{id}/heartbeat` | `tasks:write` | 心跳，返回节点与 `pollHint` |
+| GET | `/api/sandbox-nodes/{id}/jobs` | `tasks:write` | 长轮询领任务（`?wait=<sec>`，空闲 204；轮询本身即心跳） |
+| POST | `/api/sandbox-nodes/{id}/jobs/{jobId}` | `tasks:write` | 回传结果（非本节点领取的 job 返回 404） |
 
 > **F10 / F12 / F14 复用既有端点**：角色字段走 `POST/PUT /api/resources`（扩展 `persona`）、协作走
 > `GET/POST /api/threads*`（`origin` 015 已加列）、技能走既有 `kind=skill` 资源，**不新增端点**；知识库
@@ -279,12 +306,17 @@
 ### 4.2 新增机器码
 
 `channel_disabled`、`channel_not_found`、`channel_signature_missing`、`channel_signature_invalid`、
-`channel_timestamp_expired`、`channel_payload_invalid`、`delivery_failed`、`connector_not_found`、
-`connector_action_denied`、`connector_policy_off`、`audio_too_large`、`audio_unsupported`、
-`audio_transcribe_failed`、`speech_disabled`、`computer_not_found`、`computer_disabled`、
-`schedule_not_found`、`schedule_invalid`、`knowledge_unavailable`、`skill_distill_disabled`。
+`channel_timestamp_expired`、`channel_payload_invalid`、`delivery_failed`、`delivery_not_found`（回执不存在）、
+`delivery_not_retryable`（已送达 / 入站 / 无原文）、`connector_not_found`、`connector_action_denied`、
+`connector_policy_off`、`audio_too_large`、`audio_unsupported`、`audio_transcribe_failed`、`speech_disabled`、
+`computer_not_found`、`schedule_not_found`、`schedule_invalid`、`skill_distill_disabled`、
+`feature_unavailable`（computers / schedules / knowledge 未接线时的统一哨兵，取代原
+`computer_disabled` / `knowledge_unavailable`）。
 调度器（F13）：`router_ticket_not_found`、`router_trigger_not_found`、`router_thread_not_found`（404）、
 `router_policy_invalid`（400）、`router_ticket_closed`、`router_handback_exhausted`、`router_resource_unset`（409）。
+沙盒（F17）：`sandbox_disabled`、`sandbox_unsupported`、`sandbox_unknown_provider`、`sandbox_policy_denied`、
+`sandbox_timeout`、`sandbox_node_offline`、`sandbox_lease_lost`、`sandbox_limit_reached`。
+外壳（F18）：`proxy_unauthorized`、`proxy_origin_refused` 由代理直接返回，不进错误码表与文案表。
 
 登记三处：`internal/httputil/json.go` 的 `Code*` 常量、agentbuddy `web/src/lib/errors.js` 的
 `CODE_KEYS`、`web/src/lib/copy/errors-copy.js` 的 13 语（调度器文案集中在
@@ -304,28 +336,38 @@
 | `017_computers.sql` | `computers`（agent_id, kind∈browser/shell/screen, session_ref, status, last_action, created_at） |
 | `018_schedules.sql` | `schedules`（goal, trigger, cron_expr, enabled, next_run, owner, last_run_at, last_status） |
 | `019_knowledge.sql` | `knowledge`（agent_id, chunk_text, source_ref, created_at）；真实向量检索标 `TODO(real)` |
+| `020_router.sql` | （已存在）调度器八表：触发器 / 工单 / 订阅 / 判定 / 策略 / 事件 |
 | `021_sandboxes.sql` | `sandbox_leases`（归属/资源/作用域/provider/state/ref/expires_at）、`sandbox_execs`（命令摘要、退出码、耗时、输出 sha256、`dry_run`）、`sandbox_nodes`（id/归属/名称/能力/status/last_seen_at）、`sandbox_jobs`（完成后的审计行）、`sandbox_events`（seq/kind/subject/lease_id/payload）；并给 `computers` 增 `provider`/`lease_id`/`node_id`/`expires_at` |
+| `022_task_ownership.sql` | `tasks` 及子表归属列 `owner_id`（`''` = 系统产生） |
+| `023_knowledge_owner.sql` | `knowledge.owner_id` |
+| `024_resource_visibility.sql` | `resources.visibility`（**默认 `restricted`，不回填**；越权读取/调用一律 404） |
+| `025_audit_log.sql` | 只追加审计账本（哈希链，应用只 `INSERT`） |
+| `026_rls_policies.sql` | 八表 RLS 策略（fail-closed，`AGENTHUB_RLS=enforce` 默认） |
+| `027_audit_permission.sql` | 新增权限码 `audit:read`（控制台 `/audit` 屏使用） |
 
 ## 5. 异常与降级
 
 | 场景 | 行为 |
 |---|---|
 | 服务端不可达 | 轮询指数退避 5s→30s，UI 置 offline chip，保留上次成功数据 |
+| 会话过期（服务端可达但 401/403） | 记 `authExpired` 而非 `offline`：保留数据，显示「会话已过期，请重新登录」横幅 + 重登按钮；`App.vue` 复核后转登录页。只有网络错误或代理 502/503 才置 offline |
+| 资源不可见（`visibility` 默认 `restricted` 且不回填） | 越权读取/调用一律 404（不泄露存在性）：列表收敛到可见项，不弹错误、不提示「权限不足」 |
 | SSE 断连 | 以最后一次 `seq` 重连 `?since=`，回放后接实时 |
 | 系统通知未授权 | `ok:false` → 降级为应用内红点，不重复弹权限 |
 | 麦克风不可用/拒绝 | 隐藏录音按钮，保留文本输入，UI 明示模式 |
 | 通道签名校验失败 | 401 + `channel_signature_invalid`，记 `channel_messages` 失败行 |
+| 重试未送达回执（F6） | 成功 → 200，回执原地翻 `delivered`、不新增行；回执不存在 404 `delivery_not_found`；已送达 / 入站 / 无原文 409 `delivery_not_retryable`；提供方失败 502 `delivery_failed` 且回执保持可重试 |
 | 语音超限/格式不支持 | 413 `audio_too_large` / 415 `audio_unsupported` |
 | 连接器策略 `off` | 403 `connector_policy_off`，动作不执行 |
 | 控制台 bundle 缺失 | 外壳显示 `consoleMissing`（不白屏） |
-| 计算机会话不存在/禁用 | 404 `computer_not_found` / 403 `computer_disabled`，视图回退到只读占位 |
+| 计算机会话不存在 / 能力未接线 | 404 `computer_not_found` / 503 `feature_unavailable`，视图回退到只读占位 |
 | 调度不存在/表达式非法 | 404 `schedule_not_found` / 400 `schedule_invalid`，前端内联提示 |
 | 调度器开关关闭（F13） | `/api/router/*` 与 `/api/schedules/{id}/run` 返回 503 `feature_unavailable`；目标页显示「调度器已关闭」灰字，不隐藏目标列表本身 |
 | 工单/触发/会话不存在（F13） | 404 `router_ticket_not_found` / `router_trigger_not_found` / `router_thread_not_found`，列表保留并内联提示 |
 | 工单已结束或交回次数用尽（F13） | 409 `router_ticket_closed` / `router_handback_exhausted`，按钮置灰而非弹窗 |
 | 路由规则非法（F13） | 400 `router_policy_invalid`，保留上一次成功保存的规则 |
 | 目标未配置执行者（F13） | 409 `router_resource_unset`，提示先去资源页指定 Worker |
-| 知识库不可用（mock 缺数据） | 503 `knowledge_unavailable`，建议降级为无上下文委派 |
+| 知识库未接线（mock 缺数据） | 503 `feature_unavailable`，建议降级为无上下文委派 |
 | 技能蒸馏未启用 | 403 `skill_distill_disabled`，仅记录触发点不产出技能 |
 | 服务端未接线执行控制面（F17） | 全部 `/api/sandbox*` 返回 503 `feature_unavailable`；控制台整屏显示「沙盒已关闭」+ 开启命令，不渲染零值水位条、不出错误横幅 |
 | 配置的执行后端跑不起来（F17） | 目录项 `available:false` + 原因（如「未安装 bwrap」），执行返回 `sandbox_unsupported`；**不静默降级**到宿主 |
@@ -350,16 +392,18 @@
 9. 通道：伪造签名的 webhook 被拒（401 + `channel_signature_invalid`），合法签名生成 thread 消息。
 10. 三平台 CI 产出 deb / dmg / msi 与 SHA256SUMS。
 11. 角色（F10）：新建 Agent 写入 `persona`（角色/指令/MBTI/头像），工作台与 Threads 正确渲染人格标签。
-12. Agent 计算机（F11）：`/api/computers` 返回 mock 会话与动作回显，视图不触发真实子进程/网络。
+12. Agent 计算机（F11/F17）：`POST /api/computers` 真实申请执行环境租约并回显 `provider` / `leaseId` / `nodeId` / `expiresAt`；`DELETE` 先终止租约再删行；视图自身不引入子进程。
 13. 目标调度（F13）：cron 保存即算出下次到期，到期后自动触发并回写最近运行时间 / 状态 / 下次到期；「立即运行」返回 202 Trigger，「推进一拍」触发一轮判定与派单；目标页可见水位（待判定 / 运行中 / 待人工 / 本批数量）、该目标运行历史与最近触发流，点击任务链接跳到 `/tasks/:id`；调度器关闭时相关区块显示灰字而非报错弹窗。
 14. 技能/知识库（F14）：`kind=skill` 资源可管理版本/共享；知识库查询返回 mock 片段（`knowledge_unavailable` 时降级）。
 15. 协作共享空间（F12）：会话内 `@mention` 派活与 Agent 自主认领均落 `thread_messages`（`origin` 标记来源）。
 16. 富结果（F15）：带证据的建议以会话消息卡片呈现，单色与 13 语文案完整。
-17. 会话持久化（F1.7）：登录后完全退出应用再启动，自动以已登录态进入工作台（session cookie 落盘还原），无需重新登录；登出后落盘副本被清除，重启回到登录页。
+17. 会话持久化（F1.7）：登录后完全退出应用再启动，自动以已登录态进入工作台（session cookie 从系统凭据库还原），无需重新登录；无可用凭据库时回退到 owner-only `session.json` 并告警，设置页显示 `sessionBackend`；登出或过期后副本被清除，重启回到登录页。
 18. 执行环境控制台（F17）：水位条五项与 `/api/sandboxes/stats` 一致；目录按层分组且不可用项写出原因；租约卡片显示到期倒计时（≤3 分钟加粗）；点击卡片打开审计抽屉，试跑一条命令后回执就地可见且刷新后仍在；终止需二次确认且确认后列表刷新。
 19. 未接线语义（F17）：服务端关闭沙盒时整屏显示「沙盒已关闭」与开启命令，**不**出现错误横幅、**不**出现零值水位条。
 20. 执行节点（F17）：默认关闭；开启需确认风险；根目录非绝对路径 / 白名单含 shell / 未选服务端时保存被拒并显示对应 13 语原因；节点 id 只读可见；关闭开关后节点立即停止心跳。
-21. 环回代理准入（F18）：每次启动生成 256 位 token 与一次性 nonce；窗口经 `/__shell/bootstrap?nonce=…` 兑换 `HttpOnly; SameSite=Strict; Path=/` 的 Cookie 后 303 落到 `/`；`/api`、`/a2a`、`/__shell/*` 与静态资源一律要求该 Cookie（原生客户端可用 Bearer）；外来 `Origin` 在任何鉴权之前以 `403 proxy_origin_refused` 拒绝；token 只存在于代理内存与 Cookie，绝不进入 JS，也绝不被转发上游；无窗口的测试路由器（`auth: None`）保持原转发行为。
+21. 环回代理准入（F18）：每次启动生成 256 位 token 与一次性 nonce；窗口经 `/__shell/bootstrap?nonce=…` 兑换 `HttpOnly; SameSite=Strict; Path=/` 的 Cookie 后 303 落到 `/`；`/api`、`/a2a`、`/__shell/*` 与静态资源一律要求该 Cookie（原生客户端可用 Bearer）；外来 `Origin` 在任何鉴权之前以 `403 proxy_origin_refused` 拒绝；token 只存在于代理内存与 Cookie，绝不进入 JS，也绝不被转发上游；无窗口的测试路由器（`auth: None`）保持原转发行为；错猜 nonce 不消耗有效 nonce（本机一次错误请求不能让窗口永久打不开），重发 nonce 使旧 URL 失效。
 22. 内容安全策略（F18）：代理为自己输出的 HTML 发 `Content-Security-Policy`，`script-src 'self' 'nonce-<每响应随机>'`（不含 `unsafe-inline`）；首屏主题解析外置为 `web/public/theme-init.js`；外壳注入的版本戳脚本声明该 nonce；转发上游时只丢逐跳头，上游 `Content-Security-Policy` / `Strict-Transport-Security` / `X-Frame-Options` 原样透传。
 23. 会话存储（F18）：会话 Cookie 写入系统凭据库（Windows 凭据管理器 / macOS 钥匙串 / Linux Secret Service）；无可用凭据库时回退为仅属主可读的 `session.json` 并在日志告警；旧的明文会话在首次读取时迁入凭据库并删除明文；`/__shell/config` 暴露 `sessionBackend`（`keyring` / `file` / `memory`）。
 24. 登录表单校验（F1）：邮箱与密码为空、注册模式下两次密码不一致或未填显示名时，提交按钮保持 disabled，且**在输入框内回车同样被拦截**（`submit()` 自查 `canSubmit`），不发请求、不回显错误码。
+25. 通道重试（F6）：出站失败落 `failed` 回执并保留原文；点重试 → 200 且该回执原地变 `delivered`（不新增行）；已送达 / 入站 / 无原文 → 409 `delivery_not_retryable`；提供方仍失败 → 502 `delivery_failed` 且回执保持可重试。
+26. 可见性（M3）：`visibility=restricted` 且无授权的资源不出现在任何列表；直接调用返回 404 而非 403，空列表不提示「权限不足」。

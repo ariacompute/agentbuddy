@@ -15,6 +15,24 @@ function isActive(task) {
   return ACTIVE_STATES.includes(task?.status?.state)
 }
 
+// Some agenthub collections come back bare (channels, connectors, deliveries)
+// and some wrapped in an object (agents, threads, tasks). Accept both: a shape
+// change on one side must not silently empty a screen.
+function asList(data, key) {
+  if (Array.isArray(data)) return data
+  return (data && data[key]) || []
+}
+
+// A receipt arrives with `createdAt` / `error`; every other row in the app is
+// read as `at` / `errorCode`. Normalise once, here, so views stay uniform.
+function normalizeDelivery(row) {
+  return {
+    ...row,
+    at: row.at || row.createdAt,
+    errorCode: row.errorCode || row.error,
+  }
+}
+
 export const useWorkbenchStore = defineStore('workbench', {
   state: () => ({
     agents: [],
@@ -88,11 +106,11 @@ export const useWorkbenchStore = defineStore('workbench', {
     async refreshChannels() {
       try {
         const data = await listChannels()
-        this.channels = data.channels || []
+        this.channels = asList(data, 'channels')
         for (const c of this.channels) {
           try {
             const d = await getDeliveries(c.id)
-            this.deliveries[c.id] = d.deliveries || []
+            this.deliveries[c.id] = asList(d, 'deliveries').map(normalizeDelivery)
           } catch (error) {
             console.error('agentbuddy: deliveries failed', error)
           }
@@ -106,7 +124,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     async refreshConnectors() {
       try {
         const data = await listConnectors()
-        this.connectors = data.connectors || []
+        this.connectors = asList(data, 'connectors')
       } catch (error) {
         console.error('agentbuddy: connectors refresh failed', error)
         this.errorCode = error.code
