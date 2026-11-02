@@ -64,6 +64,11 @@ pub fn run() {
             tray::build(&handle, &initial)?;
             app.on_menu_event(tray::on_menu_event);
 
+            // Clicking a toast should land on the page it is about, not just
+            // raise the window. Registered once, before the proxy can forward a
+            // single notification.
+            notify::install(&handle);
+
             // Closing the window either parks it in the tray (when the user kept
             // "run in the background" on) or lets it close — which ends the app,
             // because the shell has no other window to fall back on. The

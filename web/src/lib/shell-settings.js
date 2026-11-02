@@ -23,9 +23,18 @@ export const MAX_QUIET_MINUTES = 240
 
 const DEFAULTS = Object.freeze({ enabled: true, quietUntil: 0, inShell: false, quietMinutes: 0 })
 
-// startedAt anchors the quiet window. It is set on the first successful read and
-// kept until reset, so re-reading the config does not push the window forward.
-let startedAt = 0
+// The quiet window is a window, so something has to anchor it. The anchor is
+// "the moment this value was set", tracked per value rather than per process:
+//
+//   - re-reading the same minutes must NOT push the window forward, or a 60s
+//     refresh would keep a 5 minute mute alive forever;
+//   - changing the value MUST start a fresh window, or a mute chosen two hours
+//     after the first read is already expired on arrival.
+//
+// An earlier version anchored on the process's first read and got the second
+// case wrong, which made the setting look inert.
+let seenMinutes = null
+let quietUntil = 0
 let cached = null
 let cachedAt = 0
 
@@ -41,6 +50,16 @@ export function notifySettingsFrom(cfg, now = Date.now(), since = now) {
     quietUntil: minutes > 0 ? since + minutes * 60 * 1000 : 0,
     inShell: true,
   }
+}
+
+// anchored remembers where the window for `minutes` started. A value seen for the
+// first time opens a window now; the same value seen again keeps the one it has.
+function anchored(minutes, now) {
+  if (minutes !== seenMinutes) {
+    seenMinutes = minutes
+    quietUntil = minutes > 0 ? now + minutes * 60 * 1000 : 0
+  }
+  return quietUntil
 }
 
 /**
@@ -60,23 +79,27 @@ export async function loadShellNotifySettings({ now = Date.now(), force = false 
     cachedAt = now
     return cached
   }
-  if (!startedAt) startedAt = now
-  cached = notifySettingsFrom(cfg, now, startedAt)
+  const settings = notifySettingsFrom(cfg, now, now)
+  cached = { ...settings, quietUntil: anchored(settings.quietMinutes, now) }
   cachedAt = now
   return cached
 }
 
 /** Applies a saved settings form without waiting for the next read. */
 export function applyShellNotifySettings(raw, now = Date.now()) {
-  if (!startedAt) startedAt = now
-  cached = notifySettingsFrom(raw, now, startedAt)
+  const settings = notifySettingsFrom(raw, now, now)
+  // Saving is always a fresh decision: the operator just said "from now on".
+  seenMinutes = settings.quietMinutes
+  quietUntil = settings.quietUntil
+  cached = { ...settings }
   cachedAt = now
   return cached
 }
 
 /** Clears the cache and the quiet anchor; used by the settings page and tests. */
 export function resetShellNotifySettings() {
-  startedAt = 0
+  seenMinutes = null
+  quietUntil = 0
   cached = null
   cachedAt = 0
 }

@@ -100,6 +100,16 @@ jobs:
           bun install
           bun run icons
 
+      # The console is embedded at compile time (rust-embed over ../../web/dist).
+      # Without it, the two static-file cases in the proxy suites take their
+      # "bundle not built" skip branch — they pass, but they prove nothing.
+      - name: Build the workbench bundle
+        working-directory: web
+        shell: bash
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
       - name: Cargo test
         working-directory: desktop/src-tauri
         run: ${{ matrix.command }}

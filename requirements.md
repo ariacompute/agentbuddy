@@ -80,7 +80,8 @@
 | F5.2 | 事件聚合：轮询 `/api/workspace` + `/api/tasks`（可见 5s / 隐藏 20s / 失败指数退避 5s→30s）+ 对非终态任务按需开 per-task SSE（**并发上限 6**，LRU 淘汰） |
 | F5.3 | 通知去重纯函数 `decide()`：幂等键 `taskID:state`（1h 窗口，与 `HTTPNotifier` 对齐）、同键 30s 静默、每分钟 >8 条合并为摘要、静默期内只入站内中心 |
 | F5.4 | 系统通知**真实投递**：`decide()` 判定需要打扰后，工作台经环回端点 `POST /__shell/notify` 发一条本地化标题 + 摘要 + 深链（`title` 在发送时用当前语言解析，不是 copy key）。外壳的 `notify_enabled` 与 `notify_quiet_minutes` 由工作台读 `/__shell/config` 后喂给 `decide({settings:{enabled, quietUntil}})`，因此设置页的「通知开关」与「静默期」真的生效，而不只是写进配置文件。投递为 fire-and-forget：`ok:false`（`disabled` / `quiet` / `no_app` / `denied` / `missing_fields`）是正常回应，降级为应用内红点，不报错、不重试、不阻塞轮询；纯 Web 构建没有 `/__shell`，请求失败被静默吞掉 |
-| F5.5 | 托盘角标显示未读计数，点击通知深链到对应会话 / 任务 |
+| F5.5 | 托盘角标显示未读计数；**点击 toast 真的跳转**：`link` 是站内路径，外壳入队后于 `ActionPerformed::action_id() == "tap"` 时取用，`unminimize` + `show` + `set_focus` 并 `window.location.hash = '#/…'`（工作台是 `createWebHashHistory`，即一次真实路由跳转）。只接受单斜杠开头且拒绝 `//host` / `javascript:` / 反斜杠 / 控制字符；路径经 JSON 编码后才进 `eval`；一次点击只消费一次 |
+| F5.7 | 静默期以**调用时刻**为锚：`quietUntil = now + minutes*60*1000`，读取与保存都一样；不得以「首次读取设置的时间」为锚（否则长时间开着的页面算出已过去的窗口，静默形同虚设） |
 | F5.6 | 断线重放：`?since=<seq>`；SSE 无 `[DONE]` 哨兵，终态由状态判定 |
 
 ### F6 多通道触达
@@ -104,6 +105,7 @@
 | F7.3 | `POST /api/connectors/{id}/actions` 执行动作；`ask` 时任务 park 到 `input-required`，客户端审批后 `resume` |
 | F7.4 | **二次 park 防护**：resume 后不得再次 park（服务端注入已批准标记，透传到 `InvokeRequest.Metadata`） |
 | F7.5 | 客户端：连接器列表、能力与健康、策略切换（需确认）、待审批动作队列 |
+| F7.6 | **已落地**：连接器页可按需展开某连接器声明的动作（`getConnectorActions(id)`）——一次展开一次请求，再点折叠不重取；失败显示原因，不画成「没有动作」 |
 
 ### F8 语音交互
 
@@ -147,6 +149,7 @@
 | F11.2 | 服务端经 adapter 承接：复用 `kind=cli`（Shell）/ `kind=mcp`（浏览器自动化），或新增 `/api/computers`（见 §4.1） | — |
 | F11.3 | **已落地（F17）**：computers 卡片创建时向服务端申请**真实执行环境租约**（回写 `provider` / `leaseId` / `nodeId` / `expiresAt`），删除先终止租约；浏览器自动化本身由服务端提供方承担，客户端只渲染、不引入子进程 | openbot `cua-driver`、Octop CDP 远程桌面 |
 | F11.4 | 人工接管：首版提供「接管」开关（仅 UI 态，不改变执行归属），真实接管待 `TODO(real)`——服务端尚未提供接管通道 | openmuse takeover console、OpenDots 人工接管 |
+| F11.5 | **已落地**：计算机卡片区（`listComputers()`）与租约区并列——卡片显示类型/状态/绑定的 agent id/最近动作；删除前先 `getComputer(id)` 复核（列表可能已过期，避免误删刚被重新挂上的卡片），确认后 `deleteComputer(id)` 并重读列表；列表 503 说「已关闭」，其他错误内联显示原因 | — |
 
 ### F12 Agent 间协作与共享空间
 
@@ -167,6 +170,7 @@
 | F13.4 | 主动推送：触发后生成会话消息/任务并走 F5 通知；失败按退避重试（默认 3 次，槽位上限 8） | openmuse 退避告警、Octop 主动推送 |
 | F13.5 | **已落地**：订阅直通——Ticket 与 Thread 多对多订阅，同一 Thread 后续事件直接扇出到已订阅 Worker（人类消息优先），支持退订、交回 Router（每条触发仅一次）、Ticket 结束时未读事件回流判定 | dsh superagent router |
 | F13.6 | **已落地**：控制台可视化——目标页显示「下次到期倒计时 / 该目标运行历史 / 最近触发流与队列水位」，标注判定结果并可跳转任务，提供立即运行、推进一拍、取消/交回操作；调度事件经 SSE 实时跟随并支持 `since` 回放 | Studio 试跑、observability 分层 |
+| F13.7 | **已落地**：控制台消费全部调度端点——`listRouterPolicies` 渲染来源模式/白名单/关键词并由 `saveRouterPolicy(source, patch)` 回写（来源在路径里，正文只承载可编辑的那一半）；触发行 `getRouterTrigger`、工单行 `getRouterTicket` 按需取详情，再点折叠；`subscribeRouterEvents(0, …)` 的帧去抖合并成一次重载；线程侧 `dropRouterSubscription(threadId)` 退订，`not_found` 视为已达目的 | — |
 
 ### F14 技能与知识库
 
@@ -176,6 +180,7 @@
 | F14.2 | 技能自动蒸馏（规划）：将完成任务对话蒸馏为可复用技能，**首版仅记录触发点**，真实蒸馏标 `TODO(real)` | Octop 自我进化、openbot 自动蒸馏 |
 | F14.3 | per-agent 知识库（Company Brain）：`knowledge` 表存储向量/文本切片，检索经 mock RAG 返回确定性片段；真实嵌入/检索标 `TODO(real)` | Octop Company Brain、Velozity Company Brain |
 | F14.4 | 知识库与 persona 绑定（F10.2），在 Threads 委派时作为上下文注入 | — |
+| F14.5 | **已落地**：独立知识库屏（`/knowledge`，侧栏有入口）——按 agent 过滤 `listKnowledge(agentId?)`，只读列出片段正文与来源引用；`feature_unavailable` 显示「该服务端功能已关闭」而不是空列表，其他错误显示原因 | — |
 
 ### F15 建议与富结果
 

@@ -12,11 +12,6 @@ interconnection platform.
 - Agents, threads, task tracing, approvals (HITL park/resume), channels
   (Slack / Teams / Telegram / SMS webhooks), connectors (policy-gated actions),
   and voice (record → transcribe → delegate).
-- **System notifications that actually arrive**: when a task finishes, waits for
-  your approval or fails, the workbench asks the shell to raise a localised OS
-  toast (clicking it opens the thread). The switch and the quiet period in
-  Settings are read back from the shell and really steer the decision — before
-  this, they were written to the config and never used.
 
 ## Snapshot
 

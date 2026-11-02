@@ -24,7 +24,13 @@ over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known
 - **Tray & quit**: a tray icon with Open / Settings / About / Quit; Quit really
   exits the process.
 - **System notifications**: delivered via `tauri-plugin-notification`; enabled by
-  default on first run.
+  default on first run. The workbench sends an in-app path with each one
+  (`{"title","body","link"}`), and clicking the toast actually navigates there: the
+  shell parks the path, and on a body click (`tap`) restores the window and assigns
+  `window.location.hash`, which is a real route change for the hash-based workbench.
+  Only same-origin paths are accepted (`//host`, `javascript:` and control
+  characters are refused), the value is JSON-encoded before it reaches `eval`, and
+  a click consumes it once.
 - **Session persistence**: the agenthub session cookie is persisted across app
   restarts — saved per server URL and resumed in the cookie jar on launch — so a
   server switch or relaunch does not force a re-login.
@@ -66,9 +72,27 @@ over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known
 - **Vue 3 + Vite (bun)** workbench hosted by the shell, with a left sidebar +
   right content layout.
 - **Screens**: the original eight — Login, Workspace, Threads, TaskTrace, Org,
-  Channels, Connectors and Settings — plus three new agent-capability screens,
-  with Threads and Tasks each gaining a dedicated list view alongside their
-  detail views, and Schedules growing from a goal list into a scheduler console.
+  Channels, Connectors and Settings — plus the agent-capability screens, with
+  Threads and Tasks each gaining a dedicated list view alongside their detail
+  views, and Schedules growing from a goal list into a scheduler console. Persona
+  and Knowledge now have sidebar entries: both had a route and a screen, but only
+  `/persona` was reachable by typing the URL and the knowledge screen did not
+  exist at all.
+- **No orphan wrappers**: every named export of `lib/api.js` must be referenced by
+  at least one screen, enforced by `tests/api-usage.spec.js` with an empty
+  allow-list. `tests/round4.spec.js` pins each screen→endpoint pairing with both a
+  success and a failure case, so "the wrapper exists but nothing calls it" fails
+  the build instead of hiding.
+- **Screen wiring**: the Org catalogue can register a resource from the UI
+  (`POST /api/resources`), the Connectors screen lists a connector's declared
+  actions on demand (`GET /api/connectors/{id}/actions`), the Computers screen
+  lists agent computer cards and deletes one after re-reading it
+  (`GET /api/computers`, `GET/DELETE /api/computers/{id}`), the Scheduler shows
+  the router's intake policies and saves them
+  (`GET /api/router/policies`, `PUT /api/router/policies/{source}`), triggers and
+  tickets expand into their body and verdict, live router frames refresh the lists,
+  and a thread composer offers `@` mention candidates from the agents that have
+  spoken and can stop delegating (`DELETE /api/router/subscriptions/{threadId}`).
 - **i18n & theme**: a language switcher (13 languages) and light/dark theme,
   persona avatars and a notification center.
 
@@ -137,6 +161,10 @@ The node lives in the Rust process. The web view only reads its state through
 - The workbench distinguishes an expired session from a server that is down, so
   it prompts a re-login instead of reporting a false offline state, and returns
   to the login page on sign-out.
+- **Quiet hours are counted from the moment you set them.** The period used to be
+  anchored to when the settings were first read, so "mute for 30 minutes" on a tab
+  that had been open for two hours produced a window already in the past and never
+  muted anything. Both reading and saving now anchor at the current time.
 
 ## 8. Cross-platform Build & Release
 
@@ -155,9 +183,12 @@ The node lives in the Rust process. The web view only reads its state through
   persona switching, goal create/toggle/delete plus every failure path, schedule
   water level and countdown, channel create/delete/retry and the SMS-only
   destination field, the execution-environment console and its lease actions,
-  sign-in and sign-up). 515 cases, all offline.
-- `bun run test:coverage` (v8, `make web-coverage`) reports 99% of statements,
-  91% of branches and 97% of functions.
+  sign-in and sign-up, one screen→endpoint suite with both the success and the
+  failure path, and an export-usage guard over `lib/api.js`). **27 spec files,
+  608 cases**, all offline.
+- `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements
+  and lines, **93.56%** of branches and **97.17%** of functions (9776 statements,
+  1538 branches).
 - `cargo test` covers the proxy (admission control, the nonce handshake, cookie
   rewriting, streaming, the origin gate), config (language fallback, per-server
   session storage, the plaintext migration), i18n (every locale carries every key

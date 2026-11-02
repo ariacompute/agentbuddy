@@ -15,6 +15,7 @@ import { enumsCopy } from './copy/enums-copy.js'
 import { errorsCopy } from './copy/errors-copy.js'
 import { settingsCopy } from './copy/settings-copy.js'
 import { hubCopy } from './copy/hub-copy.js'
+import { opsCopy } from './copy/ops-copy.js'
 
 export const STORAGE_KEY = 'agentbuddy.lang'
 
@@ -29,6 +30,7 @@ const COPIES = {
   settings: settingsCopy,
   errors: errorsCopy,
   hub: hubCopy,
+  ops: opsCopy,
 }
 
 /** Shallow merge with English fallback. */

@@ -4,11 +4,15 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '../lib/auth-store.js'
 import { useWorkbenchStore } from '../lib/workbench-store.js'
 import { useCopy } from '../lib/use-copy.js'
-import { LayoutDashboard, MessagesSquare, ListChecks, Network, Radio, Plug, Settings as Cog, Monitor, CalendarClock } from 'lucide-vue-next'
+import {
+  LayoutDashboard, MessagesSquare, ListChecks, Network, Radio, Plug,
+  Settings as Cog, Monitor, CalendarClock, BookOpen, UserRound,
+} from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
 
 const { t } = useCopy('shell')
 const { t: th } = useCopy('hub')
+const { t: to } = useCopy('ops')
 const auth = useAuthStore()
 const workbench = useWorkbenchStore()
 const route = useRoute()
@@ -31,6 +35,10 @@ const links = computed(() => [
   { to: '/connectors', label: t('navConnectors'), icon: Plug, badge: workbench.connectors.length },
   { to: '/computers', label: th('navComputers'), icon: Monitor, badge: 0 },
   { to: '/schedules', label: th('navSchedules'), icon: CalendarClock, badge: 0 },
+  { to: '/knowledge', label: to('navKnowledge'), icon: BookOpen, badge: 0 },
+  // /persona has had a route and a screen since the persona slice landed; it was
+  // reachable only by typing the URL, which is why it looked unbuilt.
+  { to: '/persona', label: to('navPersona'), icon: UserRound, badge: 0 },
   { to: '/settings', label: t('navSettings'), icon: Cog, badge: 0 },
 ])
 </script>

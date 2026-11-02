@@ -98,4 +98,36 @@ describe('applyShellNotifySettings', () => {
     const again = await loadShellNotifySettings({ now: 3 })
     expect(again.enabled).toBe(false)
   })
+
+  // The bug this pins: the window used to be anchored on the process's first
+  // read, so a mute chosen two hours later was born expired and the setting
+  // looked inert.
+  it('starts a fresh quiet window when the value is saved later', async () => {
+    getShellConfig.mockResolvedValue({ notifyEnabled: true, notifyQuietMinutes: 5 })
+    const t0 = 1_000_000
+    expect((await loadShellNotifySettings({ now: t0 })).quietUntil).toBe(t0 + 5 * 60 * 1000)
+
+    const t2h = t0 + 2 * 60 * 60 * 1000
+    const saved = applyShellNotifySettings({ notifyEnabled: true, notifyQuietMinutes: 5 }, t2h)
+    expect(saved.quietUntil).toBe(t2h + 5 * 60 * 1000)
+    // …and the next read inside the TTL keeps it, rather than re-anchoring.
+    expect((await loadShellNotifySettings({ now: t2h + 1000 })).quietUntil).toBe(t2h + 5 * 60 * 1000)
+  })
+
+  it('does not extend the window when the same value is re-read', async () => {
+    getShellConfig.mockResolvedValue({ notifyEnabled: true, notifyQuietMinutes: 1 })
+    const t0 = 1_000_000
+    await loadShellNotifySettings({ now: t0 })
+    const later = await loadShellNotifySettings({ now: t0 + 30_000, force: true })
+    expect(later.quietUntil).toBe(t0 + 60_000)
+  })
+
+  it('clears the window when the quiet period is set to zero', async () => {
+    getShellConfig.mockResolvedValue({ notifyEnabled: true, notifyQuietMinutes: 5 })
+    await loadShellNotifySettings({ now: 1000 })
+    const cleared = applyShellNotifySettings({ notifyEnabled: true, notifyQuietMinutes: 0 }, 2000)
+    expect(cleared.quietUntil).toBe(0)
+    // A reload must not resurrect the previous value's window.
+    expect((await loadShellNotifySettings({ now: 2001 })).quietUntil).toBe(0)
+  })
 })

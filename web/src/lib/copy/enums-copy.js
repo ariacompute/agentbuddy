@@ -32,6 +32,23 @@ export const enumsCopy = {
     ar: { submitted: 'في الانتظار', working: 'يعمل', 'input-required': 'في انتظارك', completed: 'مكتملة', failed: 'فشلت', canceled: 'ملغاة', unknown: 'غير معروف' },
     hi: { submitted: 'कतार में', working: 'चल रहा है', 'input-required': 'आपका इंतज़ार', completed: 'पूर्ण', failed: 'विफल', canceled: 'रद्द', unknown: 'अज्ञात' },
   },
+  // Router intake policy modes (off | candidate | request_only). The identifier
+  // itself is never translated, only what it means for an incoming message.
+  policy: {
+    en: { off: 'Ignored', candidate: 'Proposes work', request_only: 'Only when asked' },
+    zh: { off: '忽略', candidate: '主动提议', request_only: '仅在点名时' },
+    'zh-TW': { off: '忽略', candidate: '主動提議', request_only: '僅在點名時' },
+    es: { off: 'Ignorado', candidate: 'Propone trabajo', request_only: 'Solo si se le pide' },
+    fr: { off: 'Ignoré', candidate: 'Propose du travail', request_only: 'Seulement sur demande' },
+    de: { off: 'Ignoriert', candidate: 'Schlägt Arbeit vor', request_only: 'Nur auf Anfrage' },
+    it: { off: 'Ignorato', candidate: 'Propone lavoro', request_only: 'Solo su richiesta' },
+    ru: { off: 'Игнорируется', candidate: 'Предлагает работу', request_only: 'Только по запросу' },
+    ja: { off: '無視', candidate: '作業を提案', request_only: '指名時のみ' },
+    ko: { off: '무시', candidate: '작업을 제안', request_only: '요청 시에만' },
+    pt: { off: 'Ignorado', candidate: 'Propõe trabalho', request_only: 'Somente se solicitado' },
+    ar: { off: 'متجاهَل', candidate: 'يقترح عملاً', request_only: 'عند الطلب فقط' },
+    hi: { off: 'अनदेखा', candidate: 'कार्य सुझाता है', request_only: 'केवल माँगे जाने पर' },
+  },
   health: {
     en: { healthy: 'Reachable', degraded: 'Slow', unhealthy: 'Unreachable', unknown: 'Unchecked' },
     zh: { healthy: '可达', degraded: '偏慢', unhealthy: '不可达', unknown: '未检查' },

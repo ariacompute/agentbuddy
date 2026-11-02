@@ -10,7 +10,7 @@
 `agenthub` 服务端，从而复用 agenthub 的认证、A2A 编排、注册中心与任务状态机。
 
 - 后端（别人的）：`agenthub`（Go 1.27 + PostgreSQL）。本仓库 **不 import** agenthub，只经 HTTP 对话。
-- 前端：Vue 3.5 + Vite 5（**bun 1.4.4+** 运行时，弃用 npm/Node）；13 屏工作台；**13 种语言**；
+- 前端：Vue 3.5 + Vite 5（**bun 1.4.4+** 运行时，弃用 npm/Node）；14 屏工作台；**13 种语言**；
   **纯黑/白/灰单色**；无 UI 组件库、无 CSS 框架，样式全部手写于单个 `web/src/style.css`。
 - 桌面外壳：`desktop/src-tauri`（**Rust + Tauri v2**，出向 TLS 由 rustls + webpki-roots ≥1.0.10 校验），**不含后端、不含数据库**，用环回反向代理把
   同一份工作台对着用户指定的服务端打开；外壳自有文案同样 13 语。
@@ -40,13 +40,15 @@
 ```
 web/                        Vue 3 工作台（bun + vite）
   src/App.vue               全局壳：镜像 <html lang|dir>、启动 ActivityMonitor
-  src/router.js             13 条路由 + 登录守卫
+  src/router.js             15 条路由 + 登录守卫
   src/style.css             唯一全局样式表（单色令牌 + 全站样式）
   src/lib/                  语言、copy、api、stores、monitor、notifications、voice
   src/lib/copy/scheduler-copy.js  调度器文案（13 语，合并进 hub / errors 命名空间）
-  src/views/                13 屏（SchedulesView 含调度水位 / 运行历史 / 触发流三区块）
+  src/views/                14 屏（SchedulesView 含调度水位 / 运行历史 / 触发流 / 策略四区块；
+                            KnowledgeView 为只读知识片段列表）
   src/components/           共享组件
-  tests/                    Vitest（含 style 单色守卫、copy-fallback 13 语完整性；
+  tests/                    Vitest（含 style 单色守卫、copy-fallback 13 语完整性、
+                            api-usage 导出引用守卫、round4 六面接线回归；
                             smoke.e2e.spec.js 用真 socket + node:http 桩跑真客户端）
 desktop/
   src-tauri/src/            Rust：config / session / proxy / executor / tray / notify / i18n
@@ -75,13 +77,22 @@ desktop/
 - **测试**：`cd web && bun run test`（Vitest）。**勿用裸 `bun test`**（Bun 原生 runner 不加载
   `vitest.config.js`，无 jsdom 环境）。新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线：语句/行 **100%**、分支 **94.77%**、函数 **98.35%**
-  （8951 条语句、1398 个分支）；回落时先看报告里的未覆盖行再补用例。
+  `text-summary` + `text`，不写报告目录），当前基线（27 个 spec、**608** 条用例）：
+  语句/行 **100%**、分支 **93.56%**、函数 **97.17%**（9776 条语句、1538 个分支）；
+  回落时先看报告里的未覆盖行再补用例。
+- **接线守卫**：`api.js` 的每个具名导出至少要被 `web/src/**`（除 `api.js` 自身）引用一处，
+  `tests/api-usage.spec.js` 强制这条且白名单必须为空；新增封装却忘了接界面会直接红。
+  `tests/round4.spec.js` 按「界面 → 端点」逐面钉住正常与异常双路径（知识库、资源新建、
+  连接器动作、计算机卡片、调度策略/详情、@提及与解除订阅），防止「有封装无界面」回归。
 - **系统通知**：工作台只经 `notifyShell()` → `POST /__shell/notify` 投递（`{title, body, link}`），
   标题在发送瞬间用 `useCopy('workspace')` 解析（**不能传 copy key**），且必须 fire-and-forget
   （`Promise.resolve(...).catch()`）；外壳的 `notify_enabled` / `notify_quiet_minutes` 由
   `shell-settings.js` 读出后喂给 `decide()`，两条设置才真正生效。纯 Web 构建没有 `/__shell`，
   请求失败静默吞掉。
+- **通知深链**：`link` 是站内路径（`/threads/42`），外壳在 `notify.rs` 里入队，用户点击 toast
+  （`ActionPerformed::action_id() == "tap"`）时取用并 `window.location.hash = '#/…'` 导航——
+  工作台是 hash 路由，这是唯一无需新增 IPC 面的跳转通道。只接受单斜杠开头、拒绝 `//host` /
+  `javascript:` / 反斜杠与控制字符；一次点击只消费一次。
 
 ### 桌面外壳（desktop/）
 
@@ -124,11 +135,16 @@ desktop/
   拒绝原因是机器码（`root_unusable` / `command_not_allowed` / …），由工作台 13 语本地化。
 - **测试**：`cd desktop/src-tauri && cargo test`。本机（Windows）测试二进制因 Tauri 原生依赖
   入口缺失无法启动，只能 `cargo test --no-run` 做编译校验；纯逻辑用例（i18n 表、托盘映射、
-  会话存取、执行节点的白名单/根目录/超时/截断）不依赖 AppHandle，在 CI 上一跑即知。
-  `i18n/copy.rs` 用 `include_str!` 读 `web/src/lib/languages.js` 钉住 13 语代码集，改语言清单会在此处报错。
+  会话存取、执行节点的白名单/根目录/超时/截断、通知深链的入队/取用/转义）不依赖 AppHandle，
+  在 CI 上一跑即知。`i18n/copy.rs` 用 `include_str!` 读 `web/src/lib/languages.js` 钉住 13 语代码集，
+  改语言清单会在此处报错。
   **CI 跑 `cargo test` 前必须先 `make icons`**：`tauri::generate_context!` 在编译期读 `icons/`，
   而该目录被 gitignore，缺了连 `cargo check` 都过不去（`make desktop-test` / `make desktop-check`
   已依赖 `icons`，裸 `cargo test` 不会代劳）。
+  **CI 还要先构建 `web/dist`**：`rust-embed` 在编译期把它嵌进二进制，缺了 `proxy/static_files.rs`
+  与 `proxy/mod.rs` 的两条静态文件用例会走「未构建则跳过」分支——绿，但什么也没证明。
+  `.github/workflows/ci.yml` 的 desktop job 因此在 cargo 之前跑一次 `bun install --frozen-lockfile
+  && bun run build`（Windows runner 无 `make`，所以写的是两条原生命令）。
 
 ### 服务端（agenthub，改动需谨慎）
 

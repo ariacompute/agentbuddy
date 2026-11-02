@@ -4,7 +4,7 @@ import { useCopy } from '../lib/use-copy.js'
 import {
   listSandboxes, sandboxStats, listSandboxProviders, refreshSandboxProviders,
   listSandboxNodes, getSandbox, execSandbox, renewSandbox, terminateSandbox,
-  createComputer, subscribeSandboxEvents,
+  createComputer, subscribeSandboxEvents, listComputers, getComputer, deleteComputer,
 } from '../lib/api.js'
 import { errorMessage } from '../lib/errors.js'
 import BaseDialog from '../components/BaseDialog.vue'
@@ -12,6 +12,7 @@ import BaseDialog from '../components/BaseDialog.vue'
 // The execution-environment vocabulary is folded into the hub namespace, so one
 // `t` covers this screen and the neighbours it links to.
 const { t } = useCopy('hub')
+const { t: to } = useCopy('ops')
 
 const leases = ref([])
 const stats = ref({})
@@ -43,6 +44,16 @@ const createAgent = ref('')
 const creating = ref(false)
 
 const pendingTerminate = ref(null)
+
+// The F11 cards. `/api/computers` is a different table from `/api/sandboxes`:
+// the card is the agent-facing object, the lease is the execution side. The list
+// endpoint and the delete endpoint both shipped with wrappers and no screen, so a
+// card could only be created (from the dialog below) and never seen or removed.
+const computers = ref([])
+const computersOff = ref(false)
+const computersError = ref('')
+const pendingDeleteCard = ref(null)
+const deletingCard = ref('')
 
 // The countdown is the only thing that changes without a request, so a 30s tick
 // re-renders it and nothing else. It stops with the screen.
@@ -114,6 +125,7 @@ function when(iso) {
 
 async function load() {
   error.value = ''
+  await loadComputers()
   try {
     const [s, list, providers, nodeList] = await Promise.all([
       sandboxStats(), listSandboxes(), listSandboxProviders(), listSandboxNodes(),
@@ -137,6 +149,56 @@ async function load() {
     error.value = errorMessage(e.code) || e.message
   }
   loading.value = false
+}
+
+/**
+ * Loads the agent computer cards. Kept apart from the sandbox load on purpose:
+ * the two surfaces share a permission, not a store, and a missing computers
+ * endpoint must not blank the sandbox level above it.
+ */
+async function loadComputers() {
+  computersError.value = ''
+  try {
+    const data = await listComputers()
+    computers.value = Array.isArray(data) ? data : data?.computers || []
+    computersOff.value = false
+  } catch (e) {
+    if (e.code === 'feature_unavailable') {
+      computersOff.value = true
+      computers.value = []
+      return
+    }
+    computersError.value = errorMessage(e.code) || e.message
+  }
+}
+
+/**
+ * Reads the card again before offering to delete it: the list may be a minute
+ * old, and deleting a card that was re-attached in the meantime would take the
+ * lease with it.
+ */
+async function askDeleteCard(card) {
+  computersError.value = ''
+  try {
+    pendingDeleteCard.value = (await getComputer(card.id)) || card
+  } catch (e) {
+    computersError.value = errorMessage(e.code) || e.message
+  }
+}
+
+async function confirmDeleteCard() {
+  const card = pendingDeleteCard.value
+  if (!card) return
+  deletingCard.value = card.id
+  try {
+    await deleteComputer(card.id)
+    pendingDeleteCard.value = null
+    await loadComputers()
+  } catch (e) {
+    computersError.value = errorMessage(e.code) || e.message
+  } finally {
+    deletingCard.value = ''
+  }
 }
 
 async function refresh() {
@@ -296,6 +358,60 @@ onBeforeUnmount(() => {
       <span>{{ error }}</span>
       <button class="btn btn-ghost btn-sm" @click="load">{{ t('sbRetry') }}</button>
     </div>
+
+    <!-- Agent computer cards. Outside the sandbox switch on purpose: a server can
+         have the cards table without a control plane, and the cards are what an
+         agent is attached to. -->
+    <section class="stack">
+      <div class="row" style="justify-content:space-between">
+        <h2 class="card-title">{{ t('computersTitle') }}</h2>
+        <span class="chip">{{ computers.length }}</span>
+      </div>
+      <p v-if="computersError" class="muted" style="font-size:12px">{{ computersError }}</p>
+      <p v-else-if="computersOff" class="muted" style="font-size:12px">{{ t('featureOff') }}</p>
+      <p v-else-if="computers.length === 0" class="muted" style="font-size:12px">{{ t('computersEmpty') }}</p>
+      <div v-else class="grid grid-agents">
+        <article v-for="card in computers" :key="card.id" class="card stack" style="gap:6px">
+          <div class="row" style="justify-content:space-between;gap:8px">
+            <code class="mono">{{ card.kind }}</code>
+            <span class="chip" :class="card.status === 'active' ? 'chip-on' : ''">
+              {{ card.status === 'active' ? t('computerActive') : card.status === 'disabled' ? t('computerDisabled') : t('computerIdle') }}
+            </span>
+          </div>
+          <code class="mono muted" style="font-size:11px">{{ card.id }}</code>
+          <div class="lease-meta">
+            <span>{{ to('computerAgentId') }}</span>
+            <code class="mono">{{ card.agentId || '—' }}</code>
+          </div>
+          <div class="lease-meta">
+            <span>{{ t('computerAttach') }}</span>
+            <code class="mono">{{ card.lastAction || '—' }}</code>
+          </div>
+          <div class="row" style="gap:8px">
+            <button
+              class="btn btn-ghost btn-sm"
+              :disabled="deletingCard === card.id"
+              @click="askDeleteCard(card)"
+            >
+              {{ to('computerDelete') }}
+            </button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Deleting a card terminates its lease first, so it is confirmed in place
+         rather than in the lease drawer. -->
+    <section v-if="pendingDeleteCard" class="card stack">
+      <p>{{ to('computerDeleteConfirm') }}</p>
+      <code class="mono">{{ pendingDeleteCard.id }}</code>
+      <div class="row" style="gap:8px">
+        <button class="btn btn-sm" :disabled="deletingCard === pendingDeleteCard.id" @click="confirmDeleteCard">
+          {{ to('computerDelete') }}
+        </button>
+        <button class="btn btn-ghost btn-sm" @click="pendingDeleteCard = null">{{ t('sbCancel') }}</button>
+      </div>
+    </section>
 
     <section v-if="sandboxOff" class="card stack">
       <h2 class="card-title">{{ t('sbOffTitle') }}</h2>

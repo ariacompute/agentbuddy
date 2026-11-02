@@ -1852,6 +1852,58 @@ audio {
   }
 }
 
+/* ---- Round 4 surfaces: mention picker, expandable rows -------------------- */
+
+/* The @ picker sits directly above the composer, inside the card, so it never
+   covers the message the operator is replying to. Colours are tokens only. */
+.mention-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-block-end: 8px;
+  padding: 4px;
+  border: 1px solid var(--stroke-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.mention-item:hover,
+.mention-item:focus-visible {
+  background: var(--bg-raised);
+  outline: none;
+}
+
+/* A trigger or ticket row that opens a detail panel: same row, plus a pointer
+   and a hover edge. No colour is introduced. */
+.trigger-row-click {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.trigger-row-click:hover,
+.trigger-row-click:focus-visible {
+  background: var(--bg-raised);
+  outline: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -4,20 +4,31 @@ import { useCopy } from '../lib/use-copy.js'
 import {
   listSchedules, createSchedule, updateSchedule, deleteSchedule, runSchedule,
   routerStats, listRouterTriggers, listRouterTickets, kickRouterPass,
-  cancelRouterTicket, handbackRouterTrigger,
+  cancelRouterTicket, handbackRouterTrigger, getRouterTrigger, getRouterTicket,
+  listRouterPolicies, saveRouterPolicy, subscribeRouterEvents,
 } from '../lib/api.js'
 import { errorMessage } from '../lib/errors.js'
+import { enumLabel } from '../lib/use-copy.js'
 
 // The scheduler's own vocabulary (trigger, ticket, pass, disposition) is merged
 // into the hub namespace, so one `t` covers both halves of this screen.
 const { t } = useCopy('hub')
+const { t: to } = useCopy('ops')
 
 const schedules = ref([])
 const stats = ref({})
 const triggers = ref([])
 const tickets = ref([])
+const policies = ref([])
+// One row expanded at a time, fetched on demand: the list endpoints carry the
+// summary, the detail endpoint carries the body and the decision trail, and
+// nothing here should pay for that on every load.
+const detail = ref(null)
+const detailLoading = ref(false)
 const loading = ref(true)
 const error = ref('')
+let stream = null
+let reloadTimer = null
 // The scheduler is a server switch: when it is off the endpoints answer 503 and
 // the screen says so instead of rendering a level of zero as if it were healthy.
 const routerOff = ref(false)
@@ -50,12 +61,14 @@ async function load() {
 
 async function loadRouter() {
   try {
-    const [s, tr, tk] = await Promise.all([
+    const [s, tr, tk, po] = await Promise.all([
       routerStats(), listRouterTriggers({ limit: 50 }), listRouterTickets({ limit: 50 }),
+      listRouterPolicies(),
     ])
     stats.value = s || {}
     triggers.value = tr?.triggers || []
     tickets.value = tk?.tickets || []
+    policies.value = po?.policies || []
     routerOff.value = false
   } catch (e) {
     if (e.code === 'feature_unavailable') {
@@ -63,9 +76,64 @@ async function loadRouter() {
       stats.value = {}
       triggers.value = []
       tickets.value = []
+      policies.value = []
       return
     }
     error.value = errorMessage(e.code) || e.message
+  }
+}
+
+/** Saves one intake policy. The source is part of the path, never the body. */
+async function savePolicy(policy, mode) {
+  error.value = ''
+  try {
+    await saveRouterPolicy(policy.source, {
+      mode,
+      allow: policy.allow || [],
+      keywords: policy.keywords || [],
+      resource: policy.resource || '',
+    })
+    await loadRouter()
+  } catch (e) {
+    error.value = errorMessage(e.code) || e.message
+  }
+}
+
+/** Expands a trigger: the body plus the router's verdict on it. */
+async function openTrigger(trig) {
+  if (detail.value?.kind === 'trigger' && detail.value.data?.id === trig.id) {
+    detail.value = null
+    return
+  }
+  detailLoading.value = true
+  error.value = ''
+  try {
+    const data = await getRouterTrigger(trig.id)
+    // An empty body is not a trigger: opening a panel for it would render
+    // undefined fields, so it stays closed and the row simply does nothing.
+    detail.value = data ? { kind: 'trigger', data } : null
+  } catch (e) {
+    error.value = errorMessage(e.code) || e.message
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+/** Expands a ticket: its attempts, the last error and the task it owns. */
+async function openTicket(run) {
+  if (detail.value?.kind === 'ticket' && detail.value.data?.id === run.id) {
+    detail.value = null
+    return
+  }
+  detailLoading.value = true
+  error.value = ''
+  try {
+    const data = await getRouterTicket(run.id)
+    detail.value = data ? { kind: 'ticket', data } : null
+  } catch (e) {
+    error.value = errorMessage(e.code) || e.message
+  } finally {
+    detailLoading.value = false
   }
 }
 
@@ -210,10 +278,25 @@ const clock = (v) => {
 onMounted(() => {
   load()
   ticker = setInterval(() => { now.value = Date.now() }, 1000)
+  // Live router frames: a beat can route a trigger or close a ticket while this
+  // screen is open, and a 30s poll would show a level that is already stale. The
+  // reload is debounced because one beat emits several frames.
+  if (typeof EventSource !== 'undefined') {
+    stream = subscribeRouterEvents(0, {
+      event: () => {
+        if (reloadTimer) return
+        reloadTimer = setTimeout(() => { reloadTimer = null; loadRouter() }, 800)
+      },
+    })
+  }
 })
 onBeforeUnmount(() => {
   if (ticker) clearInterval(ticker)
   ticker = null
+  if (reloadTimer) clearTimeout(reloadTimer)
+  reloadTimer = null
+  if (stream) stream.close()
+  stream = null
 })
 </script>
 
@@ -252,6 +335,38 @@ onBeforeUnmount(() => {
       <div class="stat">
         <span class="stat-value mono">{{ stats.passes ?? 0 }}</span>
         <span class="stat-label">{{ t('routerLastPass') }}</span>
+      </div>
+    </section>
+
+    <!-- Intake policies: what the router does with an incoming message per
+         source. They were readable and writable over HTTP with no screen. -->
+    <section v-if="!routerOff" class="card stack">
+      <div>
+        <h2 class="card-title">{{ to('policyTitle') }}</h2>
+        <p class="muted" style="font-size:12px">{{ t('routerTitle') }}</p>
+      </div>
+      <p v-if="policies.length === 0" class="muted" style="font-size:12px">{{ t('routerTriggersEmpty') }}</p>
+      <div v-for="policy in policies" :key="policy.source" class="card stack" style="gap:6px">
+        <code class="mono">{{ policy.source }}</code>
+        <div class="row row-wrap" style="gap:12px">
+          <span v-if="policy.allow && policy.allow.length" class="muted" style="font-size:12px">
+            {{ to('policyAllow') }}: <code class="mono">{{ policy.allow.join(' · ') }}</code>
+          </span>
+          <span v-if="policy.keywords && policy.keywords.length" class="muted" style="font-size:12px">
+            {{ to('policyKeywords') }}: <code class="mono">{{ policy.keywords.join(' · ') }}</code>
+          </span>
+          <span v-if="policy.resource" class="muted" style="font-size:12px">
+            {{ to('policyResource') }}: <code class="mono">{{ policy.resource }}</code>
+          </span>
+        </div>
+        <label class="field">
+          <span>{{ to('policySave') }}</span>
+          <select :value="policy.mode || 'off'" @change="savePolicy(policy, $event.target.value)">
+            <option value="off">{{ enumLabel('policy', 'off') }}</option>
+            <option value="candidate">{{ enumLabel('policy', 'candidate') }}</option>
+            <option value="request_only">{{ enumLabel('policy', 'request_only') }}</option>
+          </select>
+        </label>
       </div>
     </section>
 
@@ -305,7 +420,7 @@ onBeforeUnmount(() => {
       <h2 class="card-title">{{ t('routerRuns') }}</h2>
       <p v-if="history.length === 0" class="muted">{{ t('routerRunsEmpty') }}</p>
       <ol v-else class="run-timeline">
-        <li v-for="run in history" :key="run.id" class="timeline-node">
+        <li v-for="run in history" :key="run.id" class="timeline-node" @click="openTicket(run)">
           <span class="timeline-dot" :class="{ live: run.state === 'running' }" aria-hidden="true" />
           <div class="timeline-body">
             <p class="truncate">
@@ -330,12 +445,45 @@ onBeforeUnmount(() => {
       </ol>
     </section>
 
+    <!-- One row at a time, fetched on demand: the list carries the summary, the
+         detail carries the body and the decision trail. -->
+    <section v-if="detail && detail.data" class="card stack">
+      <div class="row" style="justify-content:space-between">
+        <h2 class="card-title">
+          {{ detail.kind === 'trigger' ? t('routerTriggers') : t('routerTicket') }}
+        </h2>
+        <button class="btn btn-ghost btn-sm" @click="detail = null">×</button>
+      </div>
+      <template v-if="detail.kind === 'trigger'">
+        <p class="pre-wrap">{{ detail.data.body || '—' }}</p>
+        <div class="row row-wrap" style="gap:12px">
+          <span class="chip">{{ detail.data.source }}</span>
+          <span class="chip" :class="detail.data.disposition === 'routed' ? 'chip-on' : ''">
+            {{ dispositionLabel(detail.data.disposition) }}
+          </span>
+          <span class="muted" style="font-size:12px">{{ clock(detail.data.at) }}</span>
+          <code v-if="detail.data.ticketId" class="mono muted" style="font-size:11px">{{ detail.data.ticketId }}</code>
+        </div>
+      </template>
+      <template v-else>
+        <div class="row row-wrap" style="gap:12px">
+          <span class="chip">{{ stateLabel(detail.data.state) }}</span>
+          <span class="muted" style="font-size:12px">{{ clock(detail.data.updatedAt || detail.data.createdAt) }}</span>
+          <span v-if="detail.data.attempts" class="muted" style="font-size:12px">×{{ detail.data.attempts }}</span>
+        </div>
+        <p v-if="detail.data.lastError" class="muted" style="font-size:12px">{{ detail.data.lastError }}</p>
+        <RouterLink v-if="detail.data.taskId" class="btn btn-ghost btn-sm" :to="`/tasks/${detail.data.taskId}`">
+          {{ t('routerOpenTask') }}
+        </RouterLink>
+      </template>
+    </section>
+
     <!-- Recent triggers: the stream itself, with the verdict on each row. -->
     <section v-if="!routerOff" class="card stack">
       <h2 class="card-title">{{ t('routerTriggers') }}</h2>
       <p v-if="triggers.length === 0" class="muted">{{ t('routerTriggersEmpty') }}</p>
       <ul v-else class="trigger-list">
-        <li v-for="trig in triggers" :key="trig.id" class="trigger-row">
+        <li v-for="trig in triggers" :key="trig.id" class="trigger-row trigger-row-click" @click="openTrigger(trig)">
           <span class="muted mono">{{ clock(trig.at) }}</span>
           <span class="chip">{{ trig.source }}</span>
           <span class="truncate" style="flex:1;min-width:0">{{ short(trig.body) }}</span>

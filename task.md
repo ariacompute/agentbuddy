@@ -643,3 +643,78 @@ agentbuddy 把「计算机」屏从三张空卡片升级为**执行环境控制�
 - [ ] 本机无 Tauri 运行入口，`cargo test` 的实际执行仍需 CI（与 M17 第 6 节同一限制）。
 - [ ] CI 侧另外注意：空 `web/dist` 下 `static_files` 的两条用例会自行跳过，
       CI 只验证「能编译」；要验证 SPA 回退与版本注入需要先 `make web-build`（本轮不改 CI）。
+
+## M19 — 第四轮完整度报告 §8 收口（2026-11-02）
+
+背景：第四轮完整度报告指出「封装有了、界面没接」这一类缺陷——`api.js` 里 12 个导出
+没有任何界面引用，`/persona` 有路由却无入口，通知的 `link` 在壳里解析完就丢。共同点
+是**只测「渲染出正确答案」的用例不会红**，所以本轮同时补接线与守卫。
+
+### 1. N1 静默窗口以「现在」为锚
+
+- 症状：`notifySettingsFrom()` 用**首次读取时刻** `startedAt` 当锚点，于是「再静默 30 分钟」
+  在页面开了两小时后算出负数，`quietUntil` 落在过去，静默窗口实际上不生效。
+- 修复：删掉 `startedAt`，改为 `quietUntil = minutes > 0 ? now + minutes*60*1000 : 0`；
+  `loadShellNotifySettings()` 与 `applyShellNotifySettings()` 都以调用时刻为锚。
+- 用例：T0 读 30 分钟 → `quietUntil === T0 + 30min`；T0+2h 保存 → 窗口从 T0+2h 起算且剩余为正。
+
+### 2. N2 通知深链真正驱动导航
+
+- 症状：`NotifyPayload.link` 标着 `#[allow(dead_code)]`，点击 toast 只会把窗口叫到前台。
+- 修复（`desktop/src-tauri/src/notify.rs`）：
+  - `remember_link` / `take_link` / `hash_expr` 三个纯函数（可 headless 单测）。只接受单斜杠
+    开头的站内路径；`//host`、`javascript:`、反斜杠、控制字符与 U+2028/2029 一律拒绝。
+  - `install(&AppHandle)` 注册 `on_action`：`action_id() == "tap"` 时取用路径、`unminimize`
+    + `show` + `set_focus` + `window.eval(hash_expr(..))`；`lib.rs` 在 setup 里调用一次。
+  - 路径用 `serde_json` 编码成 JS 字符串字面量，不拼接原文；一次点击只消费一次，
+    toast 发射失败时清空槽位，避免下一次点击跳到上一条的地址。
+- 语义：工作台是 `createWebHashHistory()`，所以 `window.location.hash = '#/threads/42'`
+  就是一次真实路由跳转，不需要新增 IPC 面。
+
+### 3. N3 侧栏补齐 persona 与 knowledge
+
+- `Sidebar.vue` 增 `/persona`、`/knowledge` 两个入口（`hub`/`ops` 命名空间文案，13 语）；
+  `Topbar.vue` 的标题映射补 `persona` / `knowledge`（此前落到默认标题）。
+
+### 4. N4 `api.js` 导出引用守卫
+
+- 新增 `web/tests/api-usage.spec.js`：扫 `web/src/**`（排除 `lib/api.js`），对 `api.js`
+  每个具名导出断言至少被一处引用；**白名单必须为空**，失败信息直接列出无人使用的导出。
+  这条守卫是「有封装无界面」的根治手段。
+
+### 5. D7 六面接线（每面都补齐 13 语文案）
+
+| 面 | 落点 | 接线 |
+| --- | --- | --- |
+| 知识库 | `views/KnowledgeView.vue`（新）+ `/knowledge` 路由 | `listKnowledge(agentId?)`，agent 过滤、空态、错误态、`feature_unavailable` 说「已关闭」 |
+| 资源新建 | `OrgView.vue` 表单 | `createResource(body)` → 成功后重读 `listResources()`，失败保留输入并显示原因 |
+| 连接器动作 | `ConnectorsView.vue` 折叠区 | `getConnectorActions(id)`，一次展开一次请求，错误不伪装成空列表 |
+| 计算机卡片 | `ComputersView.vue` 卡片区 | `listComputers()`；删除前 `getComputer(id)` 复核，再 `deleteComputer(id)` 并重读列表 |
+| 调度策略/详情 | `SchedulesView.vue` | `listRouterPolicies` + `saveRouterPolicy(source, patch)`；触发/工单行按需 `getRouterTrigger` / `getRouterTicket`，再点折叠 |
+| 调度实时流 | `SchedulesView.vue` | `subscribeRouterEvents(0, …)`，800ms 去抖合并成一次 `loadRouter()`，卸载关闭 |
+| @提及 | `ThreadView.vue` | 从已发言的 agent 里按前缀挑候选，↑↓/Enter/Esc，插入 `@name ` |
+| 解除订阅 | `ThreadView.vue` | `dropRouterSubscription(id)`；`not_found` / `feature_unavailable` 视为已完成 |
+
+### 6. CI：编译前先产出 `web/dist`
+
+`.github/workflows/ci.yml` 的 desktop job 在 `cargo` 之前加 `bun install --frozen-lockfile
+&& bun run build`（Windows runner 无 `make`）。此前 `proxy/static_files.rs` 与 `proxy/mod.rs`
+里两条静态文件用例一直走「未构建则跳过」分支：绿，但没有证明 SPA 回退与版本注入。
+
+### 7. 校验
+
+- [x] `cd web && bun run build` 通过。
+- [x] `cd web && bun run test`：**27 个 spec / 608 条用例**全绿（含新增 `round4.spec.js` 27 条、
+      `api-usage.spec.js`）。
+- [x] `bun run test:coverage`：语句/行 **100%**、分支 **93.56%**、函数 **97.17%**
+      （9776 条语句 / 1538 个分支）。
+- [ ] `cargo test` 本机仍不可执行（M17 §6、M18 §2 同一限制：Windows 缺 Tauri 原生测试入口）；
+      通知深链的三条纯逻辑用例已写好，交由 CI / WSL2 收口。
+- [ ] 桌面通知点击的端到端验证（真弹出 → 真点击 → 真跳转）需要图形环境，未在本机执行。
+
+### 8. 残余
+
+- `channels` / `threads` 的投递明细与 webhook 循环仍无行级隔离（owner 作用域在服务端
+  handler 层已收口，数据库第二道闸只覆盖 schedules / channels / computers 三张有
+  `owner_id` 的表），详见 agenthub 仓 `task.md`。
+- 连接器动作只是「声明能力」，不产生调用历史；真正的调用记录仍在任务 trace 里。

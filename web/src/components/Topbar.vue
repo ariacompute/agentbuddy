@@ -10,6 +10,11 @@ import ThemeToggle from './ThemeToggle.vue'
 import NotificationCenter from './NotificationCenter.vue'
 
 const { t } = useCopy('shell')
+// The execution and scheduling screens carry their labels in the hub table and
+// the two round-4 screens in the ops table; the topbar title has to read from the
+// same place the sidebar does, or it falls back to "Workspace" on those routes.
+const { t: th } = useCopy('hub')
+const { t: to } = useCopy('ops')
 const auth = useAuthStore()
 const workbench = useWorkbenchStore()
 const route = useRoute()
@@ -31,6 +36,10 @@ const title = computed(() => {
     org: t('navOrg'),
     channels: t('navChannels'),
     connectors: t('navConnectors'),
+    computers: th('navComputers'),
+    schedules: th('navSchedules'),
+    persona: to('navPersona'),
+    knowledge: to('navKnowledge'),
     settings: t('navSettings'),
   }
   return map[name] || t('navWorkspace')
