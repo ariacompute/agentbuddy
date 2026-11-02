@@ -10,7 +10,9 @@ const props = defineProps({
 const display = computed(() => props.agent.persona?.displayName || props.agent.displayName || props.agent.name)
 const title = computed(() => props.agent.persona?.title || props.agent.persona?.tagline || '')
 const health = computed(() => props.agent.health?.status || props.agent.health || 'unknown')
-const healthText = computed(() => enumLabel('health', health.value) || health.value)
+// `health` above is never empty, and enumLabel falls back to the raw value, so
+// an unmeasured status still has something to print.
+const healthText = computed(() => enumLabel('health', health.value))
 const tags = computed(() => props.agent.tags || [])
 </script>
 

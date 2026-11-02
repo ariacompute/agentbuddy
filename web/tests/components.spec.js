@@ -742,3 +742,88 @@ describe('StateDot and PersonaAvatar fallbacks', () => {
     expect(wrapper.text().trim()).toBe('?')
   })
 })
+
+// The other side of each ternary: one branch away from the cases above, and
+// invisible when it breaks because the page still renders.
+describe('component branch edges', () => {
+  it('names both connection states', async () => {
+    const { wrapper, pinia } = mountWith(Topbar)
+    await nextTick()
+    const chip = () => wrapper.find('header .chip')
+    expect(chip().text()).toBe('Online')
+
+    useWorkbenchStore(pinia).offline = true
+    await nextTick()
+
+    expect(chip().text()).toBe('Offline')
+    expect(chip().find('.state-dot').attributes('data-state')).toBe('failed')
+  })
+
+  it('renders the default state when StateDot gets no props', () => {
+    // No `state`, no `label`: the dot must still carry a word.
+    const { wrapper } = mountWith(StateDot)
+    expect(wrapper.find('.state-dot').attributes('data-state')).toBe('unknown')
+    expect(wrapper.find('.dim').text()).toBe('Unknown')
+  })
+
+  it('falls back to the task id when an approval names no resource', () => {
+    const { wrapper } = mountWith(ApprovalCard, {
+      props: { task: { id: 't9', status: { state: 'input-required' } } },
+    })
+    expect(wrapper.find('strong').text()).toBe('t9')
+  })
+
+  it('opens the trace from the approval card', async () => {
+    const { wrapper, router } = mountWith(ApprovalCard, {
+      props: { task: { id: 't9', status: { state: 'input-required' } } },
+    })
+    await wrapper.findAll('button')[2].trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/tasks/t9')
+  })
+
+  it('prints a health value the copy table has never seen', () => {
+    const { wrapper } = mountWith(AgentCard, {
+      props: { agent: { name: 'a', health: 'quarantined' } },
+    })
+    expect(wrapper.text()).toContain('quarantined')
+  })
+
+  it('defaults the mime type for inline bytes', () => {
+    // A file part that names no mimeType still has to be playable.
+    const { wrapper } = mountWith(AudioPlayer, {
+      props: { part: { data: { file: { bytes: 'QUJD' } } } },
+    })
+    expect(wrapper.find('audio').attributes('src')).toBe('data:audio/webm;base64,QUJD')
+  })
+
+  it('marks an SMS channel with the CLI glyph', () => {
+    const { wrapper } = mountWith(ChannelCard, {
+      props: { channel: { id: 'c2', name: 'Twilio', kind: 'sms', enabled: false }, deliveries: [] },
+    })
+    expect(wrapper.find('.kind-mark').attributes('data-kind')).toBe('cli')
+    expect(wrapper.text()).toContain('Never used')
+  })
+
+  it('labels a queued receipt and offers a retry for an outbound one', async () => {
+    const { wrapper } = mountWith(DeliveryList, {
+      props: {
+        deliveries: [{ id: 'd2', status: 'pending', direction: 'outbound', at: new Date().toISOString() }],
+      },
+    })
+    expect(wrapper.text()).toContain('Queued')
+
+    await wrapper.find('button').trigger('click')
+    expect(wrapper.emitted('retry')[0]).toEqual(['d2'])
+  })
+
+  it('offers no retry for an inbound receipt', () => {
+    // Re-sending an inbound message is not ours to do.
+    const { wrapper } = mountWith(DeliveryList, {
+      props: {
+        deliveries: [{ id: 'd3', status: 'received', direction: 'inbound', at: new Date().toISOString() }],
+      },
+    })
+    expect(wrapper.find('button').exists()).toBe(false)
+  })
+})

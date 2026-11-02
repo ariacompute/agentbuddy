@@ -2138,4 +2138,178 @@ describe('LoginView', () => {
 
     expect(open).not.toHaveBeenCalled()
   })
+
+  it('switches between sign-in and sign-up', async () => {
+    const { wrapper } = mountWith(LoginView)
+    await flushPromises()
+    const toggle = wrapper.findAll('button').at(-1)
+    const before = toggle.text()
+
+    await toggle.trigger('click')
+    await nextTick()
+
+    expect(toggle.text()).not.toBe(before)
+  })
+})
+
+// Branches the screens take only when the data is thinner than the happy path:
+// a task with no status, a thread with no message list, a save that clashes with
+// itself. They are the difference between "renders" and "renders a fallback".
+describe('view branch edges', () => {
+  it('counts a task that never reported a state', async () => {
+    listResources.mockResolvedValue({ resources: [] })
+    const { wrapper, pinia } = mountWith(OrgView)
+    await flushPromises()
+
+    const wb = useWorkbenchStore(pinia)
+    wb.tasks = [{ id: 't1' }]
+    await nextTick()
+
+    // The overview counts it instead of dropping a row it cannot classify.
+    expect(wrapper.findAll('.stat .v').map((v) => v.text())).toEqual(['1', '0', '0', '0 B', '0 ms'])
+  })
+
+  it('survives a resource payload with no resources key', async () => {
+    listResources.mockResolvedValue({})
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+    expect(wrapper.text()).toContain('Nothing is registered yet.')
+  })
+
+  it('renders a resource whose health is a bare string', async () => {
+    listResources.mockResolvedValue({
+      resources: [{ id: 'r1', name: 'Model One', kind: 'model', health: 'healthy' }],
+    })
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Model One')
+    expect(wrapper.findAll('.chip').some((chip) => chip.text() === 'Reachable')).toBe(true)
+  })
+
+  it('counts only the artifact bytes that exist', async () => {
+    listResources.mockResolvedValue({ resources: [] })
+    const { wrapper, pinia } = mountWith(OrgView)
+    await flushPromises()
+
+    const wb = useWorkbenchStore(pinia)
+    wb.tasks = [
+      {
+        id: 't1',
+        status: { state: 'working' },
+        artifacts: [{ parts: [{}, { file: { uri: 'https://x/a' } }, { file: { bytes: 'ab' } }] }, {}],
+      },
+    ]
+    await nextTick()
+
+    // Only the part that actually carries bytes counts: a uri or an empty part is
+    // not something the console has downloaded.
+    expect(wrapper.findAll('.stat .v').map((v) => v.text())).toEqual(['1', '1', '0', '2 B', '0 ms'])
+  })
+
+  it('does not post a draft that is only whitespace', async () => {
+    postThreadMessage.mockClear()
+    postThreadMessage.mockResolvedValue({})
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    await wrapper.find('textarea').setValue('   ')
+    await wrapper.find('textarea').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    expect(postThreadMessage).not.toHaveBeenCalled()
+  })
+
+  it('renders a thread whose message list is absent', async () => {
+    getThread.mockResolvedValue({ thread: { ID: '1', Title: 't', Status: 'open' } })
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('No threads yet.')
+  })
+
+  it('marks a message another agent wrote, and only that one', async () => {
+    getThread.mockResolvedValue({
+      thread: { ID: '1', Title: 't', Status: 'open' },
+      messages: [
+        { ID: 'm1', AuthorName: 'Bob', Body: 'hi', Origin: 'agent:builder' },
+        { ID: 'm2', AuthorName: 'You', Body: 'ok', Origin: 'user' },
+      ],
+    })
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    const agentChips = wrapper.findAll('.chip').filter((chip) => chip.text() === 'agent')
+    expect(agentChips).toHaveLength(1)
+  })
+
+  it('edits an agent that carries no persona block', async () => {
+    listResources.mockResolvedValue({ resources: [{ id: 'a1', name: 'A', kind: 'agent' }] })
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+    expect(wrapper.find('textarea').element.value).toBe('')
+  })
+
+  it('treats a resource payload with no resources key as an empty roster', async () => {
+    listResources.mockResolvedValue({})
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+    expect(wrapper.text()).toContain('No computers yet.')
+  })
+
+  it('shows the raw error text when the failure carries no machine code', async () => {
+    // A transport failure has no `code`, and `errorMessage('')` is empty: the
+    // operator still deserves to see what went wrong.
+    listResources.mockRejectedValue(new Error('socket closed'))
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+    expect(wrapper.text()).toContain('socket closed')
+  })
+
+  it('shows the raw error text when a save fails without a code', async () => {
+    listResources.mockResolvedValue({ resources: [{ id: 'a1', name: 'A', kind: 'agent', persona: {} }] })
+    updateResource.mockRejectedValue(new Error('socket closed'))
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('socket closed')
+    expect(wrapper.find('textarea').exists()).toBe(false)
+  })
+
+  it('says a bare task has no spans', async () => {
+    getTask.mockResolvedValue({ id: 't1', status: { state: 'working' } })
+    const { wrapper } = mountWith(TaskTraceView, { props: { id: 't1' } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('No spans were recorded for this run.')
+  })
+
+  it('opens the thread list from the activity header', async () => {
+    const { wrapper, router } = mountWith(WorkspaceView)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'New thread').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe('/threads')
+  })
+
+  it('names a new thread when the title is left empty', async () => {
+    const stubs = {
+      BaseDialog: { props: ['modelValue'], template: '<div class="dialog-stub"><slot /><slot name="footer" /></div>' },
+    }
+    createThread.mockResolvedValue({})
+    const { wrapper } = mountWith(ThreadListView, { stubs })
+    await flushPromises()
+
+    await wrapper.find('button.btn-primary').trigger('click')
+    await nextTick()
+    await wrapper.findAll('.dialog-stub button').find((b) => b.text() === 'Create').trigger('click')
+    await flushPromises()
+
+    expect(createThread).toHaveBeenCalledWith('New thread')
+    // No thread came back, so the dialog stays open instead of navigating nowhere.
+    expect(wrapper.find('.dialog-stub').exists()).toBe(true)
+  })
 })

@@ -8,7 +8,6 @@
 // that arrives over SSE and again over a push callback is still announced once.
 
 export const IDEMPOTENT_WINDOW_MS = 60 * 60 * 1000
-export const SAME_KEY_SILENCE_MS = 30 * 1000
 export const DIGEST_WINDOW_MS = 60 * 1000
 export const DEFAULT_MAX_PER_MINUTE = 8
 
@@ -52,10 +51,9 @@ export function decide({ event, seen, now, settings = {} }) {
 
   const key = eventKey(event)
   const last = seen && Object.prototype.hasOwnProperty.call(seen, key) ? seen[key] : null
-  if (Number.isFinite(last)) {
-    if (now - last < IDEMPOTENT_WINDOW_MS) return null
-    if (now - last < SAME_KEY_SILENCE_MS) return null
-  }
+  // The key already carries the state, so the hour window is the whole rule: a
+  // shorter "same key" silence would be subsumed by it and could never fire.
+  if (Number.isFinite(last) && now - last < IDEMPOTENT_WINDOW_MS) return null
 
   const link = event.threadId ? `/threads/${event.threadId}` : `/tasks/${taskId}`
   const agent = String(event.agentName ?? '').trim()

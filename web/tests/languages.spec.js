@@ -31,6 +31,16 @@ describe('languages', () => {
     expect(matchLang('')).toBe('en')
   })
 
+  it('reads every traditional-Chinese spelling as zh-TW', () => {
+    // A browser may send any of these; picking simplified for a Hong Kong user is
+    // the one mistake that is visible immediately.
+    expect(matchLang('zh-tw')).toBe('zh-TW')
+    expect(matchLang('zh-Hant')).toBe('zh-TW')
+    expect(matchLang('zh-HK')).toBe('zh-TW')
+    expect(matchLang('zh-CN')).toBe('zh')
+    expect(matchLang('zh-Hans')).toBe('zh')
+  })
+
   it('maps codes onto hreflang and Open Graph locales', () => {
     expect(hreflangFor('zh')).toBe('zh-Hans')
     expect(hreflangFor('zh-TW')).toBe('zh-Hant')

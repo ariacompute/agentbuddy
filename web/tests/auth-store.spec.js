@@ -56,6 +56,19 @@ describe('auth-store', () => {
       s.config = { oauth: [{ name: 'github' }] }
       expect(s.oauthProviders).toEqual([{ name: 'github' }])
     })
+
+    it('treats a missing permission list as "none", never as "all"', () => {
+      // An older or half-built payload can omit the array; reading that as
+      // "everything" would unlock the console.
+      const s = useAuthStore()
+      s.user = { id: 'u1', isOwner: false }
+      expect(s.permissions).toEqual([])
+      expect(s.can('resources:write')).toBe(false)
+
+      s.user = { id: 'u1', isOwner: false, permissions: 'resources:write' }
+      expect(s.permissions).toEqual([])
+      expect(s.can('resources:write')).toBe(false)
+    })
   })
 
   describe('loadConfig', () => {

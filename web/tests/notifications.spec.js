@@ -53,6 +53,22 @@ describe('notifications decide', () => {
     expect(decide({ event: { taskId: 't1', state: 'completed' }, seen, now })).toBeNull()
   })
 
+  it('announces the same key again once the window has passed', () => {
+    // The window is the only rule: a stale entry must not silence a real retry.
+    const seen = { 't1:completed': now - IDEMPOTENT_WINDOW_MS - 1 }
+    const d = decide({ event: { taskId: 't1', state: 'completed' }, seen, now })
+    expect(d).not.toBeNull()
+    expect(d.title).toBe('notifyResult')
+  })
+
+  it('announces the same task again when it reaches a different state', () => {
+    // The key carries the state, so "completed" never mutes "failed".
+    const seen = { 't1:completed': now - 1000 }
+    const d = decide({ event: { taskId: 't1', state: 'failed' }, seen, now })
+    expect(d).not.toBeNull()
+    expect(d.kind).toBe('failure')
+  })
+
   it('marks system:false when notifications are disabled', () => {
     const d = decide({
       event: { taskId: 't1', state: 'completed' },

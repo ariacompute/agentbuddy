@@ -327,6 +327,19 @@ describe('workbench-store', () => {
       expect(notifyShell).not.toHaveBeenCalled()
     })
 
+    it('survives a shell bridge that throws on the call itself', () => {
+      // A preload bridge that is not a promise, or one that throws while
+      // marshalling, must not take the poll loop down with it.
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      notifyShell.mockImplementation(() => { throw new Error('bridge died') })
+      const s = useWorkbenchStore()
+
+      expect(() => s.ingestTask({ id: 't13', status: { state: 'completed' } }, 6_000_000)).not.toThrow()
+      expect(s.notifications).toHaveLength(1)
+      expect(consoleError).toHaveBeenCalled()
+      consoleError.mockRestore()
+    })
+
     it('survives a shell that refuses or is absent', async () => {
       notifyShell.mockRejectedValue(new Error('no shell'))
       const s = useWorkbenchStore()

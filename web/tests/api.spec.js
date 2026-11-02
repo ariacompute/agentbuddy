@@ -612,3 +612,49 @@ describe('F10–F16 api helpers', () => {
     expect(JSON.parse(lastCall()[1].body)).toEqual({ name: 'x' })
   })
 })
+
+describe('api base seam', () => {
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete globalThis.__AGENTBUDDY_BASE__
+  })
+
+  it('ignores an override that is not a non-empty string', async () => {
+    // Only the smoke test sets this, and only to a string. Anything else must
+    // leave the URLs same-origin rather than producing "42/api/x".
+    fetchMock.mockResolvedValue(jsonResponse({}))
+    globalThis.__AGENTBUDDY_BASE__ = 42
+    try {
+      await request('/api/x')
+      expect(lastCall()[0]).toBe('/api/x')
+
+      globalThis.__AGENTBUDDY_BASE__ = ''
+      await request('/api/y')
+      expect(lastCall()[0]).toBe('/api/y')
+    } finally {
+      delete globalThis.__AGENTBUDDY_BASE__
+    }
+  })
+
+  it('prefixes the URL when a shell or test points it elsewhere', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}))
+    globalThis.__AGENTBUDDY_BASE__ = 'http://127.0.0.1:9'
+    try {
+      await request('/api/z')
+      expect(lastCall()[0]).toBe('http://127.0.0.1:9/api/z')
+    } finally {
+      delete globalThis.__AGENTBUDDY_BASE__
+    }
+  })
+
+  it('keeps the machine code as the message when no translation exists', () => {
+    const err = new ApiError('brand_new_code', 500)
+    expect(err.message).toBe('brand_new_code')
+    expect(err.code).toBe('brand_new_code')
+    expect(err.status).toBe(500)
+  })
+})

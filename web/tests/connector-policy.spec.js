@@ -38,6 +38,8 @@ describe('connector-policy', () => {
     expect(decideAction('ask', 'foo')).toEqual({ ok: true, park: true })
     expect(decideAction('off', 'foo')).toEqual({ ok: false, code: 'connector_policy_off' })
     expect(decideAction('allowed', '')).toEqual({ ok: false, code: 'bad_request' })
+    expect(decideAction('allowed', null)).toEqual({ ok: false, code: 'bad_request' })
+    expect(decideAction('allowed', undefined)).toEqual({ ok: false, code: 'bad_request' })
     expect(decideAction('allowed', '__proto__')).toEqual({ ok: false, code: 'connector_action_denied' })
     expect(decideAction('allowed', 'constructor')).toEqual({ ok: false, code: 'connector_action_denied' })
   })

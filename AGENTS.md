@@ -74,8 +74,9 @@ desktop/
   新增错误码须登记三处（服务端 `httputil.Code*`、前端 `CODE_KEYS`、`errors-copy.js` 13 语）。
 - **测试**：`cd web && bun run test`（Vitest）。**勿用裸 `bun test`**（Bun 原生 runner 不加载
   `vitest.config.js`，无 jsdom 环境）。新增功能须补**正常 + 异常**双路径用例。
-  覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`），
-  当前基线：语句/行 99.9%、分支 87%、函数 92%；回落时先看报告里的未覆盖行再补用例。
+  覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
+  `text-summary` + `text`，不写报告目录），当前基线：语句/行 **100%**、分支 **94.77%**、函数 **98.35%**
+  （8951 条语句、1398 个分支）；回落时先看报告里的未覆盖行再补用例。
 - **系统通知**：工作台只经 `notifyShell()` → `POST /__shell/notify` 投递（`{title, body, link}`），
   标题在发送瞬间用 `useCopy('workspace')` 解析（**不能传 copy key**），且必须 fire-and-forget
   （`Promise.resolve(...).catch()`）；外壳的 `notify_enabled` / `notify_quiet_minutes` 由

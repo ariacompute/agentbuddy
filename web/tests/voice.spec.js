@@ -133,4 +133,21 @@ describe('createRecorder', () => {
     rec.stop()
     expect(m.upload).not.toHaveBeenCalled()
   })
+
+  it('ignores a second start while the first is still opening the microphone', async () => {
+    // A double click must not ask for two streams: the state machine is the only
+    // thing standing between the button and two overlapping recordings.
+    const m = makeMocks()
+    const rec = createRecorder(m)
+    rec.start()
+    await flush()
+    expect(rec.state).toBe(VoiceState.Recording)
+
+    rec.start()
+    await flush()
+    expect(m.getUserMedia).toHaveBeenCalledTimes(1)
+
+    rec.stop()
+    await flush()
+  })
 })

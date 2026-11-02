@@ -7,7 +7,8 @@ const props = defineProps({
   label: { type: Boolean, default: true },
 })
 
-const text = computed(() => enumLabel('taskState', props.state) || props.state)
+// enumLabel already falls back to the raw value, so an unknown state still prints.
+const text = computed(() => enumLabel('taskState', props.state))
 </script>
 
 <template>

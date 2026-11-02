@@ -16,7 +16,7 @@ export const BASE = ''
 // the first request. Production never sets it, so BASE stays '' and every path
 // remains same-origin (which is what makes the cookie flow work at all).
 function baseUrl() {
-  const override = typeof globalThis === 'undefined' ? '' : globalThis.__AGENTBUDDY_BASE__
+  const override = globalThis.__AGENTBUDDY_BASE__
   return typeof override === 'string' && override ? override : BASE
 }
 
