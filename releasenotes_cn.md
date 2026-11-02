@@ -25,6 +25,21 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
 - **版本戳**：`vX.Y.Z@commit` 版本戳（由最新 git tag 加短提交号构成）显示在登录与关于页。
 - **关闭行为**：窗口关闭时读取 `background` 偏好——开启（默认）则隐藏窗口、应用驻留托盘；
   关闭则退出应用。仅托盘「退出」会强制结束。
+- **代理准入**：绑定 `127.0.0.1` 只挡住网络、挡不住本机，所以端口本身不再足够。每次启动生成
+  256 位 token 与一次性引导 nonce；窗口打开 `/__shell/bootstrap?nonce=…`，取得
+  `ab_proxy=<token>; HttpOnly; SameSite=Strict` 后跳转到 `/`。其余路由——`/api`、`/a2a`、
+  `/__shell/*` 与静态资源——都必须带这枚 Cookie（原生客户端可用 `Authorization: Bearer`），
+  且 `Origin` 指向其他站点的请求在检查 Cookie 之前就被拒绝。token 从不进入 JavaScript
+  （注入脚本读不到），转发上游前也会被剥掉。nonce 猜错**不会**消耗掉它：256 位无从猜起，
+  而清空它等于让本机任何进程一次请求就能废掉窗口唯一的那次启动。
+- **内容安全策略**：窗口打开的是普通环回源，`tauri.conf.json` 里的 CSP 到不了这些响应，
+  因此策略由代理自己发：`script-src 'self'` 加每次响应一枚新 nonce——这也是首屏主题脚本
+  被外置成 `web/public/theme-init.js` 的原因。服务器选定的策略原样透传：只丢逐跳头，
+  上游的 `Content-Security-Policy`、`Strict-Transport-Security`、`X-Frame-Options` 全部保留。
+- **凭据存储**：保存的会话 Cookie 等价于 bearer，因此按服务器 URL 存进系统凭据库——
+  Windows 凭据管理器（DPAPI）、macOS 钥匙串、Linux Secret Service。没有任何凭据库响应时
+  （无头机器、钥匙串已锁）回退为仅属主可读的 `session.json` 并把这件事写进日志，
+  `/__shell/config` 以 `sessionBackend` 报告当前后端；已有的明文会话在首次读取时迁入并删除。
 
 ## 三、工作台
 
@@ -85,13 +100,18 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
 
 - `deb` + 便携 tarball（Linux）、`dmg` + 便携 tarball（macOS aarch64）、`msi` + 便携 zip
   （Windows），并附 `SHA256SUMS`。
+- Linux 上从源码构建还需 `libdbus-1-dev` 与 `pkg-config`：会话存在 Secret Service 里，
+  经 D-Bus 访问。Windows 与 macOS 无额外依赖——凭据管理器与钥匙串是系统自带的。
 
 ## 九、测试
 
 - Vitest 覆盖 i18n 完整性、单色守卫、连接器策略、轮询监控、通知、语音、登录守卫与外壳根组件、
-  模态框与录音组件，并为每一屏补齐用例（筛选、预算、人像切换、目标新建/启停/删除、调度水位与
-  倒计时、通道新建/删除/重试、执行环境控制台与租约操作、登录）。共 462 条，全程离线。
-- `bun run test:coverage`（v8，对应 `make web-coverage`）报告：语句 99%、分支 84%、函数 85%。
-- `cargo test` 覆盖代理、配置（语言回落、按服务器隔离的会话存储）、i18n（13 语键集与英文顺序
-  完全一致、语言代码编译期对齐 `web/src/lib/languages.js`）与托盘映射。Windows 测试二进制在本
-  环境无法启动，故这些用例在本机只做编译校验，在 CI 上执行。
+  模态框与录音组件、API 客户端（每个端点包装各一条用例，路由挪了会在这里红而不是在某一屏上），
+  并为每一屏补齐用例（筛选、预算、人像切换、目标新建/启停/删除及每条失败路径、调度水位与
+  倒计时、通道新建/删除/重试与仅 SMS 出现的 destination 字段、执行环境控制台与租约操作、
+  登录与注册）。共 515 条，全程离线。
+- `bun run test:coverage`（v8，对应 `make web-coverage`）报告：语句 99%、分支 91%、函数 97%。
+- `cargo test` 覆盖代理（准入控制、nonce 握手、Cookie 重写、流式转发、来源闸）、配置（语言回落、
+  按服务器隔离的会话存储、明文迁移）、i18n（13 语键集与英文顺序完全一致、语言代码编译期对齐
+  `web/src/lib/languages.js`）与托盘映射——共 153 条。已在 Linux（WSL2）与 CI 上执行；Windows
+  测试二进制在本环境无法启动，故在 Windows 上只做编译校验。

@@ -35,6 +35,31 @@ over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known
 - **Close behaviour**: on window close the shell reads the `background`
   preference — when on (default) the window is hidden and the app stays resident
   in the tray; when off the app exits. Only the tray Quit ever force-exits.
+- **Proxy admission control**: binding to `127.0.0.1` keeps the network out, not
+  the machine, so the port is no longer enough on its own. Each launch mints a
+  256-bit token and a single-use bootstrap nonce; the window opens
+  `/__shell/bootstrap?nonce=…`, receives
+  `ab_proxy=<token>; HttpOnly; SameSite=Strict` and is redirected to `/`. Every
+  other route — `/api`, `/a2a`, `/__shell/*`, the static bundle — requires that
+  cookie, or `Authorization: Bearer` for a native client, and a request whose
+  `Origin` names another site is refused before the cookie is inspected. The
+  token never enters JavaScript (so an injected script cannot read it) and is
+  stripped from anything forwarded upstream. A wrong guess at the nonce does not
+  spend it: guessing 256 bits is hopeless, while clearing it would let any local
+  process deny the window its one startup.
+- **Content security policy**: the window opens a plain loopback origin, so the
+  CSP in `tauri.conf.json` never reaches those responses — the proxy sends its
+  own, `script-src 'self'` plus a fresh nonce per response, which is why the
+  first-paint theme script lives in `web/public/theme-init.js` instead of inline.
+  Policies the server chose are forwarded untouched: only hop-by-hop headers are
+  dropped, so upstream `Content-Security-Policy`, `Strict-Transport-Security` and
+  `X-Frame-Options` survive.
+- **Credential store**: the saved session cookie is bearer-equivalent, so it goes
+  to Windows Credential Manager (DPAPI), macOS Keychain or Linux Secret Service,
+  per server URL. When no store answers — a headless box, a locked keychain — the
+  shell falls back to an owner-only `session.json`, logs the fact, and reports the
+  backend as `sessionBackend` through `/__shell/config`. An existing plaintext
+  session is migrated on first read and then deleted.
 
 ## 3. Workbench
 
@@ -117,19 +142,25 @@ The node lives in the Rust process. The web view only reads its state through
 
 - `deb` + portable tarball (Linux), `dmg` + portable tarball (macOS aarch64),
   `msi` + portable zip (Windows), plus `SHA256SUMS`.
+- Building from source on Linux also needs `libdbus-1-dev` and `pkg-config`: the
+  session lives in the Secret Service, which is reached over D-Bus. Windows and
+  macOS need nothing extra — Credential Manager and Keychain are part of the OS.
 
 ## 9. Tests
 
 - Vitest covers i18n completeness, the monochrome guard, connector policy,
   monitor, notifications, voice, the auth guard and shell root, the modal and
-  the recorder, plus a suite per view (filters, budget, persona switching,
-  goal create/toggle/delete, schedule water level and countdown, channel
-  create/delete/retry, the execution-environment console and its lease actions,
-  sign-in). 462 cases, all offline.
+  the recorder, the API client (one case per endpoint wrapper, so a moved route
+  fails here rather than on one screen), plus a suite per view (filters, budget,
+  persona switching, goal create/toggle/delete plus every failure path, schedule
+  water level and countdown, channel create/delete/retry and the SMS-only
+  destination field, the execution-environment console and its lease actions,
+  sign-in and sign-up). 515 cases, all offline.
 - `bun run test:coverage` (v8, `make web-coverage`) reports 99% of statements,
-  84% of branches and 85% of functions.
-- `cargo test` covers the proxy, config (language fallback, per-server session
-  storage), i18n (every locale carries every key in English order, codes pinned
-  to `web/src/lib/languages.js`) and the tray mapping. The Windows test binary
-  cannot start in this environment, so those cases are compile-verified locally
-  and executed in CI.
+  91% of branches and 97% of functions.
+- `cargo test` covers the proxy (admission control, the nonce handshake, cookie
+  rewriting, streaming, the origin gate), config (language fallback, per-server
+  session storage, the plaintext migration), i18n (every locale carries every key
+  in English order, codes pinned to `web/src/lib/languages.js`) and the tray
+  mapping — 153 cases. They run on Linux (WSL2) and in CI; the Windows test binary
+  cannot start in this environment, so there they are compile-verified only.
