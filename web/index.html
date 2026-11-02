@@ -3,17 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>
-      // Resolve the theme before the first paint so the shell never flashes the
-      // wrong grey scale: an explicit choice wins, otherwise default to light.
-      try {
-        var stored = window.localStorage.getItem('agentbuddy.theme')
-        document.documentElement.dataset.theme =
-          stored === 'light' || stored === 'dark' ? stored : 'light'
-      } catch (error) {
-        document.documentElement.dataset.theme = 'light'
-      }
-    </script>
+    <!-- Resolved before the first paint, but from a file: the desktop shell's
+         content security policy allows `script-src 'self'` only, so an inline
+         copy here would be blocked (or force 'unsafe-inline' on everything).
+         A synchronous <script src> in <head> still runs before any paint. -->
+    <script src="/theme-init.js"></script>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any" />
     <title>agentbuddy</title>
     <meta

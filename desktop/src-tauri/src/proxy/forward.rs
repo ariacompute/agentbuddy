@@ -87,6 +87,12 @@ pub async fn forward(state: &ProxyState, req: Request) -> Response {
         if drop_request_header(name.as_str()) {
             continue;
         }
+        // A native client authenticates to the proxy with the token, and the
+        // token is the proxy's own secret: it has no meaning to the server, so
+        // it must not travel with the request.
+        if is_proxy_credential(state, name.as_str(), value.as_bytes()) {
+            continue;
+        }
         if let Some((name, value)) = header(name.as_str(), value.as_bytes()) {
             out.headers_mut().append(name, value);
         }
@@ -218,19 +224,40 @@ pub fn drop_request_header(name: &str) -> bool {
     DROP.contains(&name.to_ascii_lowercase().as_str())
 }
 
-/// Header names that must not come back: framing the proxy rewrites, security
-/// policies written for the server's own origin, and CORS headers that only
-/// make sense for a cross-origin caller (ours are same-origin).
+/// True when a header carries the proxy's own bearer token rather than a
+/// credential meant for the server. Such a header is dropped, never forwarded:
+/// the token admits a request to the loopback origin and nothing else.
+fn is_proxy_credential(state: &ProxyState, name: &str, value: &[u8]) -> bool {
+    if !name.eq_ignore_ascii_case("authorization") {
+        return false;
+    }
+    let Some(auth) = state.auth.as_ref() else {
+        return false;
+    };
+    let Ok(raw) = std::str::from_utf8(value) else {
+        return false;
+    };
+    raw.strip_prefix("Bearer ").map(|token| token.trim() == auth.token()).unwrap_or(false)
+}
+
+/// Header names that must not come back: only the hop-by-hop framing the proxy
+/// itself owns.
+///
+/// Security headers are deliberately forwarded. Dropping `content-security-policy`,
+/// `x-frame-options` and `strict-transport-security` was the shell weakening a
+/// policy the server had chosen for its own console — the exact opposite of what
+/// a client should do with a policy it did not write. If the deployment wants a
+/// CSP, the deployment gets a CSP; the shell adds its own on top (tauri.conf.json)
+/// rather than removing the server's.
+///
+/// `alt-svc` still goes: it advertises a protocol the loopback origin does not
+/// speak, and a browser that cached it would try to reach 127.0.0.1 over h3.
 pub fn drop_response_header(name: &str) -> bool {
-    const DROP: [&str; 9] = [
+    const DROP: [&str; 5] = [
         "content-length",
         "transfer-encoding",
         "connection",
         "keep-alive",
-        "strict-transport-security",
-        "content-security-policy",
-        "content-security-policy-report-only",
-        "x-frame-options",
         "alt-svc",
     ];
     DROP.contains(&name.to_ascii_lowercase().as_str())
@@ -398,11 +425,22 @@ mod tests {
 
     #[test]
     fn drops_the_headers_that_would_break_the_response() {
-        for name in ["content-length", "transfer-encoding", "strict-transport-security"] {
+        for name in ["content-length", "transfer-encoding", "connection", "alt-svc"] {
             assert!(drop_response_header(name), "{name} must not come back");
         }
         for name in ["content-type", "cache-control", "content-disposition"] {
             assert!(!drop_response_header(name), "{name} must come back");
+        }
+    }
+
+    /// The server's security policy is the server's to choose. The proxy only
+    /// owns framing, so CSP / HSTS / X-Frame-Options pass through untouched.
+    #[test]
+    fn keeps_the_security_policy_the_server_chose() {
+        for name in
+            ["content-security-policy", "strict-transport-security", "x-frame-options", "x-content-type-options"]
+        {
+            assert!(!drop_response_header(name), "{name} belongs to the server");
         }
     }
 }

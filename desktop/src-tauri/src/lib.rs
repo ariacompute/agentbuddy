@@ -16,6 +16,7 @@ pub mod executor;
 pub mod i18n;
 pub mod notify;
 pub mod proxy;
+pub mod session;
 pub mod tray;
 
 /// The build version, used by the `vX.Y.Z@<7-char commit>` stamp. Derived at
@@ -50,7 +51,10 @@ pub fn run() {
                 .path()
                 .app_config_dir()
                 .unwrap_or_else(|_| std::env::temp_dir().join("agentbuddy-desktop"));
-            let store = Arc::new(config::ConfigStore::new(dir));
+            // The session cookie is a bearer token, so it goes to the OS
+            // credential store — the file next to config.json is only the
+            // fallback for machines that have none.
+            let store = Arc::new(config::ConfigStore::keyring_or_file(dir));
             let initial = store.load();
 
             let shared = Arc::new(tokio::sync::RwLock::new(initial.clone()));
@@ -90,7 +94,12 @@ pub fn run() {
                             *url = proxy.url.clone();
                         }
                         if let Some(window) = shell.get_webview_window("main") {
-                            if let Ok(url) = url::Url::parse(&proxy.url) {
+                            // The window opens the bootstrap URL, not the root:
+                            // that one redirect is how the WebView receives the
+                            // proxy cookie it cannot be given any other way.
+                            let target =
+                                proxy.bootstrap_url.clone().unwrap_or_else(|| proxy.url.clone());
+                            if let Ok(url) = url::Url::parse(&target) {
                                 let _ = window.navigate(url);
                             }
                             let _ = window.show();

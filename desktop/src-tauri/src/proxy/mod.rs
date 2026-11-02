@@ -28,12 +28,19 @@ use tokio::task::JoinHandle;
 
 use crate::config::{ConfigStore, SharedConfig};
 
+pub mod auth;
+pub mod csp;
 pub mod forward;
 pub mod shell;
 pub mod static_files;
 
 /// Everything under this prefix belongs to the shell, never to the server.
 pub const SHELL_PREFIX: &str = "/__shell";
+
+/// The one route reachable without a token: it trades a single-use nonce for the
+/// proxy cookie and then redirects. Without it the WebView could never obtain the
+/// token, because it cannot be told to attach a header to a navigation.
+pub const BOOTSTRAP_PATH: &str = "/__shell/bootstrap";
 
 /// Bounded so a server that never answers does not hang the handshake; there is
 /// deliberately no overall timeout, because SSE streams stay open.
@@ -62,11 +69,17 @@ pub struct ProxyState {
     /// workbench page never gains filesystem or command access — and it is the
     /// same object the settings screen toggles.
     pub executor: Arc<crate::executor::Executor>,
+    /// Admission control. `None` only in the test router, which has no window to
+    /// bootstrap a cookie into.
+    pub auth: Option<Arc<auth::Auth>>,
 }
 
 pub struct ProxyHandle {
     pub port: u16,
     pub url: String,
+    /// Where the window should open: it trades the nonce for the cookie and then
+    /// lands on `/`. `None` when admission control is off (tests).
+    pub bootstrap_url: Option<String>,
     /// Kept so the listener task is not dropped at the end of `start`.
     _task: JoinHandle<()>,
 }
@@ -114,6 +127,13 @@ async fn start_inner(
     let url = format!("http://127.0.0.1:{port}");
 
     let executor = Arc::new(crate::executor::Executor::new(store.clone(), config.clone()));
+    // Admission control is tied to the presence of a window: the token is handed
+    // to a WebView through a bootstrap redirect, so a headless router (the tests
+    // drive one) has nobody to hand it to and runs the plain forwarding path.
+    let auth = if app.is_some() { Some(Arc::new(auth::Auth::new())) } else { None };
+    let bootstrap_url = auth
+        .as_ref()
+        .map(|auth| format!("{url}{BOOTSTRAP_PATH}?nonce={}", auth.new_nonce()));
     let state = ProxyState {
         clients,
         config,
@@ -122,6 +142,7 @@ async fn start_inner(
         app,
         jar,
         executor: executor.clone(),
+        auth,
     };
     let router = Router::new().fallback(dispatch).with_state(state);
     let task = tokio::spawn(async move {
@@ -135,11 +156,29 @@ async fn start_inner(
     // loop is still retrying its first enrollment.
     tokio::spawn(async move { executor.apply().await });
 
-    Ok(ProxyHandle { port, url, _task: task })
+    Ok(ProxyHandle { port, url, bootstrap_url, _task: task })
 }
 
 async fn dispatch(State(state): State<ProxyState>, req: Request) -> Response {
     let path = req.uri().path().to_string();
+
+    // A same-origin WebView sends `Origin: http://127.0.0.1:<port>`; a page on
+    // another site sends its own. Refusing a foreign origin blocks the simplest
+    // drive-by ("open a tab at the loopback port and read the console") even
+    // before the cookie check, and it costs nothing when the header is absent
+    // (curl, the tests, a native client holding a bearer token).
+    if let Some(origin) = req.headers().get("origin").and_then(|value| value.to_str().ok()) {
+        if !origin.is_empty() && origin != state.self_url {
+            return refusal(StatusCode::FORBIDDEN, "proxy_origin_refused");
+        }
+    }
+
+    if let Some(auth) = &state.auth {
+        if path != BOOTSTRAP_PATH && !auth.authorized(req.headers()) {
+            return refusal(StatusCode::UNAUTHORIZED, "proxy_unauthorized");
+        }
+    }
+
     if path == SHELL_PREFIX || path.starts_with(&format!("{SHELL_PREFIX}/")) {
         return shell::handle(&state, req).await;
     }
@@ -176,6 +215,15 @@ pub fn is_remote_path(path: &str) -> bool {
 /// What the console gets when it calls an endpoint with no server configured.
 pub fn not_configured() -> Response {
     forward::upstream_json(StatusCode::SERVICE_UNAVAILABLE, "server_not_configured")
+}
+
+/// Refuses a request that never reached the console.
+///
+/// The body is a machine code, never prose: the shell and the workbench both
+/// translate `proxy_unauthorized` / `proxy_origin_refused` locally, the same way
+/// agenthub reports its own errors.
+fn refusal(status: StatusCode, code: &str) -> Response {
+    forward::upstream_json(status, code)
 }
 
 /// Replays the saved session cookie for `server` into `jar`.
@@ -251,6 +299,116 @@ mod tests {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let pid = std::process::id();
         format!("{}-{}", pid, NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// A state with admission control switched on. `start_inner` can only build
+    /// one with a real window, so the gate is driven here, against `dispatch`.
+    async fn state_with_auth() -> (ProxyState, Arc<auth::Auth>) {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-gate-{}", port_stamp()));
+        let store = Arc::new(ConfigStore::new(dir));
+        let jar = Arc::new(reqwest::cookie::Jar::default());
+        let clients = forward::Clients::new(jar.clone()).expect("the forwarding client builds");
+        let config = Arc::new(tokio::sync::RwLock::new(AppConfig::default()));
+        let executor = Arc::new(crate::executor::Executor::new(store.clone(), config.clone()));
+        let auth = Arc::new(auth::Auth::new());
+        let state = ProxyState {
+            clients,
+            config,
+            store,
+            self_url: "http://127.0.0.1:41234".to_string(),
+            app: None,
+            jar,
+            executor,
+            auth: Some(auth.clone()),
+        };
+        (state, auth)
+    }
+
+    fn request(method: &str, path: &str, headers: &[(&str, &str)]) -> Request {
+        let mut builder = Request::builder().method(method).uri(path);
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
+        builder.body(axum::body::Body::empty()).expect("the test request builds")
+    }
+
+    /// The status and machine code of a refusal.
+    async fn code_of(resp: Response) -> (u16, String) {
+        let (parts, body) = resp.into_parts();
+        let bytes = axum::body::to_bytes(body, 1 << 20).await.expect("the body must be readable");
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
+        (parts.status.as_u16(), json["code"].as_str().unwrap_or_default().to_string())
+    }
+
+    #[tokio::test]
+    async fn refuses_a_request_that_has_no_proxy_token() {
+        let (state, _) = state_with_auth().await;
+        let (status, code) = code_of(dispatch(State(state), request("GET", "/", &[])).await).await;
+        assert_eq!(status, 401);
+        assert_eq!(code, "proxy_unauthorized");
+    }
+
+    #[tokio::test]
+    async fn admits_the_cookie_the_bootstrap_handed_out() {
+        let (state, auth) = state_with_auth().await;
+        let cookie = format!("{}={}", auth::COOKIE_NAME, auth.token());
+        let resp = dispatch(State(state), request("GET", "/", &[("cookie", &cookie)])).await;
+        // Unconfigured, the root is the connection page — the point is that the
+        // gate let the request through at all.
+        assert_ne!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn admits_a_bearer_token_for_a_native_client() {
+        let (state, auth) = state_with_auth().await;
+        let bearer = format!("Bearer {}", auth.token());
+        let resp = dispatch(State(state), request("GET", "/healthz", &[("authorization", &bearer)])).await;
+        assert_ne!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_cookie_with_the_wrong_token_is_not_admitted() {
+        let (state, auth) = state_with_auth().await;
+        let cookie = format!("{}={}", auth::COOKIE_NAME, "0".repeat(auth.token().len()));
+        let resp = dispatch(State(state), request("GET", "/", &[("cookie", &cookie)])).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn refuses_a_foreign_origin_before_it_looks_at_the_token() {
+        let (state, auth) = state_with_auth().await;
+        let cookie = format!("{}={}", auth::COOKIE_NAME, auth.token());
+        let (status, code) = code_of(
+            dispatch(
+                State(state),
+                request("POST", "/__shell/config", &[("cookie", &cookie), ("origin", "https://evil.example")]),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, 403);
+        assert_eq!(code, "proxy_origin_refused");
+    }
+
+    #[tokio::test]
+    async fn admits_the_origin_the_window_itself_uses() {
+        let (state, auth) = state_with_auth().await;
+        let cookie = format!("{}={}", auth::COOKIE_NAME, auth.token());
+        let resp = dispatch(
+            State(state),
+            request("GET", "/", &[("cookie", &cookie), ("origin", "http://127.0.0.1:41234")]),
+        )
+        .await;
+        assert_ne!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn the_bootstrap_route_is_the_one_way_in_without_a_token() {
+        let (state, auth) = state_with_auth().await;
+        let nonce = auth.new_nonce();
+        let resp =
+            dispatch(State(state), request("GET", &format!("{BOOTSTRAP_PATH}?nonce={nonce}"), &[])).await;
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
     }
 
     /// A stand-in agenthub server: `/healthz`, and an `/api/me` that sets a

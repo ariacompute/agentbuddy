@@ -34,6 +34,26 @@ webpki-roots = "1.0.10"
 rust-embed = { version = "8", features = ["mime-guess"] }
 sys-locale = "0.3"
 url = "2"
+# The loopback proxy token and its bootstrap nonce are the one place this crate
+# needs unpredictable bytes; std has no CSPRNG.
+rand = "0.8"
+
+# The agenthub session cookie is a bearer token, so it belongs in the operating
+# system's credential store rather than in a file (see src/session.rs). One
+# feature per platform store:
+#   * Windows — Credential Manager (DPAPI-protected, per user);
+#   * macOS   — Keychain;
+#   * Linux   — Secret Service (GNOME Keyring / KWallet) over D-Bus. Deliberately
+#     not `linux-native` (kernel keyutils): a keyutils entry does not survive a
+#     reboot, which would sign the user out on every restart.
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["apple-native"] }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
 
 [profile.release]
 codegen-units = 1

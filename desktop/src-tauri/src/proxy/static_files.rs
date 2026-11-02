@@ -10,6 +10,7 @@ use rust_embed::{EmbeddedFile, RustEmbed};
 use serde_json::json;
 
 use crate::i18n;
+use crate::proxy::csp;
 
 /// Marker the Rust side replaces with the boot object for `shell.html`.
 pub const BOOT_MARKER: &str = "/*__SHELL_BOOT__*/";
@@ -41,6 +42,16 @@ pub fn serve_console(path: &str, lang: &str) -> Response {
     let rel = if rel.is_empty() { "index.html" } else { rel };
     let (served, file) = if let Some(file) = Console::get(rel) {
         (rel, file)
+    } else if is_asset(rel) {
+        // A missing *file* must not be answered with the app shell: the browser
+        // would get HTML where it asked for a script or a stylesheet, and report
+        // a MIME error instead of the 404 that actually happened.
+        return (
+            StatusCode::NOT_FOUND,
+            [(CONTENT_TYPE, "text/plain; charset=utf-8")],
+            "not found",
+        )
+            .into_response();
     } else if let Some(file) = Console::get("index.html") {
         // SPA fallback: a client route that is not a real file resolves to the
         // app shell, so it gets the same version stamp as the root.
@@ -54,17 +65,27 @@ pub fn serve_console(path: &str, lang: &str) -> Response {
     file_response(served, &file)
 }
 
+/// True when a path names a file rather than a client route. A route segment
+/// may contain dots in principle, but the console's own routes never do and a
+/// missing asset is the far more likely case.
+fn is_asset(rel: &str) -> bool {
+    rel.rsplit('/').next().map(|name| name.contains('.')).unwrap_or(false)
+}
+
 /// Serves the workbench's `index.html` with the desktop shell's own version
 /// stamp injected, so the login screen can show it the way the shell's own
 /// about page shows `boot.version`. The Vue bundle is a single
 /// build with no per-build metadata, so the stamp is written here from the
 /// constants the crate was compiled with.
 fn console_index(file: &EmbeddedFile) -> Response {
-    let html = render_console_index(file);
+    let nonce = csp::new_nonce();
+    let html = render_console_index(file, &nonce);
+    let (name, value) = csp::header(&nonce);
     HttpResponse::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "text/html; charset=utf-8")
         .header(CACHE_CONTROL, "no-cache")
+        .header(name, value)
         .body(Body::from(html.into_bytes()))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
@@ -72,13 +93,19 @@ fn console_index(file: &EmbeddedFile) -> Response {
 /// Builds the console `index.html` with the app version stamp injected. Kept
 /// separate from the response wrapper so it can be unit-tested without prying
 /// bytes out of an `axum::body::Body`.
-fn render_console_index(file: &EmbeddedFile) -> String {
+///
+/// The stamp is the one inline script left in the console: the first-paint
+/// theme resolution lives in `public/theme-init.js` so `script-src` can stay
+/// `'self'`. That one script carries the response's nonce.
+fn render_console_index(file: &EmbeddedFile, nonce: &str) -> String {
     let stamp = app_version_stamp();
     // Wrapped in a <script> so the browser executes the assignment (setting the
     // global the login view reads) instead of rendering it as visible text.
     String::from_utf8_lossy(&file.data).replace(
         APP_VERSION_INJECT_AT,
-        &format!("<script>window.__AGENTBUDDY_VERSION__ = {stamp:?};</script></body>"),
+        &format!(
+            "<script nonce=\"{nonce}\">window.__AGENTBUDDY_VERSION__ = {stamp:?};</script></body>"
+        ),
     )
 }
 
@@ -98,11 +125,14 @@ pub fn shell_page(page: &str, config: &crate::config::AppConfig) -> Response {
     let Some(file) = Shell::get("shell.html") else {
         return (StatusCode::INTERNAL_SERVER_ERROR, "the shell page is missing").into_response();
     };
-    let html = render_shell_page(&file, config, page);
+    let nonce = csp::new_nonce();
+    let html = render_shell_page(&file, config, page, &nonce);
+    let (name, value) = csp::header(&nonce);
     HttpResponse::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "text/html; charset=utf-8")
         .header(CACHE_CONTROL, "no-cache")
+        .header(name, value)
         .body(Body::from(html.into_bytes()))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
@@ -110,7 +140,12 @@ pub fn shell_page(page: &str, config: &crate::config::AppConfig) -> Response {
 /// Builds `shell.html` with the boot object injected. Kept separate from the
 /// response wrapper so it can be unit-tested without prying bytes out of an
 /// `axum::body::Body`.
-fn render_shell_page(file: &EmbeddedFile, config: &crate::config::AppConfig, page: &str) -> String {
+fn render_shell_page(
+    file: &EmbeddedFile,
+    config: &crate::config::AppConfig,
+    page: &str,
+    nonce: &str,
+) -> String {
     let lang = config.lang();
     let tables: BTreeMap<&str, BTreeMap<&str, &str>> = i18n::LANGUAGES
         .iter()
@@ -134,7 +169,11 @@ fn render_shell_page(file: &EmbeddedFile, config: &crate::config::AppConfig, pag
         "dirs": dirs,
         "tables": tables,
     });
-    String::from_utf8_lossy(&file.data).replace(BOOT_MARKER, &format!("window.__SHELL__ = {boot};"))
+    // Two substitutions: the nonce every inline script declares, and the boot
+    // object. The marker is only ever written as `nonce="__CSP_NONCE__"`.
+    String::from_utf8_lossy(&file.data)
+        .replace(csp::NONCE_MARKER, nonce)
+        .replace(BOOT_MARKER, &format!("window.__SHELL__ = {boot};"))
 }
 
 fn file_response(rel: &str, file: &EmbeddedFile) -> Response {
@@ -177,6 +216,16 @@ mod tests {
         assert_eq!(stamp, "v1.0.0@abcdef1");
     }
 
+    #[test]
+    fn tells_a_missing_asset_apart_from_a_client_route() {
+        assert!(is_asset("assets/index-abc.js"));
+        assert!(is_asset("theme-init.js"));
+        assert!(is_asset("favicon.svg"));
+        assert!(!is_asset("trace"));
+        assert!(!is_asset("tasks/123"));
+        assert!(!is_asset(""));
+    }
+
     /// The console's index.html carries the version assignment so the login
     /// screen can render it.
     #[test]
@@ -186,10 +235,14 @@ mod tests {
             return;
         }
         let file = Console::get("index.html").unwrap();
-        let html = render_console_index(&file);
+        let html = render_console_index(&file, "n0nce");
         assert!(
             html.contains("window.__AGENTBUDDY_VERSION__"),
             "the app version stamp is missing from index.html"
+        );
+        assert!(
+            html.contains("nonce=\"n0nce\""),
+            "the version stamp must declare the response nonce, or the policy blocks it"
         );
         assert!(
             html.contains(&app_version_stamp()),
@@ -206,8 +259,13 @@ mod tests {
             eprintln!("skipping: assets/shell.html is missing");
             return;
         };
-        let html = render_shell_page(&file, &crate::config::AppConfig::default(), "connect");
+        let html =
+            render_shell_page(&file, &crate::config::AppConfig::default(), "connect", "n0nce");
         assert!(html.contains("window.__SHELL__"), "the boot object is missing");
+        assert!(
+            !html.contains(csp::NONCE_MARKER),
+            "every inline script must have been stamped with the response nonce"
+        );
         assert!(html.contains("\"version\""), "the boot object must carry the version stamp");
         assert!(html.contains("\"languages\""), "the boot object must carry the language table");
         assert!(html.contains("\"dirs\""), "the boot object must carry the RTL/LTR directions");

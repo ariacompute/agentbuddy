@@ -184,6 +184,52 @@ bun 构建/测试运行时与桌面端（Rust/Tauri）对 agenthub 服务端的�
 
 注意：agenthub 迁移当前最大编号为 `016_wechat_login.sql`，故新迁移从 `017` 起（原方案误用 `016`）。
 
+## M12 — 桌面外壳安全收口（代理准入 / CSP / 凭据存储，2026-11）
+
+背景：评估指出环回代理对同用户进程无准入控制（任何本机页面都能驱动用户的 agenthub 会话）、
+CSP 与上游安全头被丢弃、会话明文落盘。三条一并收口，均不改变 `/api` / `/a2a` 转发语义。
+
+### 1. 环回代理准入（F18）
+- [x] `desktop/src-tauri/Cargo.toml`：新增 `rand = "0.8"`（std 无 CSPRNG，token/nonce 需要不可预测字节）
+- [x] `desktop/src-tauri/src/proxy/auth.rs`（新）：`Auth`（32 字节 hex token + 单次 nonce + 60s TTL）、
+      常量时间比较、`authorized(headers)`（Cookie 或 `Authorization: Bearer`）、`COOKIE_NAME`/`bootstrap_cookie`
+- [x] `desktop/src-tauri/src/proxy/mod.rs`：`SHELL_PREFIX` 旁新增 `BOOTSTRAP_PATH`；`ProxyState.auth: Option<Arc<Auth>>`
+      （无窗口的测试路由为 `None`）；`ProxyHandle.bootstrap_url`；`dispatch()` 首部两道闸——外来 `Origin` →
+      `403 proxy_origin_refused`，无 token → `401 proxy_unauthorized`，仅 `BOOTSTRAP_PATH` 放行
+- [x] `desktop/src-tauri/src/proxy/shell.rs`：`GET /__shell/bootstrap?nonce=` 兑换 `ab_proxy` Cookie 后 `303 → /`；
+      非 GET/无效 nonce/无 nonce 分别拒绝；`query_param()` 手写解析（nonce 为 hex，无需百分号解码）
+- [x] `desktop/src-tauri/src/lib.rs`：窗口导航改用 `bootstrap_url`（缺失时回退 `url`）
+- [x] `desktop/src-tauri/src/proxy/forward.rs`：转发上游前剥掉等于代理 token 的 `Authorization`（token 是代理自己的秘密）
+- [x] 单测：无 token 401、Cookie 通过、Bearer 通过、错 token 401、外来 Origin 403、同源 Origin 通过、
+      bootstrap 为唯一免 token 入口；`shell.rs` 侧另覆盖 nonce 重放 403、未知 nonce 403、无 nonce 403、关闭准入时 404
+
+### 2. 内容安全策略（F18）
+- [x] `desktop/src-tauri/src/proxy/csp.rs`（新）：`new_nonce()`（128 位 hex）、`policy(nonce)`、
+      `header(nonce)`；`script-src 'self' 'nonce-…'`，`object-src/base-uri/frame-ancestors 'none'`
+- [x] `desktop/src-tauri/src/proxy/static_files.rs`：控制台首页与外壳两页都发 CSP 头；注入的版本戳脚本带 `nonce`；
+      缺失的**文件**路径（含 `.`）返回 404 而不是 SPA 回退
+- [x] `desktop/src-tauri/assets/shell.html`：三个内联 `<script>` 均声明 `nonce="__CSP_NONCE__"`，渲染时替换
+- [x] `web/public/theme-init.js`（新）+ `web/index.html`：首屏主题脚本外置为同步 `<script src>`，页面无内联脚本
+- [x] `desktop/src-tauri/src/proxy/forward.rs`：只丢逐跳头，上游 `Content-Security-Policy` / `HSTS` /
+      `X-Frame-Options` 原样透传（并修正与之矛盾的旧断言）
+
+### 3. 会话凭据存储（F18）
+- [x] `desktop/src-tauri/Cargo.toml`：按平台引入 `keyring`（`windows-native` / `apple-native` /
+      `sync-secret-service + crypto-rust`；刻意不用 `linux-native` 的 keyutils——重启即失效）
+- [x] `desktop/src-tauri/src/session.rs`（新）：`SessionBackend` trait + `Keyring`（`probe()` 区分"NoEntry=可用"
+      与"传输层不可用"）+ `File`（0600 / Windows 靠用户配置目录 ACL）+ `Memory`（单测用）；账号名 `session:<server>`
+- [x] `desktop/src-tauri/src/config.rs`：`ConfigStore` 持 `Arc<dyn SessionBackend>`；`new()` 仍为文件后端（测试与回退），
+      `keyring_or_file()` 为生产构造器；旧 `session.json` 首次读取时迁入凭据库并删除；`session_backend()` 暴露后端名
+- [x] `desktop/src-tauri/src/lib.rs`：生产改用 `ConfigStore::keyring_or_file`
+- [x] `desktop/src-tauri/src/proxy/shell.rs`：`/__shell/config` 新增 `sessionBackend`
+- [x] 单测：内存后端往返/清空、空 Cookie 删文件且可重复、坏文件读作无会话、明文迁移一次性完成、写入凭据库后删除明文副本
+
+### 4. 校验
+- [x] `cargo check --all-targets` 无告警；`cargo test --no-run` 通过
+      （本机测试二进制仍因 Tauri 原生依赖入口缺失无法启动，属环境问题）
+- [x] `bun run build`（web）+ `bun run test` 全绿；单色守卫不受影响
+- 待办：Linux 构建需 `libdbus-1-dev`（Secret Service 后端），已在 README 说明
+
 ## M11 — F10–F16 实现落地（agenthub 后端 + agentbuddy 前端脚手架）
 
 本轮把 M10 的契约真正落到代码：agenthub 新增数据层/服务层，agentbuddy 新增 API 调用、错误码与 13 语文案、最小可运行 UI。`go test ./internal/...` 通过；`bun run test`（247 用例）全绿；`bun run build` 通过。

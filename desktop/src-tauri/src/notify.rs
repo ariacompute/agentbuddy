@@ -104,6 +104,7 @@ mod tests {
             app: None,
             jar,
             executor,
+            auth: None,
         }
     }
 

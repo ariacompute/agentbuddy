@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::i18n;
+use crate::session::{self, SessionBackend};
 
 /// The persisted shape. `server_url` empty means "not configured yet", which is
 /// what sends the shell to the connection page.
@@ -163,6 +164,8 @@ pub fn normalize_server_url(raw: &str) -> Result<String, UrlError> {
 pub enum ConfigError {
     Io(io::Error),
     Json(serde_json::Error),
+    /// The session could not be written to, or read from, its backend.
+    Session(String),
 }
 
 impl std::fmt::Display for ConfigError {
@@ -170,6 +173,7 @@ impl std::fmt::Display for ConfigError {
         match self {
             ConfigError::Io(err) => write!(f, "cannot read or write the config file: {err}"),
             ConfigError::Json(err) => write!(f, "the config file is not valid JSON: {err}"),
+            ConfigError::Session(err) => write!(f, "cannot store the session: {err}"),
         }
     }
 }
@@ -186,34 +190,56 @@ impl From<serde_json::Error> for ConfigError {
     }
 }
 
-/// The persisted shape of `session.json`. It mirrors the upstream session
-/// cookie the loopback proxy replays on launch so a relaunch of the shell
-/// resumes the agenthub session instead of forcing a fresh login.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SessionFile {
-    /// The server the cookie belongs to, so it is never replayed to a
-    /// different server after the user re-points the shell.
-    server: String,
-    /// The `Cookie` header value the proxy's jar currently holds, or empty
-    /// once the session is cleared (logout / expiry).
-    cookie: String,
-}
-
-/// Reads and writes `config.json` in one directory.
-#[derive(Debug, Clone)]
+/// Reads and writes `config.json` in one directory. The session cookie is not
+/// part of it: it goes to a `session::SessionBackend`, which is the operating
+/// system's credential store unless there is none.
+#[derive(Clone)]
 pub struct ConfigStore {
     path: PathBuf,
+    session: Arc<dyn SessionBackend>,
 }
 
 impl ConfigStore {
+    /// Config plus the owner-only session file. The tests use this shape, and
+    /// so does the fallback path when no credential store answers.
     pub fn new(dir: PathBuf) -> Self {
-        ConfigStore { path: dir.join("config.json") }
+        let session = session::File::new(session_path_for(&dir));
+        Self::with_session(dir, Arc::new(session))
+    }
+
+    /// The production constructor: the session goes to the OS credential store
+    /// when one answers, and to the owner-only file with a warning when none
+    /// does.
+    pub fn keyring_or_file(dir: PathBuf) -> Self {
+        let backend: Arc<dyn SessionBackend> = match session::Keyring::probe(session::SERVICE) {
+            Some(keyring) => Arc::new(keyring),
+            None => {
+                eprintln!(
+                    "agentbuddy desktop: no OS credential store is reachable; the agenthub session is kept in an owner-only file instead"
+                );
+                Arc::new(session::File::new(session_path_for(&dir)))
+            }
+        };
+        Self::with_session(dir, backend)
+    }
+
+    /// Explicit backend, for the tests and for the migration path.
+    pub fn with_session(dir: PathBuf, session: Arc<dyn SessionBackend>) -> Self {
+        ConfigStore { path: dir.join("config.json"), session }
     }
 
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// "keyring", "file" or "memory" — surfaced by `/__shell/config` so the
+    /// settings screen can say where the session lives.
+    pub fn session_backend(&self) -> &'static str {
+        self.session.kind()
+    }
+
+    /// The legacy plaintext location. Still used by the file backend, and read
+    /// once when moving an existing install into the credential store.
     fn session_path(&self) -> PathBuf {
         let mut path = self.path.clone();
         path.set_file_name("session.json");
@@ -222,39 +248,42 @@ impl ConfigStore {
 
     /// Saves (or, when `cookie` is empty, clears) the session tied to `server`.
     ///
-    /// The session lives in `session.json` next to `config.json`, owner-only,
-    /// because it is a bearer-equivalent token for the configured agenthub.
+    /// The session is a bearer-equivalent token for the configured agenthub, so
+    /// it is handed to the OS credential store whenever there is one.
     pub fn save_session(&self, server: &str, cookie: &str) -> Result<(), ConfigError> {
-        let path = self.session_path();
-        if cookie.is_empty() {
+        self.session.save(server, cookie).map_err(ConfigError::Session)?;
+        // A session that now lives in the credential store must not be left in
+        // plaintext by an earlier build.
+        if self.session.kind() != "file" {
+            let path = self.session_path();
             if path.exists() {
-                let _ = fs::remove_file(&path);
+                let _ = fs::remove_file(path);
             }
-            return Ok(());
         }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let text = serde_json::to_string(&SessionFile {
-            server: server.to_string(),
-            cookie: cookie.to_string(),
-        })?;
-        fs::write(&path, text)?;
-        restrict_to_owner(&path);
         Ok(())
     }
 
     /// Returns the saved session cookie for `server`, or `None` when there is
     /// none or it was saved for a different server.
     pub fn load_session_cookie(&self, server: &str) -> Option<String> {
-        let path = self.session_path();
-        let text = fs::read_to_string(&path).ok()?;
-        let file: SessionFile = serde_json::from_str(&text).ok()?;
-        if file.server == server && !file.cookie.is_empty() {
-            Some(file.cookie)
-        } else {
-            None
+        if let Some(cookie) = self.session.load(server) {
+            return Some(cookie);
         }
+        // Nothing in the current backend: an older build may still have left the
+        // session in plaintext next to the config. Move it, then delete it, so
+        // upgrading does not sign the user out.
+        let cookie = session::read_session_file(&self.session_path(), server)?;
+        if self.session.kind() != "file" {
+            match self.session.save(server, &cookie) {
+                Ok(()) => {
+                    let _ = fs::remove_file(self.session_path());
+                }
+                Err(err) => eprintln!(
+                    "agentbuddy desktop: cannot move the saved session into the credential store ({err})"
+                ),
+            }
+        }
+        Some(cookie)
     }
 
     /// Missing or unreadable config is not an error: it means "first run".
@@ -271,20 +300,16 @@ impl ConfigStore {
         }
         let text = serde_json::to_string_pretty(config)?;
         fs::write(&self.path, text)?;
-        restrict_to_owner(&self.path);
+        // The config can hold a URL with credentials, so keep it to the current
+        // user as well.
+        session::restrict_to_owner(&self.path);
         Ok(())
     }
 }
 
-/// The config can hold a URL with credentials, so keep it to the current user.
-#[cfg(unix)]
-fn restrict_to_owner(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+fn session_path_for(dir: &Path) -> PathBuf {
+    dir.join("session.json")
 }
-
-#[cfg(not(unix))]
-fn restrict_to_owner(_path: &Path) {}
 
 #[cfg(test)]
 mod tests {
@@ -464,6 +489,53 @@ mod tests {
         fs::write(store.session_path(), "{ not json").unwrap();
 
         assert_eq!(store.load_session_cookie("https://a.example.com"), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Upgrading must not sign the user out: the session an older build wrote in
+    /// plaintext is moved into the credential store and the plaintext copy is
+    /// deleted, once.
+    #[test]
+    fn a_plaintext_session_is_migrated_into_the_backend() {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-migrate-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        crate::session::write_session_file(
+            &dir.join("session.json"),
+            "https://a.example.com",
+            "sid=9",
+        )
+        .unwrap();
+
+        let backend = Arc::new(crate::session::Memory::new());
+        let store = ConfigStore::with_session(dir.clone(), backend.clone());
+        assert_eq!(store.load_session_cookie("https://a.example.com").as_deref(), Some("sid=9"));
+        assert_eq!(backend.load("https://a.example.com").as_deref(), Some("sid=9"));
+        assert!(
+            !dir.join("session.json").exists(),
+            "the plaintext copy must not outlive the migration"
+        );
+
+        // Later reads come from the backend; another server still has nothing.
+        assert_eq!(store.load_session_cookie("https://a.example.com").as_deref(), Some("sid=9"));
+        assert_eq!(store.load_session_cookie("https://b.example.com"), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Logging in through a store-backed config must not leave the older
+    /// plaintext file behind either.
+    #[test]
+    fn saving_into_a_store_removes_the_plaintext_file() {
+        let dir = std::env::temp_dir().join(format!("agentbuddy-migrate-save-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let stale = dir.join("session.json");
+        fs::write(&stale, "{}").unwrap();
+
+        let store = ConfigStore::with_session(dir.clone(), Arc::new(crate::session::Memory::new()));
+        store.save_session("https://a.example.com", "sid=1").unwrap();
+        assert!(!stale.exists());
+        assert_eq!(store.session_backend(), "memory");
         let _ = fs::remove_dir_all(&dir);
     }
 

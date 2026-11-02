@@ -10,7 +10,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>agentbuddy</title>
-    <script>
+    <!-- Every inline script declares the response nonce, so the policy the proxy
+         sends can keep `script-src` at 'self' + that one value. -->
+    <script nonce="__CSP_NONCE__">
       // Resolve the theme before first paint so the connection page never
       // flashes the dark base: an explicit choice wins, otherwise default light.
       try {
@@ -359,10 +361,10 @@
       </section>
     </main>
 
-    <script>
+    <script nonce="__CSP_NONCE__">
       /*__SHELL_BOOT__*/
     </script>
-    <script>
+    <script nonce="__CSP_NONCE__">
       const boot = window.__SHELL__ || { page: 'connect', lang: 'en', tables: {}, languages: [] }
       // Follow the workbench's language (agentbuddy.lang) instead of the shell's own
       // config; fall back to the injected boot.lang, then English.

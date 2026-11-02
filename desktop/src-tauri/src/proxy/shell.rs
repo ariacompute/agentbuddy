@@ -8,14 +8,14 @@ use std::time::Duration;
 
 use axum::body::to_bytes;
 use axum::extract::Request;
-use axum::http::StatusCode;
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::json;
 use tauri::Manager;
 
 use crate::config::{normalize_server_url, UrlError};
-use crate::proxy::{forward, static_files, ProxyState};
+use crate::proxy::{auth, forward, static_files, BOOTSTRAP_PATH, ProxyState};
 use crate::notify;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
@@ -51,6 +51,9 @@ pub async fn handle(state: &ProxyState, req: Request) -> Response {
     let method = req.method().as_str().to_ascii_uppercase();
     let path = req.uri().path().to_string();
     match (method.as_str(), path.as_str()) {
+        // The only route reachable without the proxy cookie. `dispatch` lets it
+        // through for exactly that reason; see `auth` for the handshake.
+        ("GET", BOOTSTRAP_PATH) => bootstrap(state, req).await,
         ("GET", "/__shell" | "/__shell/" | "/__shell/connect") => page(state, "connect").await,
         ("GET", "/__shell/about") => page(state, "about").await,
         ("GET", "/__shell/config") => read_config(state).await,
@@ -66,6 +69,39 @@ pub async fn handle(state: &ProxyState, req: Request) -> Response {
         )
             .into_response(),
     }
+}
+
+async fn bootstrap(state: &ProxyState, req: Request) -> Response {
+    // With admission control off (the test router) there is no token to hand out.
+    let Some(auth) = state.auth.as_ref() else {
+        return failure("proxy_auth_disabled", StatusCode::NOT_FOUND);
+    };
+    let nonce = req.uri().query().and_then(|query| query_param(query, "nonce")).unwrap_or_default();
+    if !auth.take_nonce(nonce) {
+        return failure("proxy_nonce_refused", StatusCode::FORBIDDEN);
+    }
+    // 303: whatever method arrived, the exchange lands on `/` as a GET. The
+    // cookie carries the token from here on; the nonce is spent.
+    (
+        StatusCode::SEE_OTHER,
+        [
+            (header::SET_COOKIE, auth::bootstrap_cookie(auth.token())),
+            (header::LOCATION, "/".to_string()),
+        ],
+    )
+        .into_response()
+}
+
+/// Reads one key out of a raw query string.
+///
+/// A nonce is hex, so it needs no percent-decoding and the shell needs no URL
+/// form dependency for this one lookup.
+fn query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
+    query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(name, _)| *name == key)
+        .map(|(_, value)| value)
 }
 
 async fn page(state: &ProxyState, name: &str) -> Response {
@@ -93,6 +129,9 @@ async fn read_config(state: &ProxyState) -> Response {
         "executorMaxConcurrency": config.executor_max_concurrency,
         "executorNodeId": config.executor_node_id,
         "executorHasApiKey": !config.executor_api_key.is_empty(),
+        // Where the agenthub session is kept: "keyring", "file" or "memory".
+        // A machine-code, not prose — the settings screen localizes it.
+        "sessionBackend": state.store.session_backend(),
     }))
     .into_response()
 }
@@ -338,6 +377,9 @@ mod tests {
             app: None,
             jar,
             executor,
+            // The tests drive the shell handlers directly; admission control is
+            // exercised in `proxy::auth` and in the end-to-end proxy tests.
+            auth: None,
         }
     }
 
@@ -358,6 +400,65 @@ mod tests {
         let (status, json) = decode(handle(&state, req("GET", "/__shell/nope")).await).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(json["code"], "not_found");
+    }
+
+    /// The same state, with admission control on — the only configuration in
+    /// which bootstrap has a token to hand out.
+    async fn state_with_auth() -> ProxyState {
+        let mut state = state().await;
+        state.auth = Some(Arc::new(auth::Auth::new()));
+        state
+    }
+
+    async fn reply(resp: Response) -> (StatusCode, axum::http::HeaderMap) {
+        let (parts, body) = resp.into_parts();
+        let _ = to_bytes(body, 1 << 20).await;
+        (parts.status, parts.headers)
+    }
+
+    #[tokio::test]
+    async fn bootstrap_trades_the_nonce_for_the_proxy_cookie() {
+        let state = state_with_auth().await;
+        let auth = state.auth.clone().unwrap();
+        let nonce = auth.new_nonce();
+        let (status, headers) =
+            reply(handle(&state, req("GET", &format!("/__shell/bootstrap?nonce={nonce}"))).await)
+                .await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+        assert_eq!(headers.get("location").unwrap(), "/");
+        let cookie = headers.get("set-cookie").unwrap().to_str().unwrap();
+        assert!(cookie.starts_with(&format!("{}={}", auth::COOKIE_NAME, auth.token())));
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("SameSite=Strict"));
+        assert!(cookie.contains("Path=/"));
+        // The nonce bought exactly one redirect.
+        let (again, _) =
+            reply(handle(&state, req("GET", &format!("/__shell/bootstrap?nonce={nonce}"))).await)
+                .await;
+        assert_eq!(again, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn bootstrap_refuses_a_nonce_it_did_not_issue() {
+        let state = state_with_auth().await;
+        let (status, headers) = reply(handle(&state, req("GET", "/__shell/bootstrap?nonce=abc")).await).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(headers.get("set-cookie").is_none(), "a refused nonce must not mint a cookie");
+    }
+
+    #[tokio::test]
+    async fn bootstrap_without_a_nonce_is_refused() {
+        let state = state_with_auth().await;
+        let (status, _) = reply(handle(&state, req("GET", "/__shell/bootstrap")).await).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn bootstrap_reports_itself_unavailable_when_admission_control_is_off() {
+        let state = state().await;
+        let (status, json) = decode(handle(&state, req("GET", "/__shell/bootstrap")).await).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(json["code"], "proxy_auth_disabled");
     }
 
     #[tokio::test]
@@ -383,6 +484,8 @@ mod tests {
         assert_eq!(json["executorEnabled"], false);
         assert_eq!(json["executorNodeId"], "");
         assert_eq!(json["executorHasApiKey"], false);
+        // The test store is the file backend; a real install says "keyring".
+        assert_eq!(json["sessionBackend"], "file");
     }
 
     #[tokio::test]
