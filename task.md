@@ -704,13 +704,42 @@ agentbuddy 把「计算机」屏从三张空卡片升级为**执行环境控制�
 ### 7. 校验
 
 - [x] `cd web && bun run build` 通过。
-- [x] `cd web && bun run test`：**27 个 spec / 608 条用例**全绿（含新增 `round4.spec.js` 27 条、
-      `api-usage.spec.js`）。
-- [x] `bun run test:coverage`：语句/行 **100%**、分支 **93.56%**、函数 **97.17%**
-      （9776 条语句 / 1538 个分支）。
-- [ ] `cargo test` 本机仍不可执行（M17 §6、M18 §2 同一限制：Windows 缺 Tauri 原生测试入口）；
-      通知深链的三条纯逻辑用例已写好，交由 CI / WSL2 收口。
+- [x] `cd web && bun run test`：**28 个 spec / 663 条用例**全绿（含新增 `view-edges.spec.js` 48 条、
+      `round4.spec.js` 27 条、`api-usage.spec.js`）。
+- [x] `bun run test:coverage`：语句/行 **100%**、分支 **98.29%**、函数 **99.74%**
+      （9777 条语句 / 1586 个分支）。抬升来自 §8b 那一批「未被走过的分支」。
+- [x] 桌面：`cargo check --all-targets` 通过（含新增用例的编译校验）。
+- [ ] `cargo test` 本机仍不可执行（M17 §6、M18 §2 同一限制：Windows 缺 Tauri 原生测试入口，
+      测试二进制以 `0xc0000139 STATUS_ENTRYPOINT_NOT_FOUND` 退出，补 `WebView2Loader.dll`
+      到 PATH 与 `deps/` 均无效）；通知深链与执行节点身份的用例已写好，交由 CI / WSL2 收口。
 - [ ] 桌面通知点击的端到端验证（真弹出 → 真点击 → 真跳转）需要图形环境，未在本机执行。
+
+### 8b. 覆盖率补测（未被走过的分支）
+
+只加用例、不改行为；唯一的生产代码改动是 `OrgView` 删掉一条不可能为假的 `|| []`。
+
+- `view-edges.spec.js`（48 条）：按「响应形状 / 取消与关闭 / 失败无机器码 / 二次点击」四类
+  覆盖此前只有正常路径的分支——知识库的 `{chunks:[]}` 与裸数组、连接器展开只取一次、
+  组织页每个字段都提交一次、计算机卡片三种状态与删除确认的取消、调度页无 cron/无 lastStatus
+  的行、已过期的倒计时、未知工单状态、触发详情无正文、抽屉关闭、SSE 帧去抖与卸载清定时器、
+  线程 `@` 候选取自没有显示名的作者、委派后刷新任务列表、退订失败展示原因、
+  Settings 在 `/__shell` 不可用时的本地镜像回退（含非 JSON）、执行节点拒绝原因的三种形态。
+- `api.spec.js`：`getShellConfig` / `notifyShell` 两个此前无人调用的封装，以及「服务端没给码」
+  时 `ApiError` 不渲染成 `undefined`。
+- `workbench-store.spec.js` / `notifications.spec.js`：列表答复缺键时保持空数组、
+  未知文案键回落到原始键、`notifySettings` 缺失时仍能判定；`decide` 收到空事件或 NaN 时钟、
+  `markSeen`/`pruneSeen` 收到 undefined。
+- 桌面 `executor/tests.rs`：`generate_node_id` 的形状与唯一性、`node_name` 不为空且无空白、
+  `unix_seconds` 落在合理区间、`note()` 的成败两态（失败记错误、成功清错误并推进心跳）。
+
+仍未覆盖且确认为**不可能走到**的防御分支（保留代码，不写假用例）：
+`ComputersView` 的 `if (!card) return` / `if (!lease) return` 类前置守卫（对应按钮在无选中时
+不可点）、同一文件里 `runTrial` / `create` 的「已在跑」臂（按钮此时 disabled）、
+`SchedulesView` 空表单提交与 `selected ? … : []` 空选择臂（历史区只在有选中时渲染）、
+`PersonaEditor` 的 `|| null`（选中的 id 必来自列表）与 `saving` 臂（保存中按钮 disabled）、
+`BaseDialog` 无焦点元素（面板自身永远渲染关闭按钮）、浏览器环境判定（jsdom 里 `typeof window`
+恒为真，node 环境的 `use-copy` 实例不计入同一份覆盖率）、`OrgView` 空名提交（按钮 disabled）。
+这些占 27 条分支，即 **98.29% → 100%** 的差值。
 
 ### 8. 残余
 

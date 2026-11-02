@@ -261,3 +261,54 @@ async fn only_exec_reaches_the_spawn() {
     assert_eq!(execute(&policy, &refused).await.error, "command_not_allowed");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// ---- Identity and bookkeeping -------------------------------------------
+//
+// The console renders these three values directly, and nothing else checks
+// them: a node id that repeats would let two desktops share one enrolment, a
+// blank name would leave the node list with an unnamed row, and a heartbeat
+// that never advances would make a live node look dead.
+
+#[test]
+fn the_node_identity_has_a_stable_shape_and_is_unique_per_launch() {
+    let first = super::generate_node_id();
+    let second = super::generate_node_id();
+
+    assert_eq!(first.split('-').count(), 3, "node-<pid>-<nanos>: {first}");
+    assert!(first.starts_with("node-"));
+    assert!(
+        first.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
+        "the id travels in URLs and JSON keys: {first}"
+    );
+    assert_ne!(first, second, "the clock must move between two enrolments");
+}
+
+#[test]
+fn the_display_name_falls_back_and_never_carries_padding() {
+    let name = super::node_name();
+    assert!(!name.is_empty(), "the console always prints this");
+    assert_eq!(name, name.trim(), "a hostname with padding would render oddly");
+}
+
+#[test]
+fn the_clock_is_unix_seconds() {
+    let now = super::unix_seconds();
+    // Anything outside this window means the epoch arithmetic is wrong, not that
+    // the machine's clock is odd.
+    assert!(now > 1_600_000_000, "after 2020: {now}");
+    assert!(now < 4_100_000_000, "before 2100: {now}");
+}
+
+#[test]
+fn a_heartbeat_clears_the_last_error_and_a_refusal_records_it() {
+    let status = Arc::new(std::sync::Mutex::new(super::Status::default()));
+
+    super::note(&status, Err(&super::jobs::JobError::Unauthorized));
+    assert_eq!(status.lock().unwrap().last_error, "unauthorized");
+    assert_eq!(status.lock().unwrap().last_heartbeat, 0, "a failure is not a heartbeat");
+
+    super::note(&status, Ok(()));
+    let snapshot = status.lock().unwrap().clone();
+    assert!(snapshot.last_error.is_empty(), "a successful poll clears the banner");
+    assert!(snapshot.last_heartbeat > 0, "and marks the node alive");
+}

@@ -372,4 +372,53 @@ describe('workbench-store', () => {
       expect(s.notifySettings.quietUntil).toBeGreaterThan(Date.now() + 9 * 60 * 1000)
     })
   })
+
+  // The three list refreshers read `data.<key> || []`. A server that answers 200
+  // with no body, or with a shape this client does not recognise, must leave the
+  // screen empty rather than setting a collection to undefined — a `v-for` over
+  // undefined throws and takes the whole view with it.
+  describe('payloads without the collection', () => {
+    it('leaves every list empty when the answer carries no keys', async () => {
+      getWorkspace.mockResolvedValue({})
+      listThreads.mockResolvedValue({})
+      listTasks.mockResolvedValue({})
+      const s = useWorkbenchStore()
+
+      await s.refreshWorkspace()
+      await s.refreshThreads()
+      await s.refreshTasks()
+
+      expect(s.agents).toEqual([])
+      expect(s.threads).toEqual([])
+      expect(s.tasks).toEqual([])
+      // An empty answer is still a successful one: no banner.
+      expect(s.offline).toBe(false)
+      expect(s.errorCode).toBeNull()
+    })
+
+    it('announces the raw key when the copy table has no sentence for it', async () => {
+      const s = useWorkbenchStore()
+
+      s.announce({ titleKey: 'notAKeyInAnyTable', body: 'body', link: '/threads/1' })
+      await Promise.resolve()
+
+      expect(notifyShell).toHaveBeenCalledWith({
+        title: 'notAKeyInAnyTable',
+        body: 'body',
+        link: '/threads/1',
+      })
+    })
+
+    it('still decides a task when the shell settings were never loaded', async () => {
+      const s = useWorkbenchStore()
+      // A plain web build never reaches /__shell, so the settings are absent.
+      s.notifySettings = null
+
+      const note = s.ingestTask({ id: 'task-null-settings', status: { state: 'failed' } })
+
+      expect(note).toBeTruthy()
+      expect(note.link).toBe('/tasks/task-null-settings')
+      expect(note.system).toBe(true)
+    })
+  })
 })

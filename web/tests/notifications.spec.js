@@ -17,6 +17,13 @@ describe('notifications eventKey', () => {
 describe('notifications decide', () => {
   const now = 1_000_000
 
+  it('returns null when there is no event or no clock to weigh it against', () => {
+    // The poll loop hands this whatever the last refresh produced; a frame that
+    // arrived without a body, or a clock that is not a number, must not throw.
+    expect(decide({ event: null, seen: {}, now })).toBeNull()
+    expect(decide({ event: { taskId: 't1', state: 'completed' }, seen: {}, now: Number.NaN })).toBeNull()
+  })
+
   it('returns null for non-announced states', () => {
     expect(decide({ event: { taskId: 't1', state: 'submitted' }, seen: {}, now })).toBeNull()
   })
@@ -108,5 +115,12 @@ describe('notifications seen bookkeeping', () => {
   it('pruneSeen drops entries older than the window', () => {
     const seen = { fresh: now - 100, stale: now - IDEMPOTENT_WINDOW_MS - 1 }
     expect(pruneSeen(seen, now)).toEqual({ fresh: now - 100 })
+  })
+
+  it('treats a missing map as empty rather than throwing', () => {
+    // `seen` starts as {} but a store restored from an older build, or one that
+    // never ingested anything, can hand these functions nothing at all.
+    expect(markSeen(undefined, 'k', now)).toEqual({ k: now })
+    expect(pruneSeen(undefined, now)).toEqual({})
   })
 })

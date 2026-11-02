@@ -150,15 +150,16 @@ pub async fn handle(state: &ProxyState, req: Request) -> Response {
     // Park the target before showing: a toast can be clicked the instant it
     // appears, and the click handler runs on the plugin's own thread. A link we
     // refuse to replay is dropped rather than failing the notification — the
-    // toast is still worth showing. A toast with no link clears the slot, so a
-    // click on it focuses the window instead of replaying an older toast's page.
+    // toast is still worth showing. Either way the slot is cleared first, so a
+    // click on a toast with no usable target focuses the window instead of
+    // replaying an older toast's page.
     let parked = match payload.link.as_deref() {
         Some(link) => remember_link(link),
-        None => {
-            let _ = take_link();
-            false
-        }
+        None => false,
     };
+    if !parked {
+        let _ = take_link();
+    }
 
     match app.notification().builder().title(&title).body(&body).show() {
         Ok(()) => (StatusCode::OK, axum::Json(json!({ "ok": true }))).into_response(),

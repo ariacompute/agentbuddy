@@ -57,7 +57,8 @@ const byKind = computed(() => {
   return map
 })
 
-const skills = computed(() => byKind.value.skill || [])
+// byKind seeds every known kind, so the skills column is always an array.
+const skills = computed(() => byKind.value.skill)
 
 const budget = computed(() => {
   const tasks = workbench.tasks

@@ -77,8 +77,8 @@ desktop/
 - **测试**：`cd web && bun run test`（Vitest）。**勿用裸 `bun test`**（Bun 原生 runner 不加载
   `vitest.config.js`，无 jsdom 环境）。新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线（27 个 spec、**608** 条用例）：
-  语句/行 **100%**、分支 **93.56%**、函数 **97.17%**（9776 条语句、1538 个分支）；
+  `text-summary` + `text`，不写报告目录），当前基线（28 个 spec、**663** 条用例）：
+  语句/行 **100%**、分支 **98.29%**、函数 **99.74%**（9777 条语句、1586 个分支）；
   回落时先看报告里的未覆盖行再补用例。
 - **接线守卫**：`api.js` 的每个具名导出至少要被 `web/src/**`（除 `api.js` 自身）引用一处，
   `tests/api-usage.spec.js` 强制这条且白名单必须为空；新增封装却忘了接界面会直接红。

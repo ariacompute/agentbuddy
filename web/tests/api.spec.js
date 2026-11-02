@@ -66,6 +66,8 @@ import {
   refreshSandboxProviders,
   listSandboxNodes,
   subscribeSandboxEvents,
+  getShellConfig,
+  notifyShell,
 } from '../src/lib/api.js'
 
 let fetchMock
@@ -113,6 +115,26 @@ describe('api client', () => {
   it('throws ApiError carrying the server code', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ code: 'not_found' }, { status: 404, ok: false }))
     await expect(request('/api/x')).rejects.toMatchObject({ code: 'not_found', status: 404 })
+  })
+
+  it('builds an ApiError even when the server named no code', () => {
+    // The message is the localised sentence for a code; with no code there is
+    // nothing to translate, and the error must not read "undefined".
+    const err = new ApiError(undefined, 500)
+    expect(err.message).toBe('')
+    expect(err.code).toBeUndefined()
+    expect(err.status).toBe(500)
+  })
+
+  it('reads the shell config and asks it to notify', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ background: true, lang: 'zh' }))
+    await expect(getShellConfig()).resolves.toEqual({ background: true, lang: 'zh' })
+    expect(lastCall()[0]).toBe('/__shell/config')
+
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+    await notifyShell({ title: 'Done', body: 'task t1', link: '/tasks/t1' })
+    expect(lastCall()[0]).toBe('/__shell/notify')
+    expect(lastCall()[1].body).toContain('"/tasks/t1"')
   })
 
   it('falls back to the status string when the body is unreadable', async () => {

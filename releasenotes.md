@@ -184,11 +184,14 @@ The node lives in the Rust process. The web view only reads its state through
   water level and countdown, channel create/delete/retry and the SMS-only
   destination field, the execution-environment console and its lease actions,
   sign-in and sign-up, one screen→endpoint suite with both the success and the
-  failure path, and an export-usage guard over `lib/api.js`). **27 spec files,
-  608 cases**, all offline.
+  failure path, an export-usage guard over `lib/api.js`, and a suite for the
+  branches the happy paths never took). **28 spec files, 663 cases**, all
+  offline.
 - `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements
-  and lines, **93.56%** of branches and **97.17%** of functions (9776 statements,
-  1538 branches).
+  and lines, **98.29%** of branches and **99.74%** of functions (9777 statements,
+  1586 branches). The remaining gap is defensive code that cannot be reached
+  through the UI — guards whose buttons are disabled in the state that would
+  trigger them, and one browser-environment check that jsdom always satisfies.
 - `cargo test` covers the proxy (admission control, the nonce handshake, cookie
   rewriting, streaming, the origin gate), config (language fallback, per-server
   session storage, the plaintext migration), i18n (every locale carries every key
