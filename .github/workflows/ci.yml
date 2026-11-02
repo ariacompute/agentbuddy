@@ -1,0 +1,105 @@
+# agentbuddy — continuous integration.
+#
+# Two jobs, mirroring the offline `make test` targets:
+#   • web      → Vitest suite (bun) under web/  (tests/style.spec.js monochrome
+#                guard, copy-fallback 13-language completeness, smoke.e2e.spec.js)
+#   • desktop  → `cargo test` under desktop/src-tauri
+#
+# The desktop crate embeds the console via rust-embed and calls
+# `tauri::generate_context!`, which reads desktop/src-tauri/icons/ at compile
+# time. That directory is git-ignored, so icons must be re-derived (bun run
+# icons) before cargo can compile — otherwise even `cargo check` fails.
+# On Windows the Tauri native test entry cannot launch, so the matrix drops to
+# `cargo test --no-run` (compile-only), matching the AGENTS.md guidance.
+
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+# One CI run per ref; a newer push cancels an in-progress one so results are
+# never a mix of two commits.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ----------------------------------------------------------------- web (Vitest)
+  web:
+    name: web — vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Vitest (unit + style/monochrome + copy-fallback guards)
+        run: bun run test
+
+      - name: Vitest coverage (v8 text report)
+        run: bun run test:coverage
+
+  # -------------------------------------------------------------- desktop (cargo)
+  desktop:
+    name: desktop — cargo test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            command: cargo test
+          - os: windows-latest
+            # Tauri native test entry cannot launch on Windows CI; compile only.
+            command: cargo test --no-run
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Linux build dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev build-essential curl wget file
+
+      - name: Derive icons (git-ignored; required to compile)
+        working-directory: desktop
+        shell: bash
+        run: |
+          bun install
+          bun run icons
+
+      - name: Cargo test
+        working-directory: desktop/src-tauri
+        run: ${{ matrix.command }}
