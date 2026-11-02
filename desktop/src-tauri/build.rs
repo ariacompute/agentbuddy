@@ -6,7 +6,35 @@ fn main() {
     watch_git();
     stamp_commit();
     stamp_version();
+    ensure_console_dir();
     tauri_build::build()
+}
+
+/// rust-embed lists `../../web/dist` at compile time and fails the whole crate
+/// when the folder is missing, and that folder is a build artefact
+/// (`.gitignore`: `web/dist/`). A fresh checkout — CI's included — has never
+/// had it, so guarantee it exists before the derive macro runs: an empty
+/// directory embeds nothing, and the shell then answers with its own
+/// "console is missing" page (`static_files::console_missing`) instead of
+/// failing to compile.
+///
+/// The directory is left empty on purpose rather than seeded with a
+/// placeholder: a stub would be served as if it were the workbench, and
+/// nothing — log, UI or test — would say that the bundle is missing.
+fn ensure_console_dir() {
+    let console = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/dist");
+    if console.exists() {
+        return;
+    }
+    if let Err(err) = std::fs::create_dir_all(&console) {
+        // Say so once, with the path: without this the next thing the operator
+        // sees is rust-embed's "folder does not exist" pointing at the macro,
+        // which looks like a code bug rather than an unwritable checkout.
+        println!(
+            "cargo:warning=cannot create the console bundle directory {}: {err}",
+            console.display()
+        );
+    }
 }
 
 /// Re-run the build script on branch switches (`.git/HEAD`) and on commits to

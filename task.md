@@ -615,3 +615,31 @@ agentbuddy 把「计算机」屏从三张空卡片升级为**执行环境控制�
 - [x] `cd desktop/src-tauri && cargo check --all-targets` 通过（无告警）。
 - [ ] `cargo test` 本机仍因宿主缺失 Tauri 入口无法启动（0xc0000139 `STATUS_ENTRYPOINT_NOT_FOUND`），
   进程组用例仅 unix 编译，需在 CI 上执行。
+
+## M18 — CI `cargo test` 编译失败修正（bug fix，2026-11-02）
+
+背景：GitHub Actions 的桌面 job（ubuntu / windows 各一次）在 `cargo test` 编译期就挂了，
+共 6 处 `E0599: no associated function or constant named 'get' found for struct 'Console'`
+（`proxy/static_files.rs:43`、`:55` 及三处用例），外加一条
+`rust-embed ... folder '.../web/dist' does not exist`。两种情况其实是同一个根因。
+
+### 1. 根因：`build.rs` 丢了「保证 `web/dist` 存在」这一步
+- 首次 v2 外壳落地时 `build.rs` 里有 `create_dir_all("../../web/dist")`；`3dca838`
+  （把提交号从 git 读出来）重写该文件时把这段弄丢，只剩注释里的承诺。
+- `web/dist/` 是构建产物且被 gitignore，于是**任何没有先跑 `make web-build` 的构树**（CI
+  的干净检出就是）都会让 `#[derive(RustEmbed)]` 直接失败；derive 失败后宏不再产出
+  `Assets`/`Embed` 实现，`Console::get(...)` 才跟着报 `E0599`——不是 trait 没引入，
+  也不缺 `use`。
+- 修复：`build.rs` 新增 `ensure_console_dir()`，在 `tauri_build::build()` 之前保证目录存在；
+  建不出来时用 `cargo:warning=` 打出路径，避免下次只看到宏指向的死路。
+  目录**有意留空**而不是塞占位页：空目录下 `Console::get("index.html")` 为 `None`，
+  外壳走既有的 `console_missing`（503）分支，如实说「工作台没构建」，不会把占位页当成
+  真的工作台服务出去；依赖真实产物的两处用例也保持原有的「缺产物就跳过」语义。
+
+### 2. 校验
+- [x] 复现：把 `web/dist` 整个移走后 `touch build.rs && cargo check --all-targets`，
+      编译通过（空目录被 build.rs 重建，rust-embed 不再报错），6 处 `E0599` 全部消失。
+- [x] 恢复真实产物后 `cargo check --all-targets` 仍通过、无告警。
+- [ ] 本机无 Tauri 运行入口，`cargo test` 的实际执行仍需 CI（与 M17 第 6 节同一限制）。
+- [ ] CI 侧另外注意：空 `web/dist` 下 `static_files` 的两条用例会自行跳过，
+      CI 只验证「能编译」；要验证 SPA 回退与版本注入需要先 `make web-build`（本轮不改 CI）。
