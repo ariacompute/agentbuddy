@@ -462,6 +462,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reissuing_a_nonce_retires_the_earlier_url() {
+        // Two windows (or a reload with a new URL) must not leave the previous
+        // bootstrap link usable: it is a bearer credential in a query string.
+        let state = state_with_auth().await;
+        let auth = state.auth.clone().unwrap();
+        let first = auth.new_nonce();
+        let second = auth.new_nonce();
+
+        let (stale, _) =
+            reply(handle(&state, req("GET", &format!("/__shell/bootstrap?nonce={first}"))).await)
+                .await;
+        assert_eq!(stale, StatusCode::FORBIDDEN);
+
+        let (fresh, headers) =
+            reply(handle(&state, req("GET", &format!("/__shell/bootstrap?nonce={second}"))).await)
+                .await;
+        assert_eq!(fresh, StatusCode::SEE_OTHER);
+        assert!(headers.get("set-cookie").is_some());
+    }
+
+    #[tokio::test]
+    async fn bootstrap_reads_the_nonce_out_of_a_busy_query_string() {
+        // The window URL may grow other parameters; only the named one counts.
+        let state = state_with_auth().await;
+        let auth = state.auth.clone().unwrap();
+        let nonce = auth.new_nonce();
+        let path = format!("/__shell/bootstrap?lang=zh&nonce={nonce}&theme=light");
+        let (status, _) = reply(handle(&state, req("GET", &path)).await).await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+    }
+
+    #[tokio::test]
+    async fn bootstrap_only_answers_get() {
+        // A cross-site form post must not be able to burn the nonce, and a
+        // preflight must not learn anything from this route.
+        let state = state_with_auth().await;
+        let auth = state.auth.clone().unwrap();
+        let nonce = auth.new_nonce();
+        let (status, json) = decode(
+            handle(&state, req("POST", &format!("/__shell/bootstrap?nonce={nonce}"))).await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(json["code"], "not_found");
+        // The nonce is untouched, so the real window can still redeem it.
+        assert!(auth.take_nonce(&nonce));
+    }
+
+    #[tokio::test]
     async fn hide_answers_ok_without_a_window() {
         // With no app handle the handler must not crash; it simply has nothing to hide.
         let state = state().await;

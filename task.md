@@ -230,6 +230,54 @@ CSP 与上游安全头被丢弃、会话明文落盘。三条一并收口，均�
 - [x] `bun run build`（web）+ `bun run test` 全绿；单色守卫不受影响
 - 待办：Linux 构建需 `libdbus-1-dev`（Secret Service 后端），已在 README 说明
 
+## M13 — 测试补强与覆盖率（2026-11）
+
+目标：把最后一轮新增的安全路径与交互路径都钉进用例，并把前端分支覆盖率从 87.9% 抬起来。
+
+### 1. 新增用例（web，462 → 515）
+- [x] `tests/monitor.spec.js`：`start()` 幂等、`stop()` 后不再调度、在途 poll 落地为 no-op、
+      老服务端短载荷（缺 `agents`/`tasks` 键）回落空数组、重复 `_syncSubscriptions` 不叠加流、
+      迟到帧对已消失的任务不做复活、`seen` 缺失时重建
+- [x] `tests/use-copy.spec.js`：语言块整体缺失、未知命名空间、未知枚举组、无 `window` 时解析初始语言
+- [x] `tests/api.spec.js`：未登记错误码回显自身、音频上传被拒（413 映射为 `ApiError`）、
+      空 200 读作 `null`、连接器动作省略参数、筛选全空时不拼 query
+- [x] `tests/views.spec.js`：
+      - SchedulesView 五条「无 code 的失败只回显 message」路径 + 两条「未登记原因」路径
+      - SettingsView 语言选择 / 三个开关 / 静默期一并落盘
+      - ComputersView 选中的 kind 生效、租约弹窗取消、终止弹窗取消与 `update:modelValue` 关闭
+      - PersonaEditor 四个字段（称号 / MBTI / 指令 / 头像）一并提交
+      - LoginView 注册全流程、两次密码不一致、注册被拒回显
+- [x] `tests/views.spec.js`：`BaseDialog` stub 补 `name`，以便断言以 `update:modelValue` 关闭的路径
+- [x] `tests/views.spec.js`（ChannelsView）：SMS 才出现的 destination 字段、取消不发请求、
+      以 `update:modelValue` 关闭弹窗
+- [x] `tests/components.spec.js`：AgentCard（tagline / health 为对象·字符串·缺失·未知值 / description 与 tag 的有无）、
+      ArtifactList（`artifacts: null`、无法解析的 artifact 仍占一行、无 mime 的 bytes 用 octet-stream、
+      无名文件用本地化标签）、ConnectorCard（空动作名不发请求、`parked` 文案、health 两种形态、policy 缺省 off）、
+      Sidebar（无 displayName 回落邮箱、版本号有/无）、StateDot 未知状态原样打印、PersonaAvatar 纯空白名回 `?`
+- [x] `tests/copy-fallback.spec.js`：`withCopy` 合并语义（extra 不能新增语言、不改原表）
+- [x] `tests/use-copy-node.spec.js`（新，`@vitest-environment node`）：无 `window` 时模块初始化仍落到 `en`，
+      且 `useCopy`/`setLang` 在无 DOM 环境下可用（jsdom 下 `window` 恒存在，这条分支只能在 node 环境真正跑到）
+
+### 2. 顺带修掉的问题
+- [x] `src/views/LoginView.vue`：`submit()` 增加 `canSubmit` 守卫。此前注册页两次密码不一致时，
+      按钮虽为 disabled，但在输入框内回车仍会提交到服务端（表单 submit 不受按钮 disabled 约束）
+
+### 3. 桌面端用例
+- [x] `src/proxy/auth.rs`：token 长度与字符集、过期 nonce（TTL 到期即拒且照样消费）、
+      长度不符即拒、非 Bearer 的 `Authorization` 回落 Cookie、空 Bearer、无 `ab_proxy` 的 Cookie、
+      Cookie 值内含 `=` 仍原样取出
+- [x] `src/proxy/shell.rs`：重发 nonce 使旧 URL 失效、非 GET 不得消耗 nonce（后续仍可兑换）、
+      nonce 夹在其它 query 参数中仍能取到
+
+### 4. 结果
+- [x] web：语句/行 99.98%、**分支 87.93% → 91.88%**、**函数 92.55% → 97.99%**（515 用例全绿）
+  - `src/components` 分支 84.31% → 92.95%；`src/lib/copy` 分支 66.66% → **100%**；
+    `src/views` 函数 81.25% → 96.09%
+  - 剩余缺口集中在视图模板里的 `|| ''` 兜底与未打开的分支（ComputersView 命令表单、SchedulesView 的
+    水位渲染分支等），均已确认是「无数据/无权限」的兜底，不是未测行为
+- [x] desktop：`cargo check --all-targets` 与 `cargo test --no-run` 通过；`cargo test --lib` 本机仍因
+      `STATUS_ENTRYPOINT_NOT_FOUND`（0xc0000139）无法启动，纯逻辑用例以 CI 为准
+
 ## M11 — F10–F16 实现落地（agenthub 后端 + agentbuddy 前端脚手架）
 
 本轮把 M10 的契约真正落到代码：agenthub 新增数据层/服务层，agentbuddy 新增 API 调用、错误码与 13 语文案、最小可运行 UI。`go test ./internal/...` 通过；`bun run test`（247 用例）全绿；`bun run build` 通过。

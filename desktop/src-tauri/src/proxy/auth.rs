@@ -228,4 +228,69 @@ mod tests {
     fn two_processes_get_different_tokens() {
         assert_ne!(Auth::new().token(), Auth::new().token());
     }
+
+    #[test]
+    fn the_token_is_256_bits_of_hex() {
+        let auth = Auth::new();
+        assert_eq!(auth.token().len(), 64, "32 bytes, hex encoded");
+        assert!(auth.token().chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn a_stale_nonce_is_refused_even_if_it_matches() {
+        // The TTL is the only thing that retires a nonce nobody redeemed: a URL
+        // left in a crash report must stop working on its own.
+        let auth = Auth::new();
+        *auth.nonce.lock().unwrap() = Some(PendingNonce {
+            value: "stale".into(),
+            issued: Instant::now() - NONCE_TTL - Duration::from_secs(1),
+        });
+        assert!(!auth.take_nonce("stale"));
+        assert!(auth.nonce.lock().unwrap().is_none(), "an expired nonce is still spent");
+    }
+
+    #[test]
+    fn a_token_of_a_different_length_is_refused() {
+        // The length check returns early; that is not a timing oracle, since the
+        // token length is a constant of the protocol.
+        let auth = Auth::new();
+        assert!(!auth.authorized(&headers_with_cookie(&format!("{COOKIE_NAME}=short"))));
+        let long = "f".repeat(auth.token().len() * 2);
+        assert!(!auth.authorized(&headers_with_cookie(&format!("{COOKIE_NAME}={long}"))));
+    }
+
+    #[test]
+    fn a_non_bearer_authorization_header_falls_through_to_the_cookie() {
+        // A proxy or a plugin may add its own Authorization header; that must not
+        // shadow the cookie the WebView actually carries.
+        let auth = Auth::new();
+        let mut headers = headers_with_cookie(&format!("{COOKIE_NAME}={}", auth.token()));
+        headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Basic dXNlcg=="));
+        assert!(auth.authorized(&headers));
+    }
+
+    #[test]
+    fn an_empty_bearer_value_is_refused() {
+        let auth = Auth::new();
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Bearer "));
+        assert!(!auth.authorized(&headers));
+    }
+
+    #[test]
+    fn a_cookie_without_the_proxy_name_is_refused() {
+        let auth = Auth::new();
+        assert!(!auth.authorized(&headers_with_cookie("theme=dark; agentbuddy.lang=zh")));
+        assert!(!auth.authorized(&headers_with_cookie("ab_proxy_old=deadbeef")));
+    }
+
+    #[test]
+    fn the_cookie_parser_keeps_the_whole_value() {
+        // Only the first `=` separates name from value, so a token that happened
+        // to contain one would still round-trip.
+        assert_eq!(token_from_cookie("ab_proxy=abc=="), Some("abc=="));
+        assert_eq!(token_from_cookie(" theme=dark ; ab_proxy=dead "), Some("dead"));
+        assert_eq!(token_from_cookie("ab_proxyx=abc"), None);
+        assert_eq!(token_from_cookie(""), None);
+    }
 }

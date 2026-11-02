@@ -362,3 +362,4 @@
 21. 环回代理准入（F18）：每次启动生成 256 位 token 与一次性 nonce；窗口经 `/__shell/bootstrap?nonce=…` 兑换 `HttpOnly; SameSite=Strict; Path=/` 的 Cookie 后 303 落到 `/`；`/api`、`/a2a`、`/__shell/*` 与静态资源一律要求该 Cookie（原生客户端可用 Bearer）；外来 `Origin` 在任何鉴权之前以 `403 proxy_origin_refused` 拒绝；token 只存在于代理内存与 Cookie，绝不进入 JS，也绝不被转发上游；无窗口的测试路由器（`auth: None`）保持原转发行为。
 22. 内容安全策略（F18）：代理为自己输出的 HTML 发 `Content-Security-Policy`，`script-src 'self' 'nonce-<每响应随机>'`（不含 `unsafe-inline`）；首屏主题解析外置为 `web/public/theme-init.js`；外壳注入的版本戳脚本声明该 nonce；转发上游时只丢逐跳头，上游 `Content-Security-Policy` / `Strict-Transport-Security` / `X-Frame-Options` 原样透传。
 23. 会话存储（F18）：会话 Cookie 写入系统凭据库（Windows 凭据管理器 / macOS 钥匙串 / Linux Secret Service）；无可用凭据库时回退为仅属主可读的 `session.json` 并在日志告警；旧的明文会话在首次读取时迁入凭据库并删除明文；`/__shell/config` 暴露 `sessionBackend`（`keyring` / `file` / `memory`）。
+24. 登录表单校验（F1）：邮箱与密码为空、注册模式下两次密码不一致或未填显示名时，提交按钮保持 disabled，且**在输入框内回车同样被拦截**（`submit()` 自查 `canSubmit`），不发请求、不回显错误码。

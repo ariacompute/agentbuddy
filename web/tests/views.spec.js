@@ -14,7 +14,7 @@ import {
   getTask, getThread, cancelTask, resumeTask, postTaskMessage, postThreadMessage,
   createThread, deleteChannel, createChannel, updateChannel, setConnectorPolicy,
   runConnectorAction, listResources, listComputers, createComputer, listSchedules,
-  createSchedule, updateSchedule, deleteSchedule, updateResource, login, authConfig, whoami,
+  createSchedule, updateSchedule, deleteSchedule, updateResource, login, register, authConfig, whoami,
   logout, getDeliveries, request, retryDelivery,
   routerStats, listRouterTriggers, listRouterTickets, kickRouterPass, runSchedule,
   cancelRouterTicket, handbackRouterTrigger,
@@ -340,7 +340,12 @@ describe('ChannelsView', () => {
   // the form renders inline and the test can drive it without hunting through
   // a teleported body.
   const stubs = {
-    BaseDialog: { props: ['modelValue'], template: '<div class="dialog-stub"><slot /><slot name="footer" /></div>' },
+    BaseDialog: {
+      name: 'BaseDialog',
+      props: ['modelValue'],
+      emits: ['update:modelValue'],
+      template: '<div v-if="modelValue" class="dialog-stub"><slot /><slot name="footer" /></div>',
+    },
   }
 
   it('sends the form as the API expects and refreshes the list', async () => {
@@ -385,6 +390,62 @@ describe('ChannelsView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain(errorMessage('channel_signature_invalid'))
+  })
+
+  it('asks for a destination only for an SMS channel, and sends it', async () => {
+    createChannel.mockResolvedValue({})
+    listChannels.mockResolvedValue({ channels: [], deliveries: {} })
+    const { wrapper } = mountWith(ChannelsView, { stubs })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text().includes('Add channel')).trigger('click')
+    await nextTick()
+
+    // The destination field is conditional: a slack channel has no number to send to.
+    expect(wrapper.findAll('.field input')).toHaveLength(4)
+    await wrapper.find('.dialog-stub select').setValue('sms')
+    await nextTick()
+    expect(wrapper.findAll('.field input')).toHaveLength(5)
+
+    const inputs = wrapper.findAll('.field input')
+    // name, thread id, signing key, destination, participants
+    await inputs[0].setValue('Alerts')
+    await inputs[3].setValue('+15551234567')
+    await wrapper.findAll('button').find((b) => b.text() === 'Create').trigger('click')
+    await flushPromises()
+
+    expect(createChannel).toHaveBeenCalledWith(expect.objectContaining({ name: 'Alerts', kind: 'sms', destination: '+15551234567' }))
+  })
+
+  it('cancels the form without creating a channel', async () => {
+    listChannels.mockResolvedValue({ channels: [], deliveries: {} })
+    const { wrapper } = mountWith(ChannelsView, { stubs })
+    await flushPromises()
+    createChannel.mockClear()
+
+    await wrapper.findAll('button').find((b) => b.text().includes('Add channel')).trigger('click')
+    await nextTick()
+    await wrapper.findAll('.dialog-stub button').find((b) => b.text() === 'Cancel').trigger('click')
+    await flushPromises()
+
+    expect(createChannel).not.toHaveBeenCalled()
+    expect(wrapper.find('.dialog-stub').exists()).toBe(false)
+  })
+
+  it('closes the form when the dialog itself reports a close', async () => {
+    listChannels.mockResolvedValue({ channels: [], deliveries: {} })
+    const { wrapper } = mountWith(ChannelsView, { stubs })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text().includes('Add channel')).trigger('click')
+    await nextTick()
+    // Escape and a backdrop click both arrive as `update:modelValue`, so that
+    // path has to close the form as surely as the Cancel button does.
+    wrapper.findAllComponents({ name: 'BaseDialog' })[0].vm.$emit('update:modelValue', false)
+    await flushPromises()
+
+    expect(wrapper.find('.dialog-stub').exists()).toBe(false)
+    expect(createChannel).not.toHaveBeenCalled()
   })
 
   it('removes a channel through the API and refreshes the list', async () => {
@@ -518,6 +579,9 @@ describe('ComputersView', () => {
   // form inline so the test does not hunt through a teleported body.
   const stubs = {
     BaseDialog: {
+      // Named so a test can reach the stub instance and emit the same
+      // `update:modelValue` the real dialog emits on Escape or a backdrop click.
+      name: 'BaseDialog',
       props: ['modelValue', 'title'],
       emits: ['update:modelValue'],
       template: '<div v-if="modelValue" class="dialog-stub"><slot /><slot name="footer" /></div>',
@@ -628,6 +692,59 @@ describe('ComputersView', () => {
 
     expect(terminateSandbox).toHaveBeenCalledWith('sbx-1')
     expect(listSandboxes).toHaveBeenCalled()
+  })
+
+  it('leases the kind the operator picked, not the default one', async () => {
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'New execution environment').trigger('click')
+    await flushPromises()
+    await wrapper.find('.dialog-stub select').setValue('browser')
+    await wrapper.find('.dialog-stub input').setValue('agent-browser')
+    await wrapper.findAll('.dialog-stub button').find((b) => b.text() === 'Lease it').trigger('click')
+    await flushPromises()
+
+    expect(createComputer).toHaveBeenCalledWith('browser', 'agent-browser')
+  })
+
+  it('cancels the lease dialog without leasing anything', async () => {
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+    createComputer.mockClear()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'New execution environment').trigger('click')
+    await flushPromises()
+    await wrapper.find('.dialog-stub input').setValue('agent-9')
+    await wrapper.findAll('.dialog-stub button').find((b) => b.text() === 'Cancel').trigger('click')
+    await flushPromises()
+
+    expect(createComputer).not.toHaveBeenCalled()
+    expect(wrapper.find('.dialog-stub').exists()).toBe(false)
+  })
+
+  it('cancels the termination, and closing the dialog by its model does too', async () => {
+    const { wrapper } = mountWith(ComputersView, { stubs })
+    await flushPromises()
+    terminateSandbox.mockClear()
+
+    // Cancel keeps the lease and closes the dialog.
+    await wrapper.find('.lease-card button:nth-of-type(3)').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('.dialog-stub button').find((b) => b.text() === 'Cancel').trigger('click')
+    await flushPromises()
+    expect(terminateSandbox).not.toHaveBeenCalled()
+    expect(wrapper.find('.dialog-stub').exists()).toBe(false)
+
+    // The dialog's own `update:modelValue` (Escape, backdrop) takes the same
+    // route, so a dismissal cannot leave a pending termination armed.
+    await wrapper.find('.lease-card button:nth-of-type(3)').trigger('click')
+    await flushPromises()
+    const dialogs = wrapper.findAllComponents({ name: 'BaseDialog' })
+    dialogs[dialogs.length - 1].vm.$emit('update:modelValue', false)
+    await flushPromises()
+    expect(terminateSandbox).not.toHaveBeenCalled()
+    expect(wrapper.find('.dialog-stub').exists()).toBe(false)
   })
 
   it('runs a trial command in the drawer and keeps the receipt on screen', async () => {
@@ -1387,6 +1504,109 @@ describe('SchedulesView', () => {
     expect(wrapper.text()).toContain('canceled')
     expect(wrapper.text()).toContain('stopped by a person')
   })
+
+  it('prints the thrown message when creating a goal fails without a code', async () => {
+    // Every mutation decodes a machine code when there is one and falls back to
+    // the message otherwise. A plain Error is what a dropped connection looks
+    // like, so each of those paths has to survive it.
+    createSchedule.mockRejectedValue(new Error('create failed'))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    const [goal, cron] = wrapper.findAll('input[type="text"]')
+    await goal.setValue('Nightly rollup')
+    await cron.setValue('*/5 * * * *')
+    await wrapper.findAll('button').find((b) => b.text() === 'New goal').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('create failed')
+  })
+
+  it('prints the thrown message when a toggle fails without a code', async () => {
+    listSchedules.mockResolvedValue({
+      schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }],
+    })
+    updateSchedule.mockRejectedValue(new Error('toggle failed'))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    await wrapper.findAll('.schedule-row button').find((b) => b.text() === 'Enabled').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('toggle failed')
+  })
+
+  it('prints the thrown message when a delete fails without a code', async () => {
+    listSchedules.mockResolvedValue({
+      schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }],
+    })
+    deleteSchedule.mockRejectedValue(new Error('delete failed'))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    await wrapper.findAll('.schedule-row button').find((b) => b.text() === '×').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('delete failed')
+  })
+
+  it('prints the thrown message when run-now fails without a code', async () => {
+    listSchedules.mockResolvedValue({
+      schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }],
+    })
+    runSchedule.mockRejectedValue(new Error('run failed'))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    await wrapper.findAll('.schedule-row button').find((b) => b.text() === 'Run now').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('run failed')
+  })
+
+  it('prints the thrown message when cancelling a run fails without a code', async () => {
+    listSchedules.mockResolvedValue({
+      schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }],
+    })
+    listRouterTriggers.mockResolvedValue({
+      triggers: [{ id: 'trg-1', source: 'cron', sourceId: 's1', disposition: 'routed', ticketId: 'tkt-1', at: '2026-11-01T10:00:00Z' }],
+    })
+    listRouterTickets.mockResolvedValue({
+      tickets: [{ id: 'tkt-1', state: 'running', originTriggerId: 'trg-1', createdAt: '2026-11-01T10:00:00Z' }],
+    })
+    cancelRouterTicket.mockRejectedValue(new Error('cancel failed'))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    await wrapper.find('.schedule-row').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((b) => b.text() === 'Cancel').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('cancel failed')
+  })
+
+  it('explains a goal list that failed for an unregistered reason', async () => {
+    // The server was reachable but answered with something the console has no
+    // copy for; the operator still needs the reason, and the form stays usable.
+    listSchedules.mockRejectedValue(new Error('pq: relation "schedules" does not exist'))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('does not exist')
+    expect(wrapper.findAll('button').some((b) => b.text() === 'New goal')).toBe(true)
+  })
+
+  it('explains a router read that failed for an unregistered reason', async () => {
+    listSchedules.mockResolvedValue({ schedules: [] })
+    routerStats.mockRejectedValue(new Error('router is wedged'))
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('router is wedged')
+    // Not the "switched off" copy: the scheduler is running, it is just unhappy.
+    expect(wrapper.text()).not.toContain('switched off')
+  })
 })
 
 describe('SettingsView', () => {
@@ -1412,6 +1632,44 @@ describe('SettingsView', () => {
     expect(window.localStorage.getItem('agentbuddy.theme')).toBe('light')
     expect(JSON.parse(window.localStorage.getItem('agentbuddy.settings')).theme).toBe('light')
     expect(document.documentElement.dataset.theme).toBe('light')
+  })
+
+  it('persists the language, the switches and the quiet window', async () => {
+    request.mockResolvedValue({})
+    const { wrapper } = mountWith(SettingsView)
+    await flushPromises()
+
+    // Language: the select writes straight through setLang, which mirrors onto
+    // <html> and pushes the code to the shell so the tray follows. Re-selecting
+    // the current language keeps this test independent of the global language
+    // ref the other mounted screens are watching.
+    const select = wrapper.find('select')
+    await select.setValue('en')
+    await flushPromises()
+    expect(document.documentElement.lang).toBe('en')
+    expect(window.localStorage.getItem('agentbuddy.lang')).toBe('en')
+
+    // The three switches and the quiet window all save on change.
+    const [background, notify, voice] = wrapper.findAll('input[type="checkbox"]')
+    request.mockClear()
+    await background.setValue(false)
+    await notify.setValue(false)
+    await voice.setValue(false)
+    await wrapper.find('input[type="number"]').setValue(30)
+    await flushPromises()
+
+    expect(request).toHaveBeenCalledWith(
+      '/__shell/config',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"notify_quiet_minutes":30'),
+      }),
+    )
+    const stored = JSON.parse(window.localStorage.getItem('agentbuddy.settings'))
+    expect(stored.background).toBe(false)
+    expect(stored.notify).toBe(false)
+    expect(stored.voiceInput).toBe(false)
+    expect(stored.quiet).toBe(30)
   })
 
   it('resets every toggle to its default after a confirmation', async () => {
@@ -1575,6 +1833,27 @@ describe('SettingsView', () => {
 })
 
 describe('PersonaEditor', () => {
+  it('sends every field the operator typed, including the MBTI and the avatar', async () => {
+    listResources.mockResolvedValue({ resources: [{ id: 'a1', name: 'Agent', kind: 'agent', persona: {} }] })
+    updateResource.mockResolvedValue({})
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    await wrapper.find('input[type="text"]').setValue('Ada')
+    await wrapper.findAll('select')[1].setValue('INTJ')
+    await wrapper.find('textarea').setValue('be exact')
+    await wrapper.find('input[placeholder="ref://"]').setValue('ref://ada')
+
+    await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
+    await flushPromises()
+
+    expect(updateResource).toHaveBeenCalledWith('a1', {
+      persona: { role: '', instruction: 'be exact', mbti: 'INTJ', avatar_ref: 'ref://ada', title: 'Ada' },
+    })
+    // No half-typed state is left behind: the saved values are what is on screen.
+    expect(wrapper.find('textarea').element.value).toBe('be exact')
+  })
+
   it('loads agents and saves a persona', async () => {
     listResources.mockResolvedValue({ resources: [{ id: 'a1', name: 'Agent', kind: 'agent', persona: {} }] })
     updateResource.mockResolvedValue({})
@@ -1667,6 +1946,68 @@ describe('LoginView', () => {
     // Sign-up mode asks for a name and a confirmation before it will submit.
     expect(wrapper.findAll('input[type="password"]')).toHaveLength(2)
     expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()
+  })
+
+  it('registers from the sign-up form once the name and confirmation agree', async () => {
+    const { wrapper, router } = mountWith(LoginView)
+    register.mockResolvedValue({ ok: true })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => /create one/i.test(b.text())).trigger('click')
+    await flushPromises()
+
+    await wrapper.find('input[type="text"]').setValue('Ada')
+    await wrapper.find('input[type="email"]').setValue('ada@example.com')
+    const [pw, confirm] = wrapper.findAll('input[type="password"]')
+    await pw.setValue('secret')
+    await confirm.setValue('secret')
+
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(register).toHaveBeenCalledWith('ada@example.com', 'secret', 'Ada')
+    expect(router.currentRoute.value.fullPath).toBe('/')
+  })
+
+  it('will not register when the two passwords differ', async () => {
+    const { wrapper } = mountWith(LoginView)
+    register.mockClear()
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => /create one/i.test(b.text())).trigger('click')
+    await flushPromises()
+    await wrapper.find('input[type="text"]').setValue('Ada')
+    await wrapper.find('input[type="email"]').setValue('ada@example.com')
+    const [pw, confirm] = wrapper.findAll('input[type="password"]')
+    await pw.setValue('secret')
+    await confirm.setValue('secreto')
+
+    // The mismatch is caught in the form: nothing is sent, so the operator gets
+    // an instant answer instead of a server round trip. Enter in a field submits
+    // even when the button is disabled, so the handler has to check as well.
+    expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(register).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain(errorMessage('email_taken'))
+  })
+
+  it('shows the code when registration is refused', async () => {
+    const { wrapper } = mountWith(LoginView)
+    register.mockRejectedValue(Object.assign(new Error('nope'), { code: 'email_taken' }))
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => /create one/i.test(b.text())).trigger('click')
+    await flushPromises()
+    await wrapper.find('input[type="text"]').setValue('Ada')
+    await wrapper.find('input[type="email"]').setValue('taken@example.com')
+    const [pw, confirm] = wrapper.findAll('input[type="password"]')
+    await pw.setValue('secret')
+    await confirm.setValue('secret')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('email_taken'))
   })
 
   it('will not submit a half-filled form', async () => {

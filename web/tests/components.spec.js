@@ -593,3 +593,152 @@ describe('Topbar', () => {
     expect(router.currentRoute.value.fullPath).toBe('/login')
   })
 })
+
+// The fallbacks below are what keeps the workbench readable against a server
+// that reports a field as an object in one release and as a bare string in the
+// next. They are cheap to break and invisible when they do break, so they are
+// pinned here rather than left to the screens that happen to render them.
+
+describe('AgentCard fallbacks', () => {
+  it('uses the tagline when the persona has no title, and hides the line when it has neither', () => {
+    const withTagline = mountWith(AgentCard, {
+      props: { agent: { name: 'a', persona: { tagline: 'Runs the night shift' }, health: 'healthy' } },
+    })
+    expect(withTagline.wrapper.text()).toContain('Runs the night shift')
+
+    const bare = mountWith(AgentCard, {
+      props: { agent: { name: 'a', persona: {}, health: 'healthy' } },
+    })
+    expect(bare.wrapper.find('.title').text()).toBe('')
+  })
+
+  it('reads health as an object, as a bare string, or not at all', () => {
+    const object = mountWith(AgentCard, {
+      props: { agent: { name: 'a', health: { status: 'degraded' } } },
+    })
+    // A degraded agent is still working, just slowly: the dot says so.
+    expect(object.wrapper.find('.state-dot').attributes('data-state')).toBe('working')
+    expect(object.wrapper.text()).toContain('Slow')
+
+    const bare = mountWith(AgentCard, { props: { agent: { name: 'a', health: 'healthy' } } })
+    expect(bare.wrapper.find('.state-dot').attributes('data-state')).toBe('completed')
+
+    const missing = mountWith(AgentCard, { props: { agent: { name: 'a' } } })
+    expect(missing.wrapper.find('.state-dot').attributes('data-state')).toBe('failed')
+    expect(missing.wrapper.text()).toContain('Unchecked')
+  })
+
+  it('prints a health value it does not know rather than an empty chip', () => {
+    const { wrapper } = mountWith(AgentCard, { props: { agent: { name: 'a', health: 'quarantined' } } })
+    expect(wrapper.text()).toContain('quarantined')
+  })
+
+  it('shows the description and the tags only when they are there', () => {
+    const full = mountWith(AgentCard, {
+      props: { agent: { name: 'a', health: 'healthy', description: 'does the thing', tags: ['x'] } },
+    })
+    expect(full.wrapper.text()).toContain('does the thing')
+    expect(full.wrapper.findAll('.tag-row .chip')).toHaveLength(1)
+
+    const bare = mountWith(AgentCard, { props: { agent: { name: 'a', health: 'healthy' } } })
+    expect(bare.wrapper.find('.tagline').exists()).toBe(false)
+    expect(bare.wrapper.find('.tag-row').exists()).toBe(false)
+  })
+})
+
+describe('ArtifactList edge cases', () => {
+  it('treats a missing list as empty', () => {
+    const { wrapper } = mountWith(ArtifactList, { props: { artifacts: null } })
+    expect(wrapper.findAll('.artifact')).toHaveLength(0)
+  })
+
+  it('renders an empty row for an artifact it cannot read', () => {
+    // No parts at all, and a part that claims to be a file but carries no file:
+    // both must still take a row instead of silently vanishing from the list.
+    const { wrapper } = mountWith(ArtifactList, {
+      props: { artifacts: [{}, { parts: [{ type: 'file' }] }] },
+    })
+    expect(wrapper.findAll('.artifact')).toHaveLength(2)
+  })
+
+  it('defaults the mime type when the bytes carry none', () => {
+    const { wrapper } = mountWith(ArtifactList, {
+      props: { artifacts: [{ parts: [{ type: 'file', file: { bytes: 'AA' } }] }] },
+    })
+    expect(wrapper.find('a').attributes('href')).toBe('data:application/octet-stream;base64,AA')
+  })
+
+  it('names an unnamed file with the localised label', () => {
+    const { wrapper } = mountWith(ArtifactList, {
+      props: { artifacts: [{ parts: [{ type: 'file', file: { name: '', uri: 'u' } }] }] },
+    })
+    expect(wrapper.find('.artifact-head').text().trim().length).toBeGreaterThan(0)
+  })
+})
+
+describe('ConnectorCard edge cases', () => {
+  it('does nothing when the action name is blank', async () => {
+    runConnectorAction.mockClear()
+    const { wrapper } = mountWith(ConnectorCard, {
+      props: { connector: { id: 'k1', name: 'Twilio', policy: 'allowed' } },
+    })
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(runConnectorAction).not.toHaveBeenCalled()
+  })
+
+  it('says the run is waiting for a person when the server parked it', async () => {
+    runConnectorAction.mockResolvedValue({ parked: true })
+    const { wrapper } = mountWith(ConnectorCard, {
+      props: { connector: { id: 'k1', name: 'Twilio', policy: 'allowed' } },
+    })
+    await wrapper.findAll('input')[0].setValue('send')
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('The action is waiting for your approval.')
+  })
+
+  it('reads health as an object or a string, and defaults the policy to off', () => {
+    const object = mountWith(ConnectorCard, {
+      props: { connector: { id: 'k1', name: 'A', health: { status: 'degraded' } } },
+    })
+    expect(object.wrapper.text()).toContain('Slow')
+    expect(object.wrapper.findComponent(PolicySelect).props('value')).toBe('off')
+
+    const bare = mountWith(ConnectorCard, {
+      props: { connector: { id: 'k1', name: 'B', health: 'healthy', policy: 'allowed' } },
+    })
+    expect(bare.wrapper.text()).toContain('Reachable')
+    expect(bare.wrapper.findComponent(PolicySelect).props('value')).toBe('allowed')
+  })
+})
+
+describe('Sidebar footer', () => {
+  it('falls back to the email when the account has no display name', async () => {
+    const { wrapper, pinia } = mountWith(Sidebar)
+    useAuthStore(pinia).user = { email: 'me@example.com' }
+    await nextTick()
+    expect(wrapper.find('.sidebar-foot').text()).toContain('me@example.com')
+    expect(wrapper.find('.sidebar-version').exists()).toBe(false)
+  })
+
+  it('shows the shell version stamp when the desktop shell provides one', async () => {
+    window.__AGENTBUDDY_VERSION__ = 'v0.4.0@1a2b3c4'
+    const { wrapper } = mountWith(Sidebar)
+    await nextTick()
+    expect(wrapper.find('.sidebar-version').text()).toBe('v0.4.0@1a2b3c4')
+    delete window.__AGENTBUDDY_VERSION__
+  })
+})
+
+describe('StateDot and PersonaAvatar fallbacks', () => {
+  it('prints an unknown task state rather than an empty label', () => {
+    const { wrapper } = mountWith(StateDot, { props: { state: 'quarantined' } })
+    expect(wrapper.find('.dim').text()).toBe('quarantined')
+  })
+
+  it('renders a question mark for a name that is only whitespace', () => {
+    const { wrapper } = mountWith(PersonaAvatar, { props: { name: '   ' } })
+    expect(wrapper.text().trim()).toBe('?')
+  })
+})

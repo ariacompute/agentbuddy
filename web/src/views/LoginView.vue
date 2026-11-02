@@ -31,6 +31,10 @@ const canSubmit = computed(() => {
 
 async function submit() {
   errorCode.value = null
+  // The submit button is disabled while the form is incomplete, but pressing
+  // Enter in a field submits the form anyway — so the guard has to live here too,
+  // otherwise a sign-up with two different passwords goes to the server.
+  if (!canSubmit.value || auth.busy) return
   const res = mode.value === 'signup'
     ? await auth.register(email.value, password.value, displayName.value)
     : await auth.login(email.value, password.value)

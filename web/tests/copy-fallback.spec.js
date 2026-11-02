@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { withCopy } from '../src/lib/copy/scheduler-copy.js'
 import { shellCopy } from '../src/lib/copy/shell-copy.js'
 import { workspaceCopy } from '../src/lib/copy/workspace-copy.js'
 import { threadCopy } from '../src/lib/copy/thread-copy.js'
@@ -50,4 +51,29 @@ describe('copy fallback', () => {
       }
     })
   }
+})
+
+describe('withCopy', () => {
+  it('folds the extra keys into the languages that have them', () => {
+    const out = withCopy({ en: { a: 'A' }, zh: { a: '甲' } }, { en: { b: 'B' } })
+    expect(out.en).toEqual({ a: 'A', b: 'B' })
+    expect(out.zh).toEqual({ a: '甲' })
+  })
+
+  it('keeps a language the extra table does not cover', () => {
+    // A namespace can grow a key before every locale has it; the language must
+    // survive the merge so the English fallback in `resolve()` can still work.
+    const out = withCopy({ en: { a: 'A' }, ar: { a: 'أ' } }, { en: { b: 'B' }, zh: { b: '乙' } })
+    expect(out.ar).toEqual({ a: 'أ' })
+    // The extra table cannot introduce a language of its own: the set of
+    // languages is owned by the base table, which the copy-fallback suite audits.
+    expect(Object.keys(out).sort()).toEqual(['ar', 'en'])
+    expect(out.zh).toBeUndefined()
+  })
+
+  it('does not mutate the table it was given', () => {
+    const table = { en: { a: 'A' } }
+    withCopy(table, { en: { b: 'B' } })
+    expect(table.en).toEqual({ a: 'A' })
+  })
 })

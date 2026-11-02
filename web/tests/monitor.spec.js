@@ -268,3 +268,97 @@ describe('ActivityMonitor subscription upkeep', () => {
     m.stop()
   })
 })
+
+describe('ActivityMonitor lifecycle guards', () => {
+  beforeEach(() => {
+    getWorkspace.mockReset()
+    listTasks.mockReset()
+    subscribeTaskEvents.mockReset()
+    subscribeTaskEvents.mockReturnValue({ close: vi.fn() })
+  })
+
+  it('start() twice polls once, so a remount cannot double the request rate', async () => {
+    getWorkspace.mockResolvedValue({ agents: [] })
+    listTasks.mockResolvedValue({ tasks: [] })
+    const m = new ActivityMonitor(makeStore(), { visible: () => true })
+    m.start()
+    m.start()
+    await flush()
+    expect(getWorkspace).toHaveBeenCalledTimes(1)
+    m.stop()
+  })
+
+  it('stop() before the timer fires leaves no pending tick behind', async () => {
+    getWorkspace.mockResolvedValue({ agents: [] })
+    listTasks.mockResolvedValue({ tasks: [] })
+    const m = new ActivityMonitor(makeStore(), { visible: () => true })
+    m.start()
+    await flush()
+    m.stop()
+
+    // A stopped monitor must not resurrect itself by rescheduling.
+    m._schedule()
+    expect(m.timer).toBeNull()
+  })
+
+  it('a poll that resolves after stop() is a no-op', async () => {
+    getWorkspace.mockResolvedValue({ agents: [] })
+    listTasks.mockResolvedValue({ tasks: [] })
+    const store = makeStore()
+    const m = new ActivityMonitor(store, { visible: () => true })
+    m.stop()
+    await m._poll()
+    expect(getWorkspace).not.toHaveBeenCalled()
+    expect(store.offline).toBe(true) // untouched: nothing was applied
+  })
+
+  it('tolerates short payloads from an older server', async () => {
+    // Neither endpoint returned its list key. The monitor publishes empty arrays
+    // rather than undefined, so the views never have to guard for it.
+    getWorkspace.mockResolvedValue({})
+    listTasks.mockResolvedValue({})
+    const store = makeStore()
+    const m = new ActivityMonitor(store, { visible: () => true })
+    m.start()
+    await flush()
+    expect(store.agents).toEqual([])
+    expect(store.tasks).toEqual([])
+    expect(store.offline).toBe(false)
+    m.stop()
+  })
+
+  it('re-syncing keeps one stream per task instead of stacking connections', async () => {
+    getWorkspace.mockResolvedValue({ agents: [] })
+    listTasks.mockResolvedValue({ tasks: [{ id: 't1', status: { state: 'working' } }] })
+    const store = makeStore()
+    const m = new ActivityMonitor(store, { visible: () => true })
+    m.start()
+    await flush()
+    m._syncSubscriptions()
+    m._syncSubscriptions()
+    expect(subscribeTaskEvents).toHaveBeenCalledTimes(1)
+    expect(m.subscriptions.size).toBe(1)
+    m.stop()
+  })
+
+  it('ignores a status frame for a task that is no longer in the list', () => {
+    // A late frame can arrive after the task was pruned from the store; it must
+    // not be re-created by an out-of-order event.
+    const store = makeStore()
+    const m = new ActivityMonitor(store)
+    expect(() => m._onStatus('gone', { status: { state: 'completed' } })).not.toThrow()
+    expect(store.tasks).toEqual([])
+  })
+
+  it('rebuilds the seen map when the store never had one', async () => {
+    getWorkspace.mockResolvedValue({ agents: [] })
+    listTasks.mockResolvedValue({ tasks: [] })
+    const store = makeStore()
+    delete store.seen
+    const m = new ActivityMonitor(store, { visible: () => true })
+    m.start()
+    await flush()
+    expect(store.seen).toEqual({})
+    m.stop()
+  })
+})

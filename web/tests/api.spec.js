@@ -172,6 +172,13 @@ describe('ApiError', () => {
     expect(e.status).toBe(400)
     expect(e.message).toBeTruthy()
   })
+
+  it('prints an unregistered code as itself instead of "undefined"', () => {
+    // A server that ships a new code before the console knows it must still show
+    // something an operator can paste into a bug report.
+    const e = new ApiError('brand_new_code', 500)
+    expect(e.message).toBe('brand_new_code')
+  })
 })
 
 describe('isAuthError', () => {
@@ -298,6 +305,37 @@ describe('api endpoint helpers', () => {
     expect(url).toBe('/api/threads/t1/audio')
     expect(opts.method).toBe('POST')
     expect(opts.body).toBeInstanceOf(FormData)
+  })
+
+  it('postThreadAudio surfaces a refused upload as an ApiError', async () => {
+    // The recorder uploads a blob before anything is transcribed, so a refusal
+    // here (too large, wrong type, session expired) must reach the caller as a
+    // machine code rather than a resolved promise with a null body.
+    fetchMock.mockResolvedValue(jsonResponse({ code: 'audio_too_large' }, { status: 413, ok: false }))
+    await expect(postThreadAudio('t1', new Blob(['x']))).rejects.toMatchObject({
+      code: 'audio_too_large',
+      status: 413,
+    })
+  })
+
+  it('postThreadAudio reads an empty 200 as "nothing to say"', async () => {
+    // A transcription that produced no text answers 200 with an empty body; the
+    // caller treats null as "silent recording", not as a parse failure.
+    fetchMock.mockResolvedValue({ ok: true, status: 200, text: async () => '' })
+    await expect(postThreadAudio('t1', new Blob(['x']))).resolves.toBeNull()
+  })
+
+  it('omits the argument map when a connector action takes none', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+    await runConnectorAction('k1', 'sync')
+    const [, opts] = lastCall()
+    expect(JSON.parse(opts.body)).toEqual({ name: 'sync', args: {} })
+  })
+
+  it('builds no query string when every router filter is empty', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ triggers: [] }))
+    await listRouterTriggers({ state: '', since: undefined, idle: null })
+    expect(lastCall()[0]).toBe('/api/router/triggers')
   })
 
   it('subscribeThreadEvents wires listeners and closes', () => {

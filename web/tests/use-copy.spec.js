@@ -105,4 +105,35 @@ describe('use-copy', () => {
     expect(useLang().value).toBe('en')
     setLang(before)
   })
+
+  it('resolve survives a locale that has no block at all', () => {
+    // A half-finished translation lands as a missing key, not a crash: the table
+    // collapses to the English block and every screen keeps rendering.
+    const merged = resolve({ en: { a: 'A' } }, 'ko')
+    expect(merged).toEqual({ a: 'A' })
+  })
+
+  it('an unknown namespace or enum group degrades to raw values', () => {
+    const copy = useCopy('no-such-namespace')
+    expect(copy.t('anything')).toBeUndefined()
+    expect(copy.te('anything')).toBe(false)
+    // An enum group nobody registered (a backend that added a value early) must
+    // still print something readable rather than throwing.
+    expect(enumLabel('no-such-group', 'whatever')).toBe('whatever')
+    expect(enumLabel('taskState', '')).toBe('')
+  })
+
+  it('resolves its starting language without a window', async () => {
+    // The module is imported before any browser globals exist in some hosts
+    // (prerender, node tests), so the initial probe has to guard for it.
+    vi.resetModules()
+    vi.stubGlobal('window', undefined)
+    try {
+      const fresh = await import('../src/lib/use-copy.js')
+      expect(fresh.useLang().value).toBe('en')
+    } finally {
+      vi.unstubAllGlobals()
+      vi.resetModules()
+    }
+  })
 })
