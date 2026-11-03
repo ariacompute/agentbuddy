@@ -809,3 +809,65 @@ agentbuddy 把「计算机」屏从三张空卡片升级为**执行环境控制�
   Linux CI 负责实跑。
 - Rust：本机 `cargo` 无法执行（工具链所在卷被判定为不可信挂载，`ApplicationFailedException`），
   因此 `badge`/`tray`/`shell` 的 Rust 改动只经代码审读，实际编译由 CI 的 Linux job 把关。
+
+## M21 — 删除语义对齐：服务端 404 由客户端吃下（2026-11-03）
+
+agenthub 把 `DELETE /api/schedules/{id}` 与 `DELETE /api/channels/{id}` 从「删不到也回 204」改成
+「读不到就 404」（见其 `task.md` M17：判定来自 `RowsAffected`，不是先读一次）。服务端不再用状态码
+替客户端保证幂等，于是这一半由客户端接住。
+
+### 1. 两个视图
+
+- `SchedulesView.remove`：`schedule_not_found` → 清掉选中、`load()` 重拉、不报错；其余错误照旧走
+  `errorMessage(e.code) || e.message`。
+- `ChannelsView.remove`：`channel_not_found` → `workbench.refreshChannels()`、不报错；其余错误照旧
+  落 `listError`。
+- 结果：掉包重试与「另一台设备已经删掉」都不再在前端变成一个拒绝，行也确实从列表里消失。
+
+### 2. 用例
+
+- `tests/views.spec.js` 两条反向用例改写：原先断言「显示 `channel_not_found` / `schedule_not_found`
+  文案」，改为「重拉列表且不显示错误文案」（原用例名 `reports a rejected delete…`）。
+- 未改 `lib/api.js`：删除封装与错误码映射此前就有，本次只改视图的判定分支。
+
+### 3. 校验
+
+- `cd web && bun run test`：**30 个 spec / 713 用例**全绿，基线不变（换了两条用例而非加用例，
+  因此 `AGENTS.md` / `releasenotes` 的 713 与覆盖率数字无需改动）；`bun run build` 通过。
+- 桌面外壳未受影响：这两处调用只发生在网页视图。
+
+## M22 — 删除语义补齐：计算机与文件跟上（2026-11-03）
+
+M21 只覆盖了本轮改过状态码的两个端点，但 `DELETE /api/computers/{id}`（先 `Get`，为空即 404
+`computer_not_found`）与 `DELETE /api/files/{id}`（`service.Delete` 里 `Get` 不过即 `ErrNotFound`，
+404 `file_not_found`）一直是同一语义——删不到就 404。于是「另一台设备已经删掉」在计算机与文件两屏
+仍然会变成一句拒绝，而列表里那一行其实已经不在了。
+
+### 1. 两个视图
+
+- `ComputersView.confirmDeleteCard`：`computer_not_found` → 清掉 `pendingDeleteCard`、`loadComputers()`
+  重拉、不写 `computersError`；其余错误照旧 `errorMessage(e.code) || e.message`。
+- `FilesView.confirmDelete`：`file_not_found` → 清掉 `pendingDelete`、`load()` 重拉、不写 `error`；
+  其余错误保留「行不动、原因就地」的原有行为。
+- 结果：四屏（通道 / 调度 / 计算机 / 文件）对「删不到」的判定一致，判据仍是那一个机器码，未改
+  `lib/api.js`。
+
+### 2. 用例（713 → 716）
+
+- `tests/files.spec.js`：`keeps the row when the delete is refused` 拆成两条——`file_not_found`
+  归入「已消失」并断言重拉 + 行消失 + 无文案；`file_store_error` 断言行留下且显示本地化原因。
+- `tests/round4.spec.js`：新增 `treats a computer the server cannot see as already gone`
+  （`listComputers` 两次返回不同答案，断言重拉、卡片消失、无 `computer_not_found` 文案）。
+- `tests/views.spec.js`：`ChannelsView` 补 `reports a delete refused for any other reason`
+  （`forbidden` → 不重拉、显示文案、行还在）；`SchedulesView` 的已消失用例改为先选中该行，
+  于是「清掉选中」这条分支也有人走——M21 换掉两条用例时，`ChannelsView` 的兜底分支因此掉出覆盖
+  （语句 99.98%），本轮补回。
+
+### 3. 校验
+
+- `cd web && bun run test`：**30 个 spec / 716 用例**全绿。
+- `cd web && bun run test:coverage`：语句/行 **100%**、分支 **98.52%**、函数 **99.76%**
+  （10524 条语句、1698 个分支），回到 M21 之前的比例。
+- `cd web && bun run build` 通过；`AGENTS.md`、`requirements.md`（4.2 新增「删除的幂等语义」）、
+  两份 `releasenotes` 的 716 与覆盖率数字已同步。
+- 桌面外壳未受影响：改动只落在网页视图与测试。

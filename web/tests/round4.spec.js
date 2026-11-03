@@ -20,6 +20,7 @@ import {
   getRouterTrigger, getRouterTicket, dropRouterSubscription, getThread, subscribeThreadEvents,
   subscribeRouterEvents,
 } from '../src/lib/api.js'
+import { errorMessage } from '../src/lib/errors.js'
 import KnowledgeView from '../src/views/KnowledgeView.vue'
 import OrgView from '../src/views/OrgView.vue'
 import ConnectorsView from '../src/views/ConnectorsView.vue'
@@ -199,6 +200,28 @@ describe('ComputersView cards', () => {
     expect(deleteComputer).toHaveBeenCalledWith('comp-1')
     // Deleting reloads the list, so the card disappears without a refresh.
     expect(listComputers).toHaveBeenCalledTimes(2)
+  })
+
+  it('treats a computer the server cannot see as already gone', async () => {
+    // The delete answers 404 for a card nobody holds, so the card goes away and
+    // the operator is not told that a deletion they already achieved failed.
+    listComputers
+      .mockResolvedValueOnce([{ id: 'comp-3', kind: 'shell', status: 'idle', agentId: 'a3' }])
+      .mockResolvedValueOnce([])
+    getComputer.mockResolvedValue({ id: 'comp-3', kind: 'shell', status: 'idle', agentId: 'a3' })
+    deleteComputer.mockRejectedValue(Object.assign(new Error('gone'), { code: 'computer_not_found' }))
+    const { wrapper } = mountWith(ComputersView)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Delete computer').trigger('click')
+    await flushPromises()
+    const confirm = wrapper.findAll('button').filter((b) => b.text() === 'Delete computer').at(-1)
+    await confirm.trigger('click')
+    await flushPromises()
+
+    expect(listComputers).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).not.toContain('a3')
+    expect(wrapper.text()).not.toContain(errorMessage('computer_not_found'))
   })
 
   it('keeps the card and reports a refused delete', async () => {

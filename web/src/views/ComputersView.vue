@@ -195,6 +195,14 @@ async function confirmDeleteCard() {
     pendingDeleteCard.value = null
     await loadComputers()
   } catch (e) {
+    // The delete answers 404 for a card the server cannot see, so the card is
+    // already gone. Reloading is the whole point: the operator asked for it to
+    // disappear, and it has.
+    if (e.code === 'computer_not_found') {
+      pendingDeleteCard.value = null
+      await loadComputers()
+      return
+    }
     computersError.value = errorMessage(e.code) || e.message
   } finally {
     deletingCard.value = ''

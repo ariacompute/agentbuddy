@@ -54,6 +54,13 @@ async function remove(id) {
     await deleteChannel(id)
     await workbench.refreshChannels()
   } catch (e) {
+    // A channel the server cannot see is one that is already gone (the delete
+    // answers 404 for an id it does not hold). The operator's intent is
+    // satisfied, so the list is refreshed rather than told it failed.
+    if (e.code === 'channel_not_found') {
+      await workbench.refreshChannels()
+      return
+    }
     listError.value = e.code
   }
 }

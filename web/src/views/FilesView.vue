@@ -106,6 +106,15 @@ async function confirmDelete(id) {
     pendingDelete.value = ''
     await load()
   } catch (e) {
+    // The delete answers 404 for an id the server cannot see, which is a file
+    // already gone (deleted on another machine, or a retry after a dropped
+    // answer). The intent is satisfied, so the list is reloaded instead of
+    // raising a refusal in front of a row that no longer exists.
+    if (e.code === 'file_not_found') {
+      pendingDelete.value = ''
+      await load()
+      return
+    }
     // A refusal stays in place: the row must not disappear as if it had worked.
     error.value = errorMessage(e.code) || e.message
   } finally {

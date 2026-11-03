@@ -93,6 +93,12 @@ over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known
   tickets expand into their body and verdict, live router frames refresh the lists,
   and a thread composer offers `@` mention candidates from the agents that have
   spoken and can stop delegating (`DELETE /api/router/subscriptions/{threadId}`).
+- **Deletes mean gone**: agenthub answers 404 — no longer 204 — when a delete targets an
+  id the caller cannot see, so a goal, channel, computer or file removed on another
+  machine comes back as `schedule_not_found` / `channel_not_found` / `computer_not_found` /
+  `file_not_found`. All four screens take that as "already done" and reload, instead of
+  raising a refusal in front of a row that no longer exists; every other failure still
+  surfaces with localized copy and leaves the row in place.
 - **i18n & theme**: a language switcher (13 languages) and light/dark theme,
   persona avatars and a notification center.
 
@@ -188,10 +194,10 @@ The node lives in the Rust process. The web view only reads its state through
   branches the happy paths never took, plus the shared-files screen and the
   connector approval queue, and a follow-up pass over the arms a happy path never
   takes: a failure with no machine code, a row missing its MIME type or name, an
-  approval without arguments). **30 spec files, 713 cases**, all offline.
+  approval without arguments). **30 spec files, 716 cases**, all offline.
 - `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements
-  and lines, **98.52%** of branches and **99.76%** of functions (10492 statements,
-  1693 branches). The remaining gap is defensive code that cannot be reached
+  and lines, **98.52%** of branches and **99.76%** of functions (10524 statements,
+  1698 branches). The remaining gap is defensive code that cannot be reached
   through the UI — guards whose buttons are disabled in the state that would
   trigger them, and one browser-environment check that jsdom always satisfies.
 - `cargo test` covers the proxy (admission control, the nonce handshake, cookie

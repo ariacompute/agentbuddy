@@ -462,16 +462,37 @@ describe('ChannelsView', () => {
     expect(listChannels).toHaveBeenCalled()
   })
 
-  it('reports a rejected delete instead of leaving an unhandled rejection', async () => {
+  it('treats a channel the server cannot see as already gone', async () => {
+    // The delete answers 404 for an id nobody holds, so the reload is the whole
+    // point: the operator asked for the channel to disappear, and it has.
     listChannels.mockResolvedValue({ channels: [{ id: 'c9', name: 'Gone', kind: 'slack', enabled: true }], deliveries: {} })
     deleteChannel.mockRejectedValue(Object.assign(new Error('nope'), { code: 'channel_not_found' }))
     const { wrapper } = mountWith(ChannelsView)
     await flushPromises()
+    listChannels.mockClear()
 
     await wrapper.find('button[aria-label="delete"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain(errorMessage('channel_not_found'))
+    expect(listChannels).toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain(errorMessage('channel_not_found'))
+  })
+
+  it('reports a delete refused for any other reason', async () => {
+    // Only "the server cannot see it" means gone. A forbidden delete is a
+    // refusal, and the channel stays on screen with the reason attached.
+    listChannels.mockResolvedValue({ channels: [{ id: 'c1', name: 'Slack', kind: 'slack', enabled: true }], deliveries: {} })
+    deleteChannel.mockRejectedValue(Object.assign(new Error('no'), { code: 'forbidden' }))
+    const { wrapper } = mountWith(ChannelsView)
+    await flushPromises()
+    listChannels.mockClear()
+
+    await wrapper.find('button[aria-label="delete"]').trigger('click')
+    await flushPromises()
+
+    expect(listChannels).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain(errorMessage('forbidden'))
+    expect(wrapper.text()).toContain('Slack')
   })
 
   it('retries a failed delivery with both ids', async () => {
@@ -1440,18 +1461,29 @@ describe('SchedulesView', () => {
     expect(wrapper.text()).toContain(errorMessage('schedule_invalid'))
   })
 
-  it('reports a rejected delete', async () => {
+  it('treats a goal the server cannot see as already gone', async () => {
+    // A goal deleted from another device is a 404 on the way out, not a
+    // mistake: the row goes away without an error being raised at the operator.
     listSchedules.mockResolvedValue({
       schedules: [{ id: 's1', goal: 'Nightly', enabled: true, cronExpr: '* * * * *', trigger: 'cron' }],
     })
     deleteSchedule.mockRejectedValue(Object.assign(new Error('no'), { code: 'schedule_not_found' }))
     const { wrapper } = mountWith(SchedulesView)
     await flushPromises()
+    listSchedules.mockClear()
+
+    // Select the row first: the branch that matters is the one that also drops a
+    // selection pointing at a goal that no longer exists.
+    await wrapper.find('.schedule-row').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Run history')
 
     await wrapper.findAll('.schedule-row button').find((b) => b.text() === '×').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain(errorMessage('schedule_not_found'))
+    expect(listSchedules).toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain(errorMessage('schedule_not_found'))
+    expect(wrapper.text()).not.toContain('Run history')
   })
 
   it('reports a rejected run-now', async () => {

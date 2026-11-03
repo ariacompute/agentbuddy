@@ -169,6 +169,14 @@ async function remove(s) {
     if (selected.value === s.id) selected.value = ''
     await load()
   } catch (e) {
+    // The server answers 404 for a goal it cannot see, so "not found" here means
+    // somebody got there first: the operator asked for the row to be gone and it
+    // is. Reload instead of reporting a refusal that never happened.
+    if (e.code === 'schedule_not_found') {
+      if (selected.value === s.id) selected.value = ''
+      await load()
+      return
+    }
     error.value = errorMessage(e.code) || e.message
   }
 }

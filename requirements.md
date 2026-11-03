@@ -338,6 +338,11 @@
 `sandbox_timeout`、`sandbox_node_offline`、`sandbox_lease_lost`、`sandbox_limit_reached`。
 外壳（F18）：`proxy_unauthorized`、`proxy_origin_refused` 由代理直接返回，不进错误码表与文案表。
 
+**删除的幂等语义（F6 / F11 / F13 / F19）**：`DELETE` 不由服务端用状态码替客户端保证幂等——对调用方
+看不见的 id 一律回 404 并带对应的 `channel_not_found` / `computer_not_found` / `schedule_not_found` /
+`file_not_found`。通道、计算机、调度与文件四屏把该码读作「已经没了」：关掉确认框、重拉列表、不弹拒绝；
+其余失败仍就地显示本地化文案且行不消失。
+
 登记三处：`internal/httputil/json.go` 的 `Code*` 常量、agentbuddy `web/src/lib/errors.js` 的
 `CODE_KEYS`、`web/src/lib/copy/errors-copy.js` 的 13 语（调度器文案集中在
 `copy/scheduler-copy.js`，由这两张表合并进来）。

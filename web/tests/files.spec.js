@@ -13,6 +13,7 @@ import { setLang } from '../src/lib/use-copy.js'
 vi.mock('../src/lib/api.js')
 
 import { deleteFile, fileContentUrl, listFiles, uploadFile } from '../src/lib/api.js'
+import { errorMessage } from '../src/lib/errors.js'
 import FilesView from '../src/views/FilesView.vue'
 
 const ROW = {
@@ -231,9 +232,13 @@ describe('FilesView', () => {
     expect(uploadFile).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the row when the delete is refused', async () => {
+  it('treats a file the server cannot see as already gone', async () => {
+    // The delete answers 404 for an id nobody holds, so the reload is the whole
+    // point: the row goes away and no refusal is raised in front of it.
     const { wrapper } = mountWith(FilesView)
     await flushPromises()
+    listFiles.mockClear()
+    listFiles.mockResolvedValue({ files: [], maxBytes: 1024 * 1024, backend: 'local' })
 
     deleteFile.mockRejectedValue({ code: 'file_not_found' })
     await wrapper.findAll('button').find((b) => b.text().includes('Delete')).trigger('click')
@@ -241,7 +246,25 @@ describe('FilesView', () => {
     await confirm[confirm.length - 1].trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('That file does not exist.')
+    expect(listFiles).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('No files yet')
+    expect(wrapper.text()).not.toContain('brief.pdf')
+    expect(wrapper.text()).not.toContain(errorMessage('file_not_found'))
+  })
+
+  it('keeps the row when the delete is refused for another reason', async () => {
+    // A store that failed is not a file that vanished: the row must survive so
+    // the operator can read the reason and try again.
+    const { wrapper } = mountWith(FilesView)
+    await flushPromises()
+
+    deleteFile.mockRejectedValue({ code: 'file_store_error' })
+    await wrapper.findAll('button').find((b) => b.text().includes('Delete')).trigger('click')
+    const confirm = wrapper.findAll('button').filter((b) => b.text().includes('Delete'))
+    await confirm[confirm.length - 1].trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('file_store_error'))
     expect(wrapper.text()).toContain('brief.pdf')
   })
 
