@@ -8,7 +8,7 @@
 // them over English with English fallback.
 export const opsCopy = {
   en: {
-    navKnowledge: 'Knowledge', navPersona: 'Persona',
+    navKnowledge: 'Knowledge', navPersona: 'Persona', navFiles: 'Files',
     knowledgeSub: 'Retrieved chunks this agent can quote.', knowledgeAgent: 'Agent', knowledgeSource: 'Source',
     policyTitle: 'Intake policies', policySave: 'Save policy', policyAllow: 'Allow list',
     policyKeywords: 'Keywords', policyResource: 'Delegate to',
@@ -23,7 +23,7 @@ export const opsCopy = {
     mentionTitle: 'Mention', mentionEmpty: 'Nobody in this thread yet.', subscriptionDrop: 'Stop delegating',
   },
   zh: {
-    navKnowledge: '知识库', navPersona: '人格',
+    navKnowledge: '知识库', navPersona: '人格', navFiles: '文件',
     knowledgeSub: '该 Agent 可引用的检索片段。', knowledgeAgent: 'Agent', knowledgeSource: '来源',
     policyTitle: '接入策略', policySave: '保存策略', policyAllow: '白名单',
     policyKeywords: '关键词', policyResource: '委派给',
@@ -38,7 +38,7 @@ export const opsCopy = {
     mentionTitle: '提及', mentionEmpty: '该会话暂无参与者。', subscriptionDrop: '停止自动委派',
   },
   'zh-TW': {
-    navKnowledge: '知識庫', navPersona: '人格',
+    navKnowledge: '知識庫', navPersona: '人格', navFiles: '檔案',
     knowledgeSub: '該 Agent 可引用的檢索片段。', knowledgeAgent: 'Agent', knowledgeSource: '來源',
     policyTitle: '接入策略', policySave: '儲存策略', policyAllow: '白名單',
     policyKeywords: '關鍵詞', policyResource: '委派給',
@@ -53,7 +53,7 @@ export const opsCopy = {
     mentionTitle: '提及', mentionEmpty: '該會話暫無參與者。', subscriptionDrop: '停止自動委派',
   },
   es: {
-    navKnowledge: 'Conocimiento', navPersona: 'Persona',
+    navKnowledge: 'Conocimiento', navPersona: 'Persona', navFiles: 'Archivos',
     knowledgeSub: 'Fragmentos recuperados que este agente puede citar.', knowledgeAgent: 'Agente', knowledgeSource: 'Origen',
     policyTitle: 'Políticas de entrada', policySave: 'Guardar política', policyAllow: 'Lista de permitidos',
     policyKeywords: 'Palabras clave', policyResource: 'Delegar a',
@@ -68,7 +68,7 @@ export const opsCopy = {
     mentionTitle: 'Mencionar', mentionEmpty: 'Aún no hay nadie en este hilo.', subscriptionDrop: 'Dejar de delegar',
   },
   fr: {
-    navKnowledge: 'Connaissances', navPersona: 'Persona',
+    navKnowledge: 'Connaissances', navPersona: 'Persona', navFiles: 'Fichiers',
     knowledgeSub: 'Extraits récupérés que cet agent peut citer.', knowledgeAgent: 'Agent', knowledgeSource: 'Source',
     policyTitle: 'Politiques d’entrée', policySave: 'Enregistrer la politique', policyAllow: 'Liste d’autorisation',
     policyKeywords: 'Mots-clés', policyResource: 'Déléguer à',
@@ -83,7 +83,7 @@ export const opsCopy = {
     mentionTitle: 'Mentionner', mentionEmpty: 'Personne dans ce fil pour l’instant.', subscriptionDrop: 'Arrêter la délégation',
   },
   de: {
-    navKnowledge: 'Wissen', navPersona: 'Persona',
+    navKnowledge: 'Wissen', navPersona: 'Persona', navFiles: 'Dateien',
     knowledgeSub: 'Abgerufene Abschnitte, die dieser Agent zitieren kann.', knowledgeAgent: 'Agent', knowledgeSource: 'Quelle',
     policyTitle: 'Eingangsrichtlinien', policySave: 'Richtlinie speichern', policyAllow: 'Positivliste',
     policyKeywords: 'Schlagwörter', policyResource: 'Delegieren an',
@@ -98,7 +98,7 @@ export const opsCopy = {
     mentionTitle: 'Erwähnen', mentionEmpty: 'Noch niemand in diesem Thread.', subscriptionDrop: 'Nicht mehr delegieren',
   },
   it: {
-    navKnowledge: 'Conoscenza', navPersona: 'Persona',
+    navKnowledge: 'Conoscenza', navPersona: 'Persona', navFiles: 'File',
     knowledgeSub: 'Estratti recuperati che questo agente può citare.', knowledgeAgent: 'Agente', knowledgeSource: 'Origine',
     policyTitle: 'Politiche di ingresso', policySave: 'Salva politica', policyAllow: 'Elenco consentiti',
     policyKeywords: 'Parole chiave', policyResource: 'Delega a',
@@ -113,7 +113,7 @@ export const opsCopy = {
     mentionTitle: 'Menziona', mentionEmpty: 'Nessuno in questo thread per ora.', subscriptionDrop: 'Smetti di delegare',
   },
   ru: {
-    navKnowledge: 'Знания', navPersona: 'Персона',
+    navKnowledge: 'Знания', navPersona: 'Персона', navFiles: 'Файлы',
     knowledgeSub: 'Извлечённые фрагменты, которые агент может цитировать.', knowledgeAgent: 'Агент', knowledgeSource: 'Источник',
     policyTitle: 'Политики приёма', policySave: 'Сохранить политику', policyAllow: 'Белый список',
     policyKeywords: 'Ключевые слова', policyResource: 'Делегировать',
@@ -128,7 +128,7 @@ export const opsCopy = {
     mentionTitle: 'Упомянуть', mentionEmpty: 'В этом обсуждении пока никого нет.', subscriptionDrop: 'Не делегировать',
   },
   ja: {
-    navKnowledge: 'ナレッジ', navPersona: 'ペルソナ',
+    navKnowledge: 'ナレッジ', navPersona: 'ペルソナ', navFiles: 'ファイル',
     knowledgeSub: 'このエージェントが引用できる検索断片。', knowledgeAgent: 'エージェント', knowledgeSource: '取得元',
     policyTitle: '取り込みポリシー', policySave: 'ポリシーを保存', policyAllow: '許可リスト',
     policyKeywords: 'キーワード', policyResource: '委譲先',
@@ -143,7 +143,7 @@ export const opsCopy = {
     mentionTitle: 'メンション', mentionEmpty: 'このスレッドにはまだ参加者がいません。', subscriptionDrop: '自動委任を停止',
   },
   ko: {
-    navKnowledge: '지식', navPersona: '페르소나',
+    navKnowledge: '지식', navPersona: '페르소나', navFiles: '파일',
     knowledgeSub: '이 에이전트가 인용할 수 있는 검색 청크.', knowledgeAgent: '에이전트', knowledgeSource: '출처',
     policyTitle: '유입 정책', policySave: '정책 저장', policyAllow: '허용 목록',
     policyKeywords: '키워드', policyResource: '위임 대상',
@@ -158,7 +158,7 @@ export const opsCopy = {
     mentionTitle: '멘션', mentionEmpty: '이 스레드에는 아직 참여자가 없습니다.', subscriptionDrop: '자동 위임 중지',
   },
   pt: {
-    navKnowledge: 'Conhecimento', navPersona: 'Persona',
+    navKnowledge: 'Conhecimento', navPersona: 'Persona', navFiles: 'Arquivos',
     knowledgeSub: 'Trechos recuperados que este agente pode citar.', knowledgeAgent: 'Agente', knowledgeSource: 'Origem',
     policyTitle: 'Políticas de entrada', policySave: 'Salvar política', policyAllow: 'Lista de permissões',
     policyKeywords: 'Palavras-chave', policyResource: 'Delegar a',
@@ -173,7 +173,7 @@ export const opsCopy = {
     mentionTitle: 'Mencionar', mentionEmpty: 'Ninguém neste tópico ainda.', subscriptionDrop: 'Parar de delegar',
   },
   ar: {
-    navKnowledge: 'المعرفة', navPersona: 'الشخصية',
+    navKnowledge: 'المعرفة', navPersona: 'الشخصية', navFiles: 'الملفات',
     knowledgeSub: 'مقتطفات مسترجعة يمكن لهذا الوكيل اقتباسها.', knowledgeAgent: 'الوكيل', knowledgeSource: 'المصدر',
     policyTitle: 'سياسات الاستقبال', policySave: 'حفظ السياسة', policyAllow: 'قائمة السماح',
     policyKeywords: 'الكلمات المفتاحية', policyResource: 'التفويض إلى',
@@ -188,7 +188,7 @@ export const opsCopy = {
     mentionTitle: 'إشارة', mentionEmpty: 'لا يوجد مشاركون في هذا الموضوع بعد.', subscriptionDrop: 'إيقاف التفويض',
   },
   hi: {
-    navKnowledge: 'ज्ञान', navPersona: 'व्यक्तित्व',
+    navKnowledge: 'ज्ञान', navPersona: 'व्यक्तित्व', navFiles: 'फ़ाइलें',
     knowledgeSub: 'वे पुनर्प्राप्त अंश जिन्हें यह एजेंट उद्धृत कर सकता है।', knowledgeAgent: 'एजेंट', knowledgeSource: 'स्रोत',
     policyTitle: 'इनटेक नीतियाँ', policySave: 'नीति सहेजें', policyAllow: 'अनुमति सूची',
     policyKeywords: 'कीवर्ड', policyResource: 'सौंपें',

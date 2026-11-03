@@ -51,6 +51,17 @@ export const CODE_KEYS = {
   connector_not_found: 'connectorNotFound',
   connector_action_denied: 'connectorActionDenied',
   connector_policy_off: 'connectorPolicyOff',
+  // The approval queue: "gone" and "already decided" are different answers.
+  connector_approval_not_found: 'connectorApprovalNotFound',
+  connector_approval_closed: 'connectorApprovalClosed',
+
+  // Shared files. files_disabled is a configuration, not a fault; the rest
+  // describe what went wrong once a backend is configured.
+  files_disabled: 'filesDisabled',
+  file_not_found: 'fileNotFound',
+  file_too_large: 'fileTooLarge',
+  file_unsupported: 'fileUnsupported',
+  file_store_error: 'fileStoreError',
   audio_too_large: 'audioTooLarge',
   audio_unsupported: 'audioUnsupported',
   audio_transcribe_failed: 'audioTranscribeFailed',
@@ -87,6 +98,9 @@ export const CODE_KEYS = {
   sandbox_node_offline: 'sandboxNodeOffline',
   sandbox_lease_lost: 'sandboxLeaseLost',
   sandbox_limit_reached: 'sandboxLimitReached',
+  // The backend was chosen but cannot do what the profile asked for (a network
+  // mode it never claimed to support); the request is refused, not downgraded.
+  sandbox_capability_unavailable: 'sandboxCapabilityUnavailable',
 }
 
 /** Returns the localised message for a machine readable code. */

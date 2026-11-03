@@ -11,7 +11,7 @@ vi.mock('../src/lib/api.js')
 
 import {
   getWorkspace, listThreads, listTasks, listChannels, listConnectors,
-  getTask, getThread, cancelTask, resumeTask, postTaskMessage, postThreadMessage,
+  getTask, getThread, cancelTask, resumeTask, postThreadMessage,
   createThread, deleteChannel, createChannel, updateChannel, setConnectorPolicy,
   runConnectorAction, listResources, listComputers, createComputer, listSchedules,
   createSchedule, updateSchedule, deleteSchedule, updateResource, login, register, authConfig, whoami,

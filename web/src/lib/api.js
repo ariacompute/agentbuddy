@@ -275,8 +275,81 @@ export const retryDelivery = (id, deliveryId) => post(`/api/channels/${id}/deliv
 export const listConnectors = () => get('/api/connectors')
 export const setConnectorPolicy = (id, policy) => put(`/api/connectors/${id}/policy`, { policy })
 export const getConnectorActions = (id) => get(`/api/connectors/${id}/actions`)
-export const runConnectorAction = (id, name, args) =>
-  post(`/api/connectors/${id}/actions`, { name, args: args || {} })
+export const runConnectorAction = (id, action, args) =>
+  post(`/api/connectors/${id}/actions`, { action, args: args || {} })
+
+/**
+ * The approval queue: connector actions parked by the `ask_first` policy.
+ *
+ * It is derived from the parked A2A tasks rather than from a table of its own, so
+ * there is nothing to keep in step with the state machine.
+ */
+export const listConnectorApprovals = () => get('/api/connectors/approvals')
+/** Approving resumes the parked task, which runs the connector once. */
+export const approveConnectorAction = (id) => post(`/api/connectors/approvals/${id}/approve`)
+/** Rejecting cancels it: nothing runs. */
+export const rejectConnectorAction = (id) => post(`/api/connectors/approvals/${id}/reject`)
+
+// ---- Shared files --------------------------------------------------------
+
+/**
+ * The caller's files plus the two scalars the screen needs before an upload
+ * starts: the size cap and which backend holds the bytes.
+ */
+export const listFiles = () => get('/api/files')
+export const deleteFile = (id) => del(`/api/files/${id}`)
+
+/**
+ * Where the bytes are. It is a path, not a fetch: the download has to reach the
+ * disk as a browser download, and reading 32 MiB through JS to hand it back to an
+ * `<a download>` would double the memory for nothing.
+ */
+export const fileContentUrl = (id) => `/api/files/${id}/content`
+
+/**
+ * Uploads one file, reporting progress as it goes.
+ *
+ * `XMLHttpRequest` rather than `fetch` because only XHR exposes upload progress;
+ * a 32 MiB document otherwise sits behind an indeterminate spinner. `onProgress`
+ * receives a 0–100 integer.
+ */
+export function uploadFile(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const form = new FormData()
+    form.append('file', file, file.name || 'upload.bin')
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${baseUrl()}/api/files`)
+    xhr.withCredentials = true
+    if (typeof onProgress === 'function' && xhr.upload) {
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable || !event.total) return
+        onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(xhr.responseText ? JSON.parse(xhr.responseText) : null)
+        } catch (error) {
+          console.error('agentbuddy: cannot parse the upload response', error)
+          resolve(null)
+        }
+        return
+      }
+      let code = String(xhr.status)
+      try {
+        const body = JSON.parse(xhr.responseText || '{}')
+        if (body && body.code) code = body.code
+      } catch (error) {
+        console.error('agentbuddy: cannot read the upload error body', error)
+      }
+      reject(new ApiError(code, xhr.status))
+    }
+    xhr.onerror = () => reject(new ApiError('network_error', 0))
+    xhr.ontimeout = () => reject(new ApiError('timeout', 0))
+    xhr.send(form)
+  })
+}
 
 // ---- Desktop shell -------------------------------------------------------
 //
@@ -294,6 +367,13 @@ export const getShellConfig = () => get('/__shell/config')
  */
 export const notifyShell = ({ title, body, link }) =>
   post('/__shell/notify', { title, body, link })
+
+/**
+ * Mirrors the unread count onto the tray. The shell clamps it and renders "99+"
+ * past that; a plain web build has no `/__shell/badge`, so callers fire and
+ * forget and the refusal is dropped.
+ */
+export const setTrayBadge = (count) => post('/__shell/badge', { count })
 
 // ---- Speech --------------------------------------------------------------
 

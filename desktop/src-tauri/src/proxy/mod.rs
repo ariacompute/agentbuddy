@@ -13,7 +13,7 @@
 //! Relative URLs, `HttpOnly` cookies, SSE and file downloads then behave exactly
 //! as they do in a browser, and neither the workbench nor the Go server changes.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use reqwest::cookie::Jar;
@@ -72,6 +72,10 @@ pub struct ProxyState {
     /// Admission control. `None` only in the test router, which has no window to
     /// bootstrap a cookie into.
     pub auth: Option<Arc<auth::Auth>>,
+    /// How many notifications the workbench has not read. It lives here rather
+    /// than in the tray so a language change (which rebuilds the menu) can put
+    /// the same number back instead of losing it.
+    pub unread: Arc<Mutex<u32>>,
 }
 
 pub struct ProxyHandle {
@@ -143,6 +147,7 @@ async fn start_inner(
         jar,
         executor: executor.clone(),
         auth,
+        unread: Arc::new(Mutex::new(0)),
     };
     let router = Router::new().fallback(dispatch).with_state(state);
     let task = tokio::spawn(async move {
@@ -320,6 +325,7 @@ mod tests {
             jar,
             executor,
             auth: Some(auth.clone()),
+            unread: Arc::new(Mutex::new(0)),
         };
         (state, auth)
     }
@@ -813,6 +819,7 @@ mod tests {
             jar,
             executor,
             auth: Some(gate.clone()),
+            unread: Arc::new(Mutex::new(0)),
         };
         let router = Router::new().fallback(dispatch).with_state(state);
         tokio::spawn(async move {

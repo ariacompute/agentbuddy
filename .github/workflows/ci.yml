@@ -110,6 +110,38 @@ jobs:
           bun install --frozen-lockfile
           bun run build
 
-      - name: Cargo test
+      # Linux really runs the suite; the log is kept so the summary below (and a
+      # failed job) can be read without scrolling through the step output.
+      - name: Cargo test (Linux, with log)
+        if: matrix.os == 'ubuntu-22.04'
+        working-directory: desktop/src-tauri
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test 2>&1 | tee desktop-test.log
+
+      # Windows CI cannot start the Tauri native test binary, so it compiles only.
+      - name: Cargo test (Windows, compile only)
+        if: matrix.os != 'ubuntu-22.04'
         working-directory: desktop/src-tauri
         run: ${{ matrix.command }}
+
+      - name: Publish the desktop test summary
+        if: matrix.os == 'ubuntu-22.04'
+        working-directory: desktop/src-tauri
+        shell: bash
+        run: |
+          {
+            echo '### cargo test (Linux)'
+            echo '```'
+            grep -E '^(running [0-9]+ tests|test result:)' desktop-test.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the desktop test log
+        if: matrix.os == 'ubuntu-22.04'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-test-log
+          path: desktop/src-tauri/desktop-test.log
+          if-no-files-found: error

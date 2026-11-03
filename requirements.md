@@ -80,9 +80,10 @@
 | F5.2 | 事件聚合：轮询 `/api/workspace` + `/api/tasks`（可见 5s / 隐藏 20s / 失败指数退避 5s→30s）+ 对非终态任务按需开 per-task SSE（**并发上限 6**，LRU 淘汰） |
 | F5.3 | 通知去重纯函数 `decide()`：幂等键 `taskID:state`（1h 窗口，与 `HTTPNotifier` 对齐）、同键 30s 静默、每分钟 >8 条合并为摘要、静默期内只入站内中心 |
 | F5.4 | 系统通知**真实投递**：`decide()` 判定需要打扰后，工作台经环回端点 `POST /__shell/notify` 发一条本地化标题 + 摘要 + 深链（`title` 在发送时用当前语言解析，不是 copy key）。外壳的 `notify_enabled` 与 `notify_quiet_minutes` 由工作台读 `/__shell/config` 后喂给 `decide({settings:{enabled, quietUntil}})`，因此设置页的「通知开关」与「静默期」真的生效，而不只是写进配置文件。投递为 fire-and-forget：`ok:false`（`disabled` / `quiet` / `no_app` / `denied` / `missing_fields`）是正常回应，降级为应用内红点，不报错、不重试、不阻塞轮询；纯 Web 构建没有 `/__shell`，请求失败被静默吞掉 |
-| F5.5 | 托盘角标显示未读计数；**点击 toast 真的跳转**：`link` 是站内路径，外壳入队后于 `ActionPerformed::action_id() == "tap"` 时取用，`unminimize` + `show` + `set_focus` 并 `window.location.hash = '#/…'`（工作台是 `createWebHashHistory`，即一次真实路由跳转）。只接受单斜杠开头且拒绝 `//host` / `javascript:` / 反斜杠 / 控制字符；路径经 JSON 编码后才进 `eval`；一次点击只消费一次 |
+| F5.5 | **托盘角标（已实现）**：工作台在未读数变化时经 `setTrayBadge(count)` → `POST /__shell/badge` 推送，fire-and-forget（纯 Web 构建没有该端点，失败静默）。外壳把计数存在 `ProxyState.unread` 并 clamp 到 `999`；tooltip 全平台可见，`set_title` 在不支持标题的平台静默失败，>99 显示 `99+`。**计数留在进程里**，语言切换重建菜单后重新套用，角标不丢；文案是 `badge_text(lang, count)` 纯函数（13 语 `trayUnread`） |
+| F5.6 | **toast 深链（已实现）**：`link` 是站内路径，外壳入队后于 `ActionPerformed::action_id() == "tap"` 时取用，`unminimize` + `show` + `set_focus` 并 `window.location.hash = '#/…'`（工作台是 `createWebHashHistory`，即一次真实路由跳转）。只接受单斜杠开头且拒绝 `//host` / `javascript:` / 反斜杠 / 控制字符；路径经 JSON 编码后才进 `eval`；一次点击只消费一次 |
 | F5.7 | 静默期以**调用时刻**为锚：`quietUntil = now + minutes*60*1000`，读取与保存都一样；不得以「首次读取设置的时间」为锚（否则长时间开着的页面算出已过去的窗口，静默形同虚设） |
-| F5.6 | 断线重放：`?since=<seq>`；SSE 无 `[DONE]` 哨兵，终态由状态判定 |
+| F5.8 | 断线重放：`?since=<seq>`；SSE 无 `[DONE]` 哨兵，终态由状态判定 |
 
 ### F6 多通道触达
 
@@ -230,6 +231,20 @@
 | F18.5 | 转发上游时只丢逐跳头，上游的 `Content-Security-Policy` / `Strict-Transport-Security` / `X-Frame-Options` 原样透传 |
 | F18.6 | 会话凭据存系统凭据库（F1.7）；设置页显示 `sessionBackend`，回退到文件时给出可读告警 |
 | F18.7 | 无窗口的测试路由器（`auth: None`）保持原转发行为；关闭准入时 `/__shell/bootstrap` 返回 404 |
+
+### F19 共享文件与连接器审批队列
+
+两项能力都靠服务端提供，客户端只负责把「能做什么」和「还欠一个决定」变成可操作的界面。
+
+| 编号 | 需求 |
+|---|---|
+| F19.1 | **共享文件屏**（`/files`）：侧栏独立入口（`FolderOpen`）；虚线拖拽区 + 点击选择，拖入时描边变实线；上传中显示等宽进度条与百分比，失败就在框内给出本地化原因与重试 |
+| F19.2 | 文件表：名称（含 MIME 小字）、大小（KiB/MiB）、上传时间、操作；操作列提供**下载**（普通链接到 `/api/files/{id}/content`，带 `download` 属性，响应体不经 JS）与**删除**（行内二次确认，取消即撤销） |
+| F19.3 | 空态与关闭态分离：没有文件是「还没有文件」+ 上传按钮；服务端 `files_disabled` 是「该服务端已关闭共享文件」且不显示拖拽区——**不能把关闭显示成空列表** |
+| F19.4 | 上限提示来自服务端返回的 `maxBytes`，客户端在发送前先挡一次超限（不必上传完整份才被拒） |
+| F19.5 | **审批队列**（连接器页内区块）：标题带计数徽标与刷新；每条显示连接器名、等宽动作名、参数摘要（超长省略 + `title` 悬浮全文）、请求时间；右侧「批准」（实心）/「拒绝」（描边） |
+| F19.6 | 决策后**重新拉取队列**而不是本地猜测：批准 = 服务端 resume 真跑一次，拒绝 = cancel；失败的决策保留该行并在行上方给出本地化原因（`connector_approval_closed` / `connector_approval_not_found`），不做乐观删除 |
+| F19.7 | 无待审批时整块只留一行说明；有内容时列表内部滚动，不撑高页面 |
 
 ---
 

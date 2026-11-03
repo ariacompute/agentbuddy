@@ -4,6 +4,8 @@
 //! whichever of the 13 languages the user picked. The menu is rebuilt whenever
 //! that language changes.
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use tauri::menu::{Menu, MenuEvent, MenuItem};
 use tauri::{AppHandle, Manager};
 
@@ -11,6 +13,63 @@ use crate::config::AppConfig;
 use crate::i18n;
 
 pub const TRAY_ID: &str = "main";
+
+/// What the workbench last reported as unread.
+///
+/// It is kept in the process rather than read back from the window because
+/// `refresh` runs on a language change, which rebuilds the menu and would
+/// otherwise wipe the badge it is not being told about again.
+static UNREAD: AtomicU32 = AtomicU32::new(0);
+
+/// The badge for a count, in the user's language. Empty at zero: "0 unread" is a
+/// badge nobody wants.
+pub fn badge_text(lang: &str, count: u32) -> String {
+    if count == 0 {
+        return String::new();
+    }
+    i18n::translate(lang, "trayUnread").replace("{n}", &badge_number(count))
+}
+
+/// The number itself, capped where the tray can still render it.
+fn badge_number(count: u32) -> String {
+    if count > 99 {
+        "99+".to_string()
+    } else {
+        count.to_string()
+    }
+}
+
+/// The title a platform that supports one shows. Windows has no tray title, so
+/// the tooltip carries the number there and this is `None` at zero everywhere.
+fn title_for(count: u32) -> Option<String> {
+    if count == 0 {
+        None
+    } else {
+        Some(badge_number(count))
+    }
+}
+
+/// Tells the tray how much is unread. The tooltip is the part every platform
+/// shows; the title is the numeric badge macOS and the Linux appindicator add.
+pub fn set_unread(app: &AppHandle, lang: &str, count: u32) {
+    UNREAD.store(count, Ordering::Relaxed);
+    apply_badge(app, lang, count);
+}
+
+fn apply_badge(app: &AppHandle, lang: &str, count: u32) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return;
+    };
+    let text = badge_text(lang, count);
+    let tooltip = if text.is_empty() { APP_NAME.to_string() } else { text };
+    let _ = tray.set_tooltip(Some(tooltip));
+    let title = title_for(count);
+    let _ = tray.set_title(title.as_deref());
+}
+
+/// The tooltip an idle tray carries. It is the product name, which is a proper
+/// noun and therefore the same in every language.
+const APP_NAME: &str = "agentbuddy";
 
 const ID_OPEN: &str = "shell.open";
 const ID_SETTINGS: &str = "shell.settings";
@@ -30,6 +89,8 @@ pub fn build(app: &AppHandle, config: &AppConfig) -> tauri::Result<()> {
             let _ = builder.build(app)?;
         }
     }
+    // A badge set before the icon existed (an early notification) is applied now.
+    apply_badge(app, config.lang(), UNREAD.load(Ordering::Relaxed));
     Ok(())
 }
 
@@ -40,6 +101,9 @@ pub fn refresh(app: &AppHandle, config: &AppConfig) {
             let _ = tray.set_menu(Some(menu));
         }
     }
+    // The badge is rebuilt too: its tooltip is in the language that just changed,
+    // and the count has not changed with it.
+    apply_badge(app, config.lang(), UNREAD.load(Ordering::Relaxed));
 }
 
 fn menu(app: &AppHandle, config: &AppConfig) -> tauri::Result<Menu<tauri::Wry>> {
@@ -119,5 +183,37 @@ mod tests {
     #[test]
     fn the_tray_id_is_the_one_tauri_looks_up() {
         assert_eq!(TRAY_ID, "main");
+    }
+
+    #[test]
+    fn an_empty_inbox_carries_no_badge() {
+        // Zero is not "0 unread": the tray shows nothing at all.
+        assert_eq!(badge_text("en", 0), "");
+        assert_eq!(title_for(0), None);
+    }
+
+    #[test]
+    fn the_badge_counts_up_to_ninety_nine_and_then_says_more() {
+        assert_eq!(badge_text("en", 1), "1 unread");
+        assert_eq!(badge_text("en", 42), "42 unread");
+        assert_eq!(badge_text("en", 99), "99 unread");
+        // Past 99 the exact number stops fitting in a menu bar.
+        assert_eq!(badge_text("en", 100), "99+ unread");
+        assert_eq!(title_for(100).as_deref(), Some("99+"));
+        assert_eq!(title_for(7).as_deref(), Some("7"));
+    }
+
+    #[test]
+    fn every_language_has_its_own_badge_wording() {
+        // The shell's copy is 13 languages; a language that fell back to English
+        // would be a badge nobody translated.
+        for (code, _) in crate::i18n::LANGUAGES {
+            let text = badge_text(code, 3);
+            assert!(!text.is_empty(), "{code} has no badge wording");
+            assert!(text.contains('3'), "{code} drops the number: {text}");
+            if code != "en" {
+                assert_ne!(text, badge_text("en", 3), "{code} repeats the English badge");
+            }
+        }
     }
 }

@@ -12,13 +12,14 @@ vi.mock('../src/lib/api.js', () => ({
   cancelTask: vi.fn(),
   isAuthError: vi.fn(),
   notifyShell: vi.fn(),
+  setTrayBadge: vi.fn(),
   getShellConfig: vi.fn(),
 }))
 
 import { useWorkbenchStore } from '../src/lib/workbench-store.js'
 import {
   getWorkspace, listThreads, listTasks, listChannels, listConnectors, getDeliveries,
-  resumeTask, cancelTask, isAuthError, notifyShell, getShellConfig,
+  resumeTask, cancelTask, isAuthError, notifyShell, setTrayBadge, getShellConfig,
 } from '../src/lib/api.js'
 import { resetShellNotifySettings } from '../src/lib/shell-settings.js'
 
@@ -55,6 +56,35 @@ describe('workbench-store', () => {
       expect(s.channelById('c1')).toEqual({ id: 'c1' })
       expect(s.channelById('nope')).toBeUndefined()
       expect(s.connectorById('m1')).toEqual({ id: 'm1' })
+    })
+  })
+
+  describe('tray badge', () => {
+    it('mirrors the unread count every time it changes', () => {
+      const s = useWorkbenchStore()
+      s.ingestTask({ id: 't1', status: { state: 'completed' }, resourceId: 'agent' }, 1_000_000)
+      expect(setTrayBadge).toHaveBeenLastCalledWith(1)
+
+      s.ingestTask({ id: 't2', status: { state: 'failed' }, resourceId: 'agent' }, 1_000_001)
+      expect(setTrayBadge).toHaveBeenLastCalledWith(2)
+
+      s.markAllRead()
+      expect(s.notifications).toHaveLength(0)
+      expect(setTrayBadge).toHaveBeenLastCalledWith(0)
+
+      s.ingestTask({ id: 't3', status: { state: 'completed' }, resourceId: 'agent' }, 1_000_002)
+      s.clearNotifications()
+      expect(setTrayBadge).toHaveBeenLastCalledWith(0)
+    })
+
+    it('does not turn a shell refusal into an unhandled rejection', async () => {
+      // A plain web build has no /__shell/badge; the push is fire-and-forget.
+      setTrayBadge.mockRejectedValueOnce(new Error('no shell'))
+      const s = useWorkbenchStore()
+      s.markAllRead()
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(setTrayBadge).toHaveBeenCalledWith(0)
     })
   })
 

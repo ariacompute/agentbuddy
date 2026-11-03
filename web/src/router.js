@@ -14,6 +14,7 @@ import ComputersView from './views/ComputersView.vue'
 import SchedulesView from './views/SchedulesView.vue'
 import PersonaEditor from './views/PersonaEditor.vue'
 import KnowledgeView from './views/KnowledgeView.vue'
+import FilesView from './views/FilesView.vue'
 
 const routes = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
@@ -30,6 +31,7 @@ const routes = [
   { path: '/schedules', name: 'schedules', component: SchedulesView },
   { path: '/persona', name: 'persona', component: PersonaEditor },
   { path: '/knowledge', name: 'knowledge', component: KnowledgeView },
+  { path: '/files', name: 'files', component: FilesView },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 

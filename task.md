@@ -747,3 +747,55 @@ agentbuddy 把「计算机」屏从三张空卡片升级为**执行环境控制�
   handler 层已收口，数据库第二道闸只覆盖 schedules / channels / computers 三张有
   `owner_id` 的表），详见 agenthub 仓 `task.md`。
 - 连接器动作只是「声明能力」，不产生调用历史；真正的调用记录仍在任务 trace 里。
+
+## M20 — 第五轮完整度收口：托盘角标 / 共享文件 / 审批队列 / 文档基线（2026-11-03）
+
+对照《agenthub-agentbuddy 完整度评估》第 7 节 client 侧建议 1/2/3/4/5。
+
+### 1. 托盘未读角标（建议 1）
+
+- 外壳：`POST /__shell/badge`（`{count}`，缺字段 400 `invalid_count`、坏 JSON 400 `invalid_json`、
+  超 `999` clamp 到 `999`），走 `dispatch` 既有的 Cookie/Origin 准入；计数存
+  `ProxyState.unread: Arc<Mutex<u32>>`（`ProxyState` 仍可 `Clone`）。
+- `tray::set_unread(app, lang, count)`：tooltip 全平台、`set_title` 在不支持的平台静默失败；
+  0 清空角标并把 tooltip 回落产品名；>99 显示 `99+`。计数在进程里，`build`/`refresh` 都会重新套用，
+  所以切语言不会把角标抹掉。
+- 文案 `trayUnread` 13 语进 `i18n/copy.rs`（EN 为键序基准），`badge_text` / `title_for` 是纯函数，
+  三个新用例覆盖 0 / 99+ / 每语言一断言。
+- 前端：`api.js` 增 `setTrayBadge`；`workbench-store` 在 `ingestTask`、`markAllRead`、
+  `clearNotifications` 三处 fire-and-forget 推送，纯 Web 构建的拒绝被吞掉。
+
+### 2. 共享文件屏（建议 2）
+
+- `views/FilesView.vue` + `/files` 路由 + 侧栏 `FolderOpen` 入口（15 屏 / 16 路由）。
+- 上传用 `XMLHttpRequest`（只有它给上传进度），其余走既有 fetch 封装；下载是
+  `<a :href="fileContentUrl(id)" download>`，字节不经 JS。
+- 状态三分：加载中 / 空列表 / 服务端 `files_disabled`。上限提示取服务端 `maxBytes`，
+  发送前先挡一次超限；删除走行内二次确认，失败保留该行。
+- `copy/files-copy.js` 13 语（17 键）+ 8 个新错误码文案（`filesErrorCopy`，在 `errors-copy.js` 合并）。
+- 样式追加进唯一的 `style.css`：拖拽区、进度条、文件表与 ≤900px 的卡片化降级，全部复用既有
+  令牌，未新增颜色。
+
+### 3. 连接器审批队列界面（建议 3）
+
+- `ConnectorsView.vue` 的审批区从「只读 id 列表」改为真实队列：连接器名、等宽动作名、
+  参数摘要（悬浮全文）、时间、计数徽标、刷新；批准（实心）/ 拒绝（描边）。
+- 决策后重新拉取队列并刷新任务列表；失败保留该行并显示本地化原因，不做乐观删除。
+- 修掉 `runConnectorAction` 的报文错位（服务端读 `action`，前端曾发 `name`）。
+
+### 4. 文档与可验证性（建议 4/5）
+
+- `requirements.md`：F5.5 拆为「角标（已实现）」与「F5.6 toast 深链（已实现）」，断线重放顺延为
+  F5.8；新增 F19「共享文件与连接器审批队列」七条。
+- `AGENTS.md`：屏数 14→15、路由 15→16、spec 28→30、用例 663→697、覆盖率基线改为
+  语句/行 100% / 分支 97.5% / 函数 99.76%（10492 语句、1684 分支），并补 `/__shell/badge` 说明。
+- `releasenotes.md`：同一组数字与 Rust 用例说明对齐；新增 `make desktop-test-report`。
+- CI：desktop job 在 Linux 上 `tee desktop-test.log` → 摘要写进 `GITHUB_STEP_SUMMARY` →
+  上传 `desktop-test-log` 产物；Windows 仍是 `cargo test --no-run` 编译校验。
+
+### 5. 校验与残余
+
+- `cd web && bun run test`：**30 个 spec / 697 用例**全绿；`bun run test:coverage`：
+  语句与行 100%、分支 97.5%、函数 99.76%；`bun run build` 通过。
+- Rust：本机 `cargo` 无法执行（工具链所在卷被判定为不可信挂载，`ApplicationFailedException`），
+  因此 `badge`/`tray`/`shell` 的 Rust 改动只经代码审读，实际编译由 CI 的 Linux job 把关。

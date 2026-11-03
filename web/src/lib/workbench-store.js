@@ -5,7 +5,7 @@
 import { defineStore } from 'pinia'
 import {
   getWorkspace, listThreads, listTasks, listChannels, listConnectors, getDeliveries,
-  resumeTask, cancelTask, isAuthError, notifyShell,
+  resumeTask, cancelTask, isAuthError, notifyShell, setTrayBadge,
 } from './api.js'
 import { decide, markSeen, pruneSeen } from './notifications.js'
 import { loadShellNotifySettings } from './shell-settings.js'
@@ -28,6 +28,13 @@ function isActive(task) {
 function asList(data, key) {
   if (Array.isArray(data)) return data
   return (data && data[key]) || []
+}
+
+// The tray badge is a side channel: the count is already on screen, so a shell
+// that refuses the request (a plain web build has no `/__shell/badge`) must not
+// turn into an error the user sees.
+function pushTrayBadge(count) {
+  Promise.resolve(setTrayBadge(count)).catch(() => {})
 }
 
 // A receipt arrives with `createdAt` / `error`; every other row in the app is
@@ -211,16 +218,20 @@ export const useWorkbenchStore = defineStore('workbench', {
       if (this.notifications.length > 50) this.notifications.length = 50
       this.seen = markSeen(this.seen, decision.key, now)
       if (note.system) this.announce(note)
+      // The tray shows the same number while the window is hidden.
+      pushTrayBadge(this.notifications.length)
       return note
     },
 
     markAllRead() {
       this.notifications = []
+      pushTrayBadge(0)
     },
 
     clearNotifications() {
       this.notifications = []
       this.seen = {}
+      pushTrayBadge(0)
     },
 
     /** Approves an input-required task by resuming it with an empty answer. */

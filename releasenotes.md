@@ -185,16 +185,21 @@ The node lives in the Rust process. The web view only reads its state through
   destination field, the execution-environment console and its lease actions,
   sign-in and sign-up, one screen→endpoint suite with both the success and the
   failure path, an export-usage guard over `lib/api.js`, and a suite for the
-  branches the happy paths never took). **28 spec files, 663 cases**, all
-  offline.
+  branches the happy paths never took, plus the shared-files screen and the
+  connector approval queue). **30 spec files, 697 cases**, all offline.
 - `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements
-  and lines, **98.29%** of branches and **99.74%** of functions (9777 statements,
-  1586 branches). The remaining gap is defensive code that cannot be reached
+  and lines, **97.5%** of branches and **99.76%** of functions (10492 statements,
+  1684 branches). The remaining gap is defensive code that cannot be reached
   through the UI — guards whose buttons are disabled in the state that would
   trigger them, and one browser-environment check that jsdom always satisfies.
 - `cargo test` covers the proxy (admission control, the nonce handshake, cookie
   rewriting, streaming, the origin gate), config (language fallback, per-server
   session storage, the plaintext migration), i18n (every locale carries every key
   in English order, codes pinned to `web/src/lib/languages.js`) and the tray
-  mapping — 153 cases. They run on Linux (WSL2) and in CI; the Windows test binary
-  cannot start in this environment, so there they are compile-verified only.
+  mapping — 153 cases as of the previous round, plus three for the tray badge
+  (`badge_text` / `title_for`: zero, `99+`, and one assertion per language).
+  They run on
+  Linux (WSL2) and in CI; the Windows test binary cannot start in this environment,
+  so there they are compile-verified only. CI now writes the Linux run into
+  `GITHUB_STEP_SUMMARY` and uploads `desktop-test.log`, and
+  `make desktop-test-report` produces the same summary locally.

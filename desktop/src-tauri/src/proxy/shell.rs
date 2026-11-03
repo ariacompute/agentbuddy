@@ -38,6 +38,17 @@ struct ConfigPayload {
 
 /// The settings screen's execution-node block. Everything here is local: the
 /// server never decides whether this machine accepts work.
+/// The badge the workbench reports. `count` is required: a request that omits it
+/// is a bug in the caller, not "clear the badge".
+#[derive(Debug, Deserialize)]
+struct BadgePayload {
+    count: Option<u32>,
+}
+
+/// The largest count the tray badge keeps. Past that the number stops fitting and
+/// the same ceiling is applied to the tooltip and the title.
+const MAX_BADGE: u32 = 999;
+
 #[derive(Debug, Deserialize)]
 struct ExecutorPayload {
     enabled: Option<bool>,
@@ -62,6 +73,10 @@ pub async fn handle(state: &ProxyState, req: Request) -> Response {
         ("POST", "/__shell/executor") => save_executor(state, req).await,
         ("POST", "/__shell/test") => test_connection(req).await,
         ("POST", "/__shell/notify") => notify::handle(state, req).await,
+        // The unread count the workbench pushes after every change of a count it
+        // renders anyway: the tray is the same number, seen when the window is
+        // hidden.
+        ("POST", "/__shell/badge") => set_badge(state, req).await,
         ("POST", "/__shell/hide") => hide_window(state),
         _ => (
             StatusCode::NOT_FOUND,
@@ -334,6 +349,35 @@ fn hide_window(state: &ProxyState) -> Response {
     axum::Json(json!({ "ok": true })).into_response()
 }
 
+/// Records the unread count and mirrors it onto the tray.
+///
+/// The value is clamped rather than refused: a workbench that counted a hundred
+/// thousand events still wants a badge, and the tray can only render "99+". The
+/// count is kept here so a language change (which rebuilds the tray) can put the
+/// same number back.
+async fn set_badge(state: &ProxyState, req: Request) -> Response {
+    let Some(payload) = decode_badge(req).await else {
+        return failure("invalid_json", StatusCode::BAD_REQUEST);
+    };
+    let Some(count) = payload.count else {
+        return failure("invalid_count", StatusCode::BAD_REQUEST);
+    };
+    let count = count.min(MAX_BADGE);
+    if let Ok(mut slot) = state.unread.lock() {
+        *slot = count;
+    }
+    let lang = state.config.read().await.lang();
+    if let Some(app) = &state.app {
+        crate::tray::set_unread(app, lang, count);
+    }
+    axum::Json(json!({ "ok": true, "count": count })).into_response()
+}
+
+async fn decode_badge(req: Request) -> Option<BadgePayload> {
+    let bytes = to_bytes(req.into_body(), MAX_BODY).await.ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 async fn decode(req: Request) -> Option<ConfigPayload> {
     let bytes = to_bytes(req.into_body(), MAX_BODY).await.ok()?;
     serde_json::from_slice(&bytes).ok()
@@ -380,6 +424,7 @@ mod tests {
             // The tests drive the shell handlers directly; admission control is
             // exercised in `proxy::auth` and in the end-to-end proxy tests.
             auth: None,
+            unread: Arc::new(std::sync::Mutex::new(0)),
         }
     }
 
@@ -508,6 +553,105 @@ mod tests {
         assert_eq!(json["code"], "not_found");
         // The nonce is untouched, so the real window can still redeem it.
         assert!(auth.take_nonce(&nonce));
+    }
+
+    #[tokio::test]
+    async fn the_badge_endpoint_records_the_unread_count() {
+        let state = state().await;
+        let (status, json) = decode(
+            handle(
+                &state,
+                Request::builder()
+                    .method("POST")
+                    .uri("/__shell/badge")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"count":7}"#))
+                    .unwrap(),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["count"], 7);
+        // The count lives in the shell, so a language change can re-apply it.
+        assert_eq!(*state.unread.lock().unwrap(), 7);
+
+        // Zero is how the workbench says "all read".
+        let (status, json) = decode(
+            handle(
+                &state,
+                Request::builder()
+                    .method("POST")
+                    .uri("/__shell/badge")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"count":0}"#))
+                    .unwrap(),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["count"], 0);
+        assert_eq!(*state.unread.lock().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn the_badge_is_capped_rather_than_refused() {
+        let state = state().await;
+        let (status, json) = decode(
+            handle(
+                &state,
+                Request::builder()
+                    .method("POST")
+                    .uri("/__shell/badge")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"count":100000}"#))
+                    .unwrap(),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["count"], MAX_BADGE);
+        assert_eq!(*state.unread.lock().unwrap(), MAX_BADGE);
+    }
+
+    #[tokio::test]
+    async fn a_badge_without_a_count_is_a_client_error() {
+        let state = state().await;
+        let (status, json) = decode(
+            handle(
+                &state,
+                Request::builder()
+                    .method("POST")
+                    .uri("/__shell/badge")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"unread":3}"#))
+                    .unwrap(),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json["reason"], "invalid_count");
+        assert_eq!(*state.unread.lock().unwrap(), 0);
+
+        let (status, json) = decode(
+            handle(
+                &state,
+                Request::builder()
+                    .method("POST")
+                    .uri("/__shell/badge")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{ not json"))
+                    .unwrap(),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json["reason"], "invalid_json");
     }
 
     #[tokio::test]

@@ -61,6 +61,13 @@ desktop-build: desktop-install web-build icons ## Produce installers for the hos
 desktop-test: desktop-install icons ## Rust unit tests (proxy, config, i18n).
 	cd $(DESK)/src-tauri && cargo test
 
+.PHONY: desktop-test-report
+desktop-test-report: desktop-install icons ## Same run, plus a pasteable summary and a kept log.
+	cd $(DESK)/src-tauri && set -o pipefail && cargo test 2>&1 | tee desktop-test.log
+	@cd $(DESK)/src-tauri && { echo '### cargo test'; echo '```'; \
+		grep -E '^(running [0-9]+ tests|test result:)' desktop-test.log || true; \
+		echo '```'; }
+
 .PHONY: desktop-check
 desktop-check: desktop-install icons ## cargo check without bundling (fast feedback in CI).
 	cd $(DESK)/src-tauri && cargo check --all-targets

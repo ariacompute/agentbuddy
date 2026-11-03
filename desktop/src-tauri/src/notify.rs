@@ -214,6 +214,7 @@ mod tests {
             jar,
             executor,
             auth: None,
+            unread: Arc::new(std::sync::Mutex::new(0)),
         }
     }
 

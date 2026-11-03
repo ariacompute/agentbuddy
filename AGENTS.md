@@ -10,7 +10,7 @@
 `agenthub` 服务端，从而复用 agenthub 的认证、A2A 编排、注册中心与任务状态机。
 
 - 后端（别人的）：`agenthub`（Go 1.27 + PostgreSQL）。本仓库 **不 import** agenthub，只经 HTTP 对话。
-- 前端：Vue 3.5 + Vite 5（**bun 1.4.4+** 运行时，弃用 npm/Node）；14 屏工作台；**13 种语言**；
+- 前端：Vue 3.5 + Vite 5（**bun 1.4.4+** 运行时，弃用 npm/Node）；15 屏工作台；**13 种语言**；
   **纯黑/白/灰单色**；无 UI 组件库、无 CSS 框架，样式全部手写于单个 `web/src/style.css`。
 - 桌面外壳：`desktop/src-tauri`（**Rust + Tauri v2**，出向 TLS 由 rustls + webpki-roots ≥1.0.10 校验），**不含后端、不含数据库**，用环回反向代理把
   同一份工作台对着用户指定的服务端打开；外壳自有文案同样 13 语。
@@ -40,11 +40,12 @@
 ```
 web/                        Vue 3 工作台（bun + vite）
   src/App.vue               全局壳：镜像 <html lang|dir>、启动 ActivityMonitor
-  src/router.js             15 条路由 + 登录守卫
+  src/router.js             16 条路由 + 登录守卫
   src/style.css             唯一全局样式表（单色令牌 + 全站样式）
   src/lib/                  语言、copy、api、stores、monitor、notifications、voice
   src/lib/copy/scheduler-copy.js  调度器文案（13 语，合并进 hub / errors 命名空间）
-  src/views/                14 屏（SchedulesView 含调度水位 / 运行历史 / 触发流 / 策略四区块；
+  src/views/                15 屏（SchedulesView 含调度水位 / 运行历史 / 触发流 / 策略四区块；
+                            FilesView 为共享文件（上传 / 列表 / 下载 / 删除）；
                             KnowledgeView 为只读知识片段列表）
   src/components/           共享组件
   tests/                    Vitest（含 style 单色守卫、copy-fallback 13 语完整性、
@@ -77,8 +78,8 @@ desktop/
 - **测试**：`cd web && bun run test`（Vitest）。**勿用裸 `bun test`**（Bun 原生 runner 不加载
   `vitest.config.js`，无 jsdom 环境）。新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线（28 个 spec、**663** 条用例）：
-  语句/行 **100%**、分支 **98.29%**、函数 **99.74%**（9777 条语句、1586 个分支）；
+  `text-summary` + `text`，不写报告目录），当前基线（30 个 spec、**697** 条用例）：
+  语句/行 **100%**、分支 **97.5%**、函数 **99.76%**（10492 条语句、1684 个分支）；
   回落时先看报告里的未覆盖行再补用例。
 - **接线守卫**：`api.js` 的每个具名导出至少要被 `web/src/**`（除 `api.js` 自身）引用一处，
   `tests/api-usage.spec.js` 强制这条且白名单必须为空；新增封装却忘了接界面会直接红。
@@ -93,6 +94,12 @@ desktop/
   （`ActionPerformed::action_id() == "tap"`）时取用并 `window.location.hash = '#/…'` 导航——
   工作台是 hash 路由，这是唯一无需新增 IPC 面的跳转通道。只接受单斜杠开头、拒绝 `//host` /
   `javascript:` / 反斜杠与控制字符；一次点击只消费一次。
+- **托盘未读角标**：工作台在未读数变化处经 `setTrayBadge(count)` → `POST /__shell/badge`
+  （`{count}`）投递，同样 fire-and-forget。外壳把计数存在 `ProxyState.unread` 里并 clamp 到 `999`，
+  再交给 `tray::set_unread`：tooltip 全平台可见、`set_title` 在支持的平台显示数字（>99 显示 `99+`）。
+  **计数留在进程里**，`refresh`（语言切换重建菜单）后重新套用，否则切语言会把角标抹掉；
+  文案走 `badge_text(lang, count)` 纯函数（13 语 `trayUnread`），因此无窗口可单测。0 表示全读，
+  此时角标清空、tooltip 回落产品名。
 
 ### 桌面外壳（desktop/）
 
@@ -164,6 +171,7 @@ make desktop-install  # @tauri-apps/cli
 make desktop-dev      # web-build + tauri dev
 make desktop-build    # web-build + tauri build（宿主平台安装包）
 make desktop-test     # cargo test
+make desktop-test-report # 同上 + desktop-test.log 与可粘贴摘要（与 CI 的 step summary 同形）
 make desktop-check    # cargo check --all-targets
 make web-smoke        # 真 socket + node:http 桩（store 与 api.js）
 make desktop-smoke    # 真上游 + 真 axum 代理（bootstrap → 转发 → 通知）

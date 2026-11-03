@@ -1904,6 +1904,115 @@ audio {
   outline: none;
 }
 
+/* Shared files: one drop target, one table, one inline confirmation.
+   Everything here reuses the existing tokens, so both themes are covered by the
+   pair already written at the end of this file. */
+
+.files-input {
+  display: none;
+}
+
+.files-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 26px 20px;
+  border: 1px dashed var(--stroke-2);
+  border-radius: var(--radius);
+  color: var(--text-3);
+  font-size: 13px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.16s ease-out, background-color 0.16s ease-out;
+}
+
+.files-drop:hover,
+.files-drop.is-over {
+  border-color: var(--stroke-3);
+  background: var(--accent-softer);
+  color: var(--text-2);
+}
+
+.files-drop.is-busy {
+  cursor: progress;
+}
+
+.files-drop:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.files-progress {
+  width: 100%;
+  max-width: 320px;
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+
+.files-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.16s ease-out;
+}
+
+.files-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-1);
+}
+
+.files-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.files-row-confirm td {
+  background: var(--accent-softer);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  /* Below the three-column width the table becomes a stack: name on its own
+     line, size and date together, actions last. Nothing is hidden. */
+  .files-table thead {
+    display: none;
+  }
+
+  .files-table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--stroke-1);
+  }
+
+  .files-table td {
+    border: 0;
+    padding: 0;
+  }
+
+  .files-table td[data-col='name'] {
+    flex: 1 1 100%;
+  }
+
+  .files-table td[data-col='actions'] {
+    flex: 1 1 100%;
+  }
+
+  .files-table .files-actions {
+    justify-content: flex-start;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

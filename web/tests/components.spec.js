@@ -569,9 +569,9 @@ describe('ConnectorCard', () => {
 describe('Sidebar', () => {
   it('renders a nav item per route and reflects active state', () => {
     const { wrapper } = mountWith(Sidebar)
-    // 11 links: workspace, threads, tasks, org, channels, connectors, computers,
-    // schedules, knowledge, persona, settings.
-    expect(wrapper.findAll('.nav-item').length).toBe(11)
+    // 12 links: workspace, threads, tasks, org, channels, connectors, computers,
+    // schedules, knowledge, files, persona, settings.
+    expect(wrapper.findAll('.nav-item').length).toBe(12)
   })
   it('shows badges from the workbench store', async () => {
     const { wrapper, pinia } = mountWith(Sidebar)

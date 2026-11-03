@@ -68,6 +68,14 @@ import {
   subscribeSandboxEvents,
   getShellConfig,
   notifyShell,
+  setTrayBadge,
+  listFiles,
+  deleteFile,
+  fileContentUrl,
+  uploadFile,
+  listConnectorApprovals,
+  approveConnectorAction,
+  rejectConnectorAction,
 } from '../src/lib/api.js'
 
 let fetchMock
@@ -351,7 +359,7 @@ describe('api endpoint helpers', () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
     await runConnectorAction('k1', 'sync')
     const [, opts] = lastCall()
-    expect(JSON.parse(opts.body)).toEqual({ name: 'sync', args: {} })
+    expect(JSON.parse(opts.body)).toEqual({ action: 'sync', args: {} })
   })
 
   it('builds no query string when every router filter is empty', async () => {
@@ -678,5 +686,160 @@ describe('api base seam', () => {
     expect(err.message).toBe('brand_new_code')
     expect(err.code).toBe('brand_new_code')
     expect(err.status).toBe(500)
+  })
+})
+
+// The round-5 surfaces: shared files, the approval queue, and the tray badge.
+describe('api client: round-5 endpoints', () => {
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('lists files with the cap and the backend the screen needs', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ files: [], maxBytes: 1024, backend: 'local' }))
+    const data = await listFiles()
+    expect(lastCall()[0]).toBe('/api/files')
+    expect(data.maxBytes).toBe(1024)
+  })
+
+  it('deletes a file by id', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 204, text: async () => '' })
+    await deleteFile('file_1')
+    const [url, opts] = lastCall()
+    expect(url).toBe('/api/files/file_1')
+    expect(opts.method).toBe('DELETE')
+  })
+
+  it('builds the download as a same-origin path, not a request', () => {
+    // Nothing is fetched: the browser downloads the bytes itself.
+    expect(fileContentUrl('file_1')).toBe('/api/files/file_1/content')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('reads the approval queue', async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]))
+    await listConnectorApprovals()
+    expect(lastCall()[0]).toBe('/api/connectors/approvals')
+  })
+
+  it('approves and rejects by task id', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'task-1' }))
+    await approveConnectorAction('task-1')
+    let [url, opts] = lastCall()
+    expect(url).toBe('/api/connectors/approvals/task-1/approve')
+    expect(opts.method).toBe('POST')
+
+    await rejectConnectorAction('task-1')
+    ;[url, opts] = lastCall()
+    expect(url).toBe('/api/connectors/approvals/task-1/reject')
+    expect(opts.method).toBe('POST')
+  })
+
+  it('names the path and the method of the tray badge', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true, count: 3 }))
+    await setTrayBadge(3)
+    const [url, opts] = lastCall()
+    expect(url).toBe('/__shell/badge')
+    expect(opts.method).toBe('POST')
+    expect(JSON.parse(opts.body)).toEqual({ count: 3 })
+  })
+})
+
+// uploadFile is the one wrapper that cannot use fetch: only XHR reports upload
+// progress, so it is exercised against a stand-in with the same surface.
+describe('api client: uploadFile', () => {
+  class FakeXHR {
+    constructor() {
+      this.upload = {}
+      this.status = 0
+      this.responseText = ''
+      FakeXHR.last = this
+    }
+
+    open(method, url) {
+      this.method = method
+      this.url = url
+    }
+
+    send(body) {
+      this.body = body
+    }
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('XMLHttpRequest', FakeXHR)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('posts multipart form data and reports the percentage', async () => {
+    const progress = vi.fn()
+    const pending = uploadFile(new File(['hello'], 'a.txt'), progress)
+    const xhr = FakeXHR.last
+    expect(xhr.method).toBe('POST')
+    expect(xhr.url).toBe('/api/files')
+    expect(xhr.body).toBeInstanceOf(FormData)
+
+    xhr.upload.onprogress({ lengthComputable: true, loaded: 5, total: 10 })
+    // Not computable is not zero percent: the bar keeps its last value.
+    xhr.upload.onprogress({ lengthComputable: false, loaded: 0, total: 0 })
+    xhr.status = 201
+    xhr.responseText = JSON.stringify({ id: 'file_1' })
+    xhr.onload()
+
+    await expect(pending).resolves.toEqual({ id: 'file_1' })
+    expect(progress).toHaveBeenCalledTimes(1)
+    expect(progress).toHaveBeenCalledWith(50)
+  })
+
+  it('turns the server code into the rejection', async () => {
+    const pending = uploadFile(new File(['x'], 'big.bin'))
+    const xhr = FakeXHR.last
+    xhr.status = 413
+    xhr.responseText = JSON.stringify({ code: 'file_too_large' })
+    xhr.onload()
+    await expect(pending).rejects.toMatchObject({ code: 'file_too_large', status: 413 })
+  })
+
+  it('rejects a transport failure and a timeout', async () => {
+    const first = uploadFile(new File(['x'], 'a.txt'))
+    FakeXHR.last.onerror()
+    await expect(first).rejects.toMatchObject({ code: 'network_error' })
+
+    const second = uploadFile(new File(['x'], 'a.txt'))
+    FakeXHR.last.ontimeout()
+    await expect(second).rejects.toMatchObject({ code: 'timeout' })
+  })
+
+  it('resolves a success with no body as null', async () => {
+    const pending = uploadFile(new File(['x'], 'a.txt'))
+    const xhr = FakeXHR.last
+    xhr.status = 200
+    xhr.responseText = ''
+    xhr.onload()
+    await expect(pending).resolves.toBeNull()
+  })
+
+  it('resolves null rather than throwing on an unparsable body', async () => {
+    const pending = uploadFile(new File(['x'], 'a.txt'))
+    const xhr = FakeXHR.last
+    xhr.status = 200
+    xhr.responseText = '{ not json'
+    xhr.onload()
+    await expect(pending).resolves.toBeNull()
+  })
+
+  it('falls back to the status when the error body is unreadable', async () => {
+    const pending = uploadFile(new File(['x'], 'a.txt'))
+    const xhr = FakeXHR.last
+    xhr.status = 500
+    xhr.responseText = '{ not json'
+    xhr.onload()
+    await expect(pending).rejects.toMatchObject({ code: '500', status: 500 })
   })
 })
