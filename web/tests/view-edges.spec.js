@@ -151,6 +151,19 @@ describe('OrgView form edges', () => {
     expect(wrapper.text()).not.toContain('strange')
     expect(wrapper.find('.org-grid').exists()).toBe(true)
   })
+
+  it('says nothing to create without a name and posts nothing', async () => {
+    // Whitespace is not a name: the guard trims before it decides, so a form of
+    // spaces cannot register a resource called " ".
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+    await wrapper.find('input[placeholder="my-agent"]').setValue('   ')
+    await wrapper.findAll('button').find((b) => b.text() === 'Create').trigger('click')
+    await flushPromises()
+
+    expect(createResource).not.toHaveBeenCalled()
+    expect(wrapper.find('.banner-error').exists()).toBe(false)
+  })
 })
 
 describe('ThreadView message and subscription edges', () => {
@@ -196,6 +209,23 @@ describe('ThreadView message and subscription edges', () => {
     expect(wrapper.text()).toContain('router refused')
     // The button stays: the thread is still subscribed.
     expect(wrapper.text()).toContain('Stop delegating')
+  })
+
+  it('closes the mention picker as soon as the token is no longer being typed', async () => {
+    // The picker follows the caret, not a mode: an ordinary sentence must not
+    // leave an empty listbox floating over the composer.
+    thread([{ ID: 'm1', AuthorID: 'ada', AuthorName: 'ada', AuthorType: 'agent', Body: 'hi' }])
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    const composer = wrapper.find('textarea')
+    await composer.setValue('@')
+    await flushPromises()
+    expect(wrapper.find('.mention-pop').exists()).toBe(true)
+
+    await composer.setValue('@ada hello')
+    await flushPromises()
+    expect(wrapper.find('.mention-pop').exists()).toBe(false)
   })
 })
 

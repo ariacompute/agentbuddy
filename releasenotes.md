@@ -186,19 +186,25 @@ The node lives in the Rust process. The web view only reads its state through
   sign-in and sign-up, one screen→endpoint suite with both the success and the
   failure path, an export-usage guard over `lib/api.js`, and a suite for the
   branches the happy paths never took, plus the shared-files screen and the
-  connector approval queue). **30 spec files, 697 cases**, all offline.
+  connector approval queue, and a follow-up pass over the arms a happy path never
+  takes: a failure with no machine code, a row missing its MIME type or name, an
+  approval without arguments). **30 spec files, 713 cases**, all offline.
 - `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements
-  and lines, **97.5%** of branches and **99.76%** of functions (10492 statements,
-  1684 branches). The remaining gap is defensive code that cannot be reached
+  and lines, **98.52%** of branches and **99.76%** of functions (10492 statements,
+  1693 branches). The remaining gap is defensive code that cannot be reached
   through the UI — guards whose buttons are disabled in the state that would
   trigger them, and one browser-environment check that jsdom always satisfies.
 - `cargo test` covers the proxy (admission control, the nonce handshake, cookie
   rewriting, streaming, the origin gate), config (language fallback, per-server
   session storage, the plaintext migration), i18n (every locale carries every key
   in English order, codes pinned to `web/src/lib/languages.js`) and the tray
-  mapping — 153 cases as of the previous round, plus three for the tray badge
-  (`badge_text` / `title_for`: zero, `99+`, and one assertion per language).
-  They run on
+  mapping — 180 cases, including this round's tray badge (`badge_text` /
+  `title_for`: zero, `99+`, one assertion per language) and five for static
+  file serving (the real `app_version_stamp()` shape instead of a copy of its
+  format string; a client route answered with the shell and a **per-response**
+  CSP nonce; a missing asset as a 404 rather than the SPA fallback; immutable
+  caching for `assets/` against `no-cache` everywhere else; the about page's
+  boot `page`). They run on
   Linux (WSL2) and in CI; the Windows test binary cannot start in this environment,
   so there they are compile-verified only. CI now writes the Linux run into
   `GITHUB_STEP_SUMMARY` and uploads `desktop-test.log`, and

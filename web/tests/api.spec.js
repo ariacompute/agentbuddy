@@ -842,4 +842,27 @@ describe('api client: uploadFile', () => {
     xhr.onload()
     await expect(pending).rejects.toMatchObject({ code: '500', status: 500 })
   })
+
+  it('gives an unnamed file a name the server can store', async () => {
+    // A dropped folder or a File built by a picker without metadata arrives with
+    // an empty name. The multipart part still needs one.
+    const pending = uploadFile(new File(['x'], ''))
+    const xhr = FakeXHR.last
+    const part = xhr.body.get('file')
+    expect(part.name).toBe('upload.bin')
+    xhr.status = 201
+    xhr.responseText = JSON.stringify({ id: 'file_9' })
+    xhr.onload()
+    await expect(pending).resolves.toEqual({ id: 'file_9' })
+  })
+
+  it('reads the code out of an empty error body without throwing', async () => {
+    // The `|| '{}'` arm: a 502 from a proxy may carry no body at all.
+    const pending = uploadFile(new File(['x'], 'a.txt'))
+    const xhr = FakeXHR.last
+    xhr.status = 502
+    xhr.responseText = ''
+    xhr.onload()
+    await expect(pending).rejects.toMatchObject({ code: '502', status: 502 })
+  })
 })

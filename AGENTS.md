@@ -78,8 +78,8 @@ desktop/
 - **测试**：`cd web && bun run test`（Vitest）。**勿用裸 `bun test`**（Bun 原生 runner 不加载
   `vitest.config.js`，无 jsdom 环境）。新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线（30 个 spec、**697** 条用例）：
-  语句/行 **100%**、分支 **97.5%**、函数 **99.76%**（10492 条语句、1684 个分支）；
+  `text-summary` + `text`，不写报告目录），当前基线（30 个 spec、**713** 条用例）：
+  语句/行 **100%**、分支 **98.52%**、函数 **99.76%**（10492 条语句、1693 个分支）；
   回落时先看报告里的未覆盖行再补用例。
 - **接线守卫**：`api.js` 的每个具名导出至少要被 `web/src/**`（除 `api.js` 自身）引用一处，
   `tests/api-usage.spec.js` 强制这条且白名单必须为空；新增封装却忘了接界面会直接红。
@@ -149,7 +149,11 @@ desktop/
   而该目录被 gitignore，缺了连 `cargo check` 都过不去（`make desktop-test` / `make desktop-check`
   已依赖 `icons`，裸 `cargo test` 不会代劳）。
   **CI 还要先构建 `web/dist`**：`rust-embed` 在编译期把它嵌进二进制，缺了 `proxy/static_files.rs`
-  与 `proxy/mod.rs` 的两条静态文件用例会走「未构建则跳过」分支——绿，但什么也没证明。
+  里依赖 `index.html` / `theme-init.js` 的那几条用例（版本戳、客户端路由回落与**每响应** CSP nonce、
+  缺文件 404、`assets/` 长缓存）会走「未构建则跳过」分支——绿，但什么也没证明。
+  本机若 `cargo` 报 `untrusted mount point`（`~/.cargo/bin` 的 shim 起不来），直接调
+  `%USERPROFILE%\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\cargo.exe`（并把该目录
+  加到 `PATH` 以找到 `rustc`）即可完成 `cargo test --no-run` 的编译校验。
   `.github/workflows/ci.yml` 的 desktop job 因此在 cargo 之前跑一次 `bun install --frozen-lockfile
   && bun run build`（Windows runner 无 `make`，所以写的是两条原生命令）。
 

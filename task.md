@@ -787,15 +787,25 @@ agentbuddy 把「计算机」屏从三张空卡片升级为**执行环境控制�
 
 - `requirements.md`：F5.5 拆为「角标（已实现）」与「F5.6 toast 深链（已实现）」，断线重放顺延为
   F5.8；新增 F19「共享文件与连接器审批队列」七条。
-- `AGENTS.md`：屏数 14→15、路由 15→16、spec 28→30、用例 663→697、覆盖率基线改为
-  语句/行 100% / 分支 97.5% / 函数 99.76%（10492 语句、1684 分支），并补 `/__shell/badge` 说明。
+- `AGENTS.md`：屏数 14→15、路由 15→16、spec 28→30、用例 663→713、覆盖率基线改为
+  语句/行 100% / 分支 98.52% / 函数 99.76%（10492 语句、1693 分支），并补 `/__shell/badge` 说明。
 - `releasenotes.md`：同一组数字与 Rust 用例说明对齐；新增 `make desktop-test-report`。
 - CI：desktop job 在 Linux 上 `tee desktop-test.log` → 摘要写进 `GITHUB_STEP_SUMMARY` →
   上传 `desktop-test-log` 产物；Windows 仍是 `cargo test --no-run` 编译校验。
 
 ### 5. 校验与残余
 
-- `cd web && bun run test`：**30 个 spec / 697 用例**全绿；`bun run test:coverage`：
-  语句与行 100%、分支 97.5%、函数 99.76%；`bun run build` 通过。
+- `cd web && bun run test`：**30 个 spec / 713 用例**全绿；`bun run test:coverage`：
+  语句与行 100%、分支 98.52%、函数 99.76%；`bun run build` 通过。
+- 补测的守卫面（本轮新增 16 条）：无机器码失败的回退文案（文件列表/上传/删除、审批队列读与决策）、
+  行缺 mime/createdAt/connectorName 时的 `—`、无法解析的体积按 0 字节、`files`/`maxBytes` 缺失的
+  空态、提交空名称、审批参数为 `undefined` 时不留 `{}`、`login`/`register` 在后续 `whoami`
+  失败时仍可用的语义、无 `MediaRecorder` 时的 setup、无可见控件时 Tab 不被吞、无 `document` 时主题
+  切换不写存储。
+- Rust：新增 `proxy/static_files.rs` 的 5 条（真实 `app_version_stamp()` 形状、客户端路由带**每响应
+  nonce** 的 CSP、缺文件 404 而非 SPA 回退、`assets/` 长期缓存 vs `no-cache`、about 页 boot 名），
+  并把原来「复制一份格式化字符串再断言」的假用例改成调用真实函数。`cargo test --no-run` 通过
+  （180 条用例编译成功）；本机执行仍因测试二进制缺入口点（`STATUS_ENTRYPOINT_NOT_FOUND`）无法运行，
+  Linux CI 负责实跑。
 - Rust：本机 `cargo` 无法执行（工具链所在卷被判定为不可信挂载，`ApplicationFailedException`），
   因此 `badge`/`tray`/`shell` 的 Rust 改动只经代码审读，实际编译由 CI 的 Linux job 把关。

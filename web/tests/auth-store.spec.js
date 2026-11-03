@@ -136,6 +136,21 @@ describe('auth-store', () => {
       expect(s.errorCode).toBe('invalid_credentials')
       expect(s.busy).toBe(false)
     })
+
+    it('keeps the sign-in usable when the session cannot be read back yet', async () => {
+      // The password was accepted but the follow-up whoami failed (server
+      // restarting). `refresh()` swallows that into `refreshError` on purpose:
+      // the next poll can still resolve the session, so a login that already
+      // succeeded must not be reported as a wrong password.
+      login.mockResolvedValue(undefined)
+      whoami.mockRejectedValue({ code: 'service_unavailable' })
+      const s = useAuthStore()
+      const res = await s.login('a@b.c', 'pw')
+      expect(res.ok).toBe(true)
+      expect(s.signedIn).toBe(false)
+      expect(s.refreshError).toBe('service_unavailable')
+      expect(s.busy).toBe(false)
+    })
   })
 
   describe('register', () => {
@@ -155,6 +170,19 @@ describe('auth-store', () => {
       const res = await s.register('a@b.c', 'pw', 'New')
       expect(res.ok).toBe(false)
       expect(res.code).toBe('email_taken')
+    })
+
+    it('fails the sign-up when the immediate sign-in is refused', async () => {
+      // Account created, but the login that follows failed (rate limit, lockout).
+      // The caller has to learn that it is not signed in.
+      register.mockResolvedValue(undefined)
+      login.mockRejectedValue({ code: 'account_locked' })
+      const s = useAuthStore()
+      const res = await s.register('a@b.c', 'pw', 'New')
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('account_locked')
+      expect(s.busy).toBe(false)
+      expect(s.signedIn).toBe(false)
     })
   })
 

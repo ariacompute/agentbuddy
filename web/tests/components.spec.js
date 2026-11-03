@@ -292,6 +292,26 @@ describe('ThemeToggle', () => {
     await nextTick()
     expect(document.documentElement.dataset.theme).toBe('light')
   })
+  it('flips its own state when there is no document or storage to write to', async () => {
+    // The same component runs where a full DOM is not guaranteed (a prerender
+    // pass, a test that tears the globals down). Toggling must not throw and must
+    // not pretend it persisted something: the theme is applied for this render
+    // only, and storage is left alone.
+    const { wrapper } = mountWith(ThemeToggle)
+    await nextTick()
+    const stored = window.localStorage.getItem('agentbuddy.theme')
+
+    const button = wrapper.find('button').element
+    vi.stubGlobal('document', undefined)
+    vi.stubGlobal('window', undefined)
+    button.click()
+    // The click handler ran to completion: a throw would have surfaced here.
+    expect(true).toBe(true)
+
+    vi.unstubAllGlobals()
+    await nextTick()
+    expect(window.localStorage.getItem('agentbuddy.theme')).toBe(stored)
+  })
 })
 
 describe('LanguageSwitcher', () => {

@@ -204,16 +204,37 @@ fn console_missing(lang: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::header::CONTENT_SECURITY_POLICY;
+
+    fn built() -> bool {
+        Console::get("index.html").is_some()
+    }
+
+    async fn body_of(response: Response) -> String {
+        let bytes = to_bytes(response.into_body(), 1 << 20).await.expect("the body must be readable");
+        String::from_utf8_lossy(&bytes).to_string()
+    }
 
     /// The stamp is the crate version with a `v` prefix and the build commit
     /// trimmed to seven characters — `vX.Y.Z@<7-char commit>`.
     #[test]
     fn stamps_version_with_short_commit() {
-        // Independent of the real COMMIT/VERSION so the assertion is stable.
-        let version = "1.0.0";
-        let commit = "abcdef1234567890";
-        let stamp = format!("v{}@{}", version, &commit[..7.min(commit.len())]);
-        assert_eq!(stamp, "v1.0.0@abcdef1");
+        // The real function, not a copy of its format string: the login screen
+        // renders this verbatim and the about page has to agree with it.
+        let stamp = app_version_stamp();
+        assert_eq!(
+            stamp,
+            format!("v{}@{}", crate::VERSION, &crate::COMMIT[..crate::COMMIT.len().min(7)]),
+        );
+
+        let (version, commit) = stamp
+            .trim_start_matches('v')
+            .split_once('@')
+            .expect("the stamp is vX.Y.Z@<commit>");
+        assert_eq!(version, crate::VERSION);
+        assert!(commit.len() <= 7, "the commit must be trimmed: {commit}");
+        assert!(!commit.contains('@'), "the stamp must have exactly one `@`: {stamp}");
     }
 
     #[test]
@@ -230,7 +251,7 @@ mod tests {
     /// screen can render it.
     #[test]
     fn injects_app_version_into_index_html() {
-        if Console::get("index.html").is_none() {
+        if !built() {
             eprintln!("skipping: web/dist has not been built");
             return;
         }
@@ -248,6 +269,94 @@ mod tests {
             html.contains(&app_version_stamp()),
             "the injected stamp does not match app_version_stamp()"
         );
+    }
+
+    /// A client route resolves to the app shell, and that shell is delivered with
+    /// its own nonce — the policy is per response, so two requests must not share
+    /// one.
+    #[tokio::test]
+    async fn a_client_route_gets_the_shell_with_a_fresh_nonce() {
+        if !built() {
+            eprintln!("skipping: web/dist has not been built");
+            return;
+        }
+
+        let first = serve_console("/threads/42", "en");
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(
+            first.headers().get(CONTENT_TYPE).unwrap().to_str().unwrap(),
+            "text/html; charset=utf-8",
+        );
+        let policy = first
+            .headers()
+            .get(CONTENT_SECURITY_POLICY)
+            .expect("an HTML response must carry the policy")
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(policy.contains("nonce-"), "the policy must name the nonce: {policy}");
+        assert!(!policy.contains("script-src 'self' 'unsafe-inline'"), "{policy}");
+        let first_nonce = policy
+            .split("'nonce-")
+            .nth(1)
+            .and_then(|rest| rest.split('\'').next())
+            .expect("the policy has no nonce value")
+            .to_string();
+
+        let second = serve_console("/threads/43", "en");
+        let second_policy = second
+            .headers()
+            .get(CONTENT_SECURITY_POLICY)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            !second_policy.contains(&first_nonce),
+            "two responses shared a nonce: {second_policy}"
+        );
+
+        let html = body_of(first).await;
+        assert!(html.contains("window.__AGENTBUDDY_VERSION__"), "the shell lost its version stamp");
+    }
+
+    /// A missing *file* is a 404, never the app shell: answering a script request
+    /// with HTML turns a clear 404 into a MIME error in the browser console.
+    #[tokio::test]
+    async fn a_missing_asset_is_a_404_instead_of_the_shell() {
+        if !built() {
+            eprintln!("skipping: web/dist has not been built");
+            return;
+        }
+        let response = serve_console("/assets/does-not-exist.js", "en");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/plain; charset=utf-8");
+        // No policy on a plain-text answer: nothing here can execute.
+        assert!(response.headers().get(CONTENT_SECURITY_POLICY).is_none());
+        assert_eq!(body_of(response).await, "not found");
+    }
+
+    #[test]
+    fn hashed_assets_are_cached_forever_and_the_shell_is_revalidated() {
+        if !built() {
+            eprintln!("skipping: web/dist has not been built");
+            return;
+        }
+        let Some(file) = Console::get("theme-init.js").or_else(|| Console::get("index.html")) else {
+            eprintln!("skipping: web/dist has no asset to serve");
+            return;
+        };
+
+        let hashed = file_response("assets/app-1234.js", &file);
+        assert_eq!(hashed.status(), StatusCode::OK);
+        assert_eq!(
+            hashed.headers().get(CACHE_CONTROL).unwrap(),
+            "public, max-age=31536000, immutable",
+        );
+
+        // Anything outside assets/ may change between builds, so it is revalidated.
+        let plain = file_response("theme-init.js", &file);
+        assert_eq!(plain.headers().get(CACHE_CONTROL).unwrap(), "no-cache");
     }
 
     /// The shell page carries the boot object the connection page reads, and it
@@ -270,5 +379,19 @@ mod tests {
         assert!(html.contains("\"languages\""), "the boot object must carry the language table");
         assert!(html.contains("\"dirs\""), "the boot object must carry the RTL/LTR directions");
         assert!(html.contains("\"page\":\"connect\""), "the boot object must carry the page name");
+    }
+
+    /// The about page is the same file with a different `page`, so the boot
+    /// object is what tells the two apart — nothing in the HTML decides it.
+    #[test]
+    fn the_shell_page_name_reaches_the_boot_object() {
+        let Some(file) = Shell::get("shell.html") else {
+            eprintln!("skipping: assets/shell.html is missing");
+            return;
+        };
+        let html = render_shell_page(&file, &crate::config::AppConfig::default(), "about", "n0nce");
+        assert!(html.contains("\"page\":\"about\""), "the about page lost its name");
+        // And the two pages agree on the stamp the shell shows.
+        assert!(html.contains(&app_version_stamp()));
     }
 }

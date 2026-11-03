@@ -140,6 +140,20 @@ describe('BaseDialog', () => {
     wrapper.unmount()
   })
 
+  it('leaves Tab alone when nothing in the panel is visible', async () => {
+    // jsdom reports no offsetParent, which the dialog reads as "hidden". With no
+    // focusable control it must not swallow the key: a trap on an empty list is
+    // a keyboard trap that never opens.
+    const wrapper = mountClosed()
+    await wrapper.setProps({ modelValue: true })
+    await nextTick()
+
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    document.dispatchEvent(tab)
+    expect(tab.defaultPrevented).toBe(false)
+    wrapper.unmount()
+  })
+
   it('stops listening once it is unmounted', async () => {
     const wrapper = mountClosed()
     await wrapper.setProps({ modelValue: true })

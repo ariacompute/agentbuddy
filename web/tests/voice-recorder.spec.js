@@ -101,4 +101,17 @@ describe('VoiceRecorder', () => {
     wrapper.unmount()
     expect(voice.recorder.resets).toBe(1)
   })
+
+  it('passes whatever MediaRecorder the window exposes, without assuming it exists', async () => {
+    // The guard is `typeof window !== 'undefined' ? window.MediaRecorder : null`.
+    // jsdom cannot express the first arm (mounting needs a window), so this pins
+    // the second: a browser without MediaRecorder must not throw at setup.
+    const saved = window.MediaRecorder
+    delete window.MediaRecorder
+    const { wrapper } = mountWith(VoiceRecorder, { props: { threadId: 'th-1' } })
+    expect(voice.recorder.deps.MediaRecorderImpl).toBeUndefined()
+    expect(wrapper.find('button.voice-btn').exists()).toBe(true)
+    window.MediaRecorder = saved
+    wrapper.unmount()
+  })
 })

@@ -244,4 +244,81 @@ describe('FilesView', () => {
     expect(wrapper.text()).toContain('That file does not exist.')
     expect(wrapper.text()).toContain('brief.pdf')
   })
+
+  it('reads an answer that carries neither files nor a cap as empty and unlimited', async () => {
+    // A server built before the cap was reported answers `{ files: ... }` only;
+    // anything at all must degrade to an empty table rather than "undefined".
+    listFiles.mockResolvedValueOnce({})
+    const { wrapper } = mountWith(FilesView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No files yet')
+    // No cap means no promise to make: the line is simply absent.
+    expect(wrapper.text()).not.toContain('per file')
+    expect(wrapper.text()).not.toContain('undefined')
+  })
+
+  it('prints a size it cannot parse as zero rather than NaN', async () => {
+    listFiles.mockResolvedValue({
+      files: [{ id: 'file_3', name: 'broken.bin', size: 'not a number', mime: 'text/plain' }],
+      maxBytes: 1024,
+      backend: 'local',
+    })
+    const { wrapper } = mountWith(FilesView)
+    await flushPromises()
+    expect(wrapper.find('[data-col="size"]').text()).toBe('0 B')
+  })
+
+  it('reports a delete that failed without a code', async () => {
+    // A transport failure rejects with a bare Error: the row stays and the
+    // message is all the screen has to explain itself with.
+    const { wrapper } = mountWith(FilesView)
+    await flushPromises()
+
+    deleteFile.mockRejectedValueOnce(new Error('connection reset'))
+    await wrapper.findAll('button').find((b) => b.text().includes('Delete')).trigger('click')
+    const confirm = wrapper.findAll('button').filter((b) => b.text().includes('Delete'))
+    await confirm[confirm.length - 1].trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('connection reset')
+    expect(wrapper.text()).toContain('brief.pdf')
+  })
+
+  it('dashes the columns an older upload never filled in', async () => {
+    // A row written before MIME sniffing or before createdAt was recorded still
+    // has to render as a row, not as "undefined".
+    listFiles.mockResolvedValue({
+      files: [{ id: 'file_2', name: 'notes.txt', size: 12, mime: '', createdAt: '' }],
+      maxBytes: 1024,
+      backend: 'local',
+    })
+    const { wrapper } = mountWith(FilesView)
+    await flushPromises()
+
+    const row = wrapper.find('tbody tr')
+    expect(row.text()).toContain('notes.txt')
+    expect(row.text()).not.toContain('undefined')
+    expect(row.find('[data-col="name"]').text()).toContain('—')
+    expect(row.find('[data-col="at"]').text()).toBe('—')
+  })
+
+  it('shows the exception message when the failure has no code at all', async () => {
+    // A dropped connection rejects without a machine code (no response to read
+    // one from). The screen then has only `e.message` to show.
+    listFiles.mockRejectedValueOnce(new Error('Upstream refused'))
+    const { wrapper } = mountWith(FilesView)
+    await flushPromises()
+    expect(wrapper.text()).toContain('Upstream refused')
+
+    uploadFile.mockRejectedValueOnce(new Error('Upload refused'))
+    const input = wrapper.find('input[type="file"]')
+    Object.defineProperty(input.element, 'files', {
+      value: [new File(['x'], 'a.txt')],
+      configurable: true,
+    })
+    await input.trigger('change')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Upload refused')
+  })
 })

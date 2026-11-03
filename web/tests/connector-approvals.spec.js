@@ -142,4 +142,42 @@ describe('ConnectorsView approvals', () => {
     expect(listConnectorApprovals).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain('create_issue')
   })
+
+  it('reports a queue and a decision that failed without a machine code', async () => {
+    listConnectorApprovals.mockRejectedValueOnce(new Error('socket hang up'))
+    const { wrapper } = mountWith(ConnectorsView)
+    await flushPromises()
+    expect(wrapper.text()).toContain('socket hang up')
+
+    listConnectorApprovals.mockResolvedValue([PARKED])
+    await wrapper.findAll('button').find((b) => b.text().includes('Try again')).trigger('click')
+    await flushPromises()
+
+    approveConnectorAction.mockRejectedValueOnce(new Error('approval lost'))
+    await wrapper.findAll('button').find((b) => b.text().includes('Approve')).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('approval lost')
+    // The row is still there: nothing was deleted optimistically.
+    expect(wrapper.text()).toContain('create_issue')
+  })
+
+  it('falls back to the connector id, then to a dash, when the name is missing', async () => {
+    // The queue is derived from a parked task; a resource deleted between parking
+    // and reading leaves the name empty. The row still has to be identifiable.
+    listConnectorApprovals.mockResolvedValue([
+      { ...PARKED, taskId: 't-1', connectorName: '', connectorId: 'mcp_7' },
+      { ...PARKED, taskId: 't-2', connectorName: '', connectorId: '', args: undefined },
+    ])
+    const { wrapper } = mountWith(ConnectorsView)
+    await flushPromises()
+
+    const rows = wrapper.findAll('li.trigger-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].text()).toContain('mcp_7')
+    expect(rows[1].text()).toContain('—')
+    // No arguments means the spacer stands in, not an empty pair of braces.
+    expect(rows[1].find('.spacer').exists()).toBe(true)
+    expect(rows[1].text()).not.toContain('{}')
+  })
 })
