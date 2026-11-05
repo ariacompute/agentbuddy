@@ -211,12 +211,13 @@ The node lives in the Rust process. The web view only reads its state through
   connector approval queue, and a follow-up pass over the arms a happy path never
   takes: a failure with no machine code, a row missing its MIME type or name, an
   approval without arguments, and the upgrade card with all three shell routes,
-  every status machine code and the no-shell path). **31 spec files, 749 cases**, all offline.
-- `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements
-  and lines, **97.97%** of branches and **99.76%** of functions (10981 statements,
-  1774 branches). The remaining gap is defensive code that cannot be reached
-  through the UI — guards whose buttons are disabled in the state that would
-  trigger them, and one browser-environment check that jsdom always satisfies.
+  every status machine code and the no-shell path). A final pass calls the
+  handlers behind disabled controls directly (early returns, empty bodies,
+  unknown machine codes) and server-renders the no-`window` setup branch.
+  **31 spec files, 770 cases**, all offline.
+- `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements,
+  lines, branches and functions (10989 statements, 1804 branches, 433 functions).
+  No defensive arm is left untested and no file is excluded from the report.
 - `cargo test` covers the proxy (admission control, the nonce handshake, cookie
   rewriting, streaming, the origin gate), config (language fallback, per-server
   session storage, the plaintext migration), i18n (every locale carries every key

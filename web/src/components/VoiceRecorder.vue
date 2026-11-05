@@ -3,7 +3,7 @@ import { onUnmounted, ref } from 'vue'
 import { createRecorder, VoiceState } from '../lib/voice.js'
 import { postThreadAudio } from '../lib/api.js'
 import { useCopy } from '../lib/use-copy.js'
-import { Mic, Square } from 'lucide-vue-next'
+import { Mic } from 'lucide-vue-next'
 
 const props = defineProps({ threadId: { type: String, required: true } })
 const { t } = useCopy('thread')
@@ -43,7 +43,7 @@ function toggle() {
       <span v-if="recorder.state === 'recording'" class="wave">
         <span></span><span></span><span></span><span></span><span></span>
       </span>
-      <component :is="recorder.state === 'recording' ? Square : Mic" v-else :size="17" />
+      <Mic v-else :size="17" />
     </button>
     <span v-if="!recorder.supported" class="muted" style="font-size:12px">{{ t('voiceUnavailable') }}</span>
     <span v-if="error" class="muted" style="font-size:12px">{{ error }}</span>

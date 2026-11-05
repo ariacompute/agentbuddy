@@ -445,6 +445,9 @@
 34. 发布流程生成 `latest.json`（GitHub URL）与 `latest-gitee.json`（Gitee URL），
     `latest-json.mjs collect|manifest` 可用样本验证；未配置签名密钥时发布照常产出原有 6 个资产。
 35. 未配置公钥时「立即升级」返回 `not_configured` 且不下载任何包；WebView 未获得 updater 权限。
+36. v8 覆盖率四项（语句 / 行 / 分支 / 函数）均 **100%**。界面上按钮 disabled 因而点不到的
+    守卫分支须通过直接调用处理函数、服务端渲染等手段真实覆盖，**不得**用 `exclude` / ignore
+    注释绕过；`api-usage.spec.js` 白名单仍为空。
 
 ## 7. 自动更新（F19）
 

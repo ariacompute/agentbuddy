@@ -292,6 +292,16 @@ describe('ThemeToggle', () => {
     await nextTick()
     expect(document.documentElement.dataset.theme).toBe('light')
   })
+  it('writes dark when toggled away from the default light theme', async () => {
+    // The other two cases start from dark (writing "light") or with no window
+    // at all (not writing anything). This one reaches the `: 'dark'` arm.
+    window.localStorage.setItem('agentbuddy.theme', 'light')
+    const { wrapper } = mountWith(ThemeToggle)
+    await nextTick()
+    await wrapper.find('button').trigger('click')
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(window.localStorage.getItem('agentbuddy.theme')).toBe('dark')
+  })
   it('flips its own state when there is no document or storage to write to', async () => {
     // The same component runs where a full DOM is not guaranteed (a prerender
     // pass, a test that tears the globals down). Toggling must not throw and must

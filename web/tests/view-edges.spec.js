@@ -20,7 +20,7 @@ import {
   listSchedules, createSchedule, updateSchedule, deleteSchedule, listTasks,
   routerStats, listRouterTriggers, listRouterTickets, listRouterPolicies, saveRouterPolicy,
   getRouterTrigger, getRouterTicket, subscribeRouterEvents,
-  sandboxStats, listSandboxes, listSandboxProviders, listSandboxNodes,
+  sandboxStats, listSandboxes, listSandboxProviders, refreshSandboxProviders, listSandboxNodes,
   getSandbox, execSandbox, renewSandbox, terminateSandbox, listThreads,
   getThread, postThreadMessage, subscribeThreadEvents, dropRouterSubscription,
   checkHealth, request,
@@ -376,7 +376,9 @@ describe('SchedulesView policy and detail edges', () => {
     const { wrapper } = mountWith(SchedulesView)
     await flushPromises()
 
-    // The form defaults to enabled; a goal saved switched off must say so.
+    // The form defaults to disabled. Flip it on and back off so the v-model
+    // handler really runs; a bare setValue(false) would be a no-op here.
+    await wrapper.find('input[type="checkbox"]').setValue(true)
     await wrapper.find('input[type="checkbox"]').setValue(false)
     await wrapper.find('input[placeholder="Goal"]').setValue('weekly tidy')
     await wrapper.findAll('button').find((b) => b.text() === 'New goal').trigger('click')
@@ -931,6 +933,116 @@ describe('NotificationCenter panel', () => {
     const close = wrapper.find('button[aria-label="close"]')
     await close.trigger('click')
     expect(wrapper.find('.notif-center').exists()).toBe(false)
+  })
+})
+
+// ---- Guards a disabled control cannot reach -------------------------------
+// The UI disables its button in exactly the state that would take these
+// branches, so trigger('click') never reaches the handler. Calling the handler
+// directly proves the guard is a real line of defence rather than dead text.
+describe('guards behind disabled controls', () => {
+  const dialogStub = {
+    BaseDialog: {
+      name: 'BaseDialog',
+      props: ['modelValue', 'title'],
+      emits: ['update:modelValue'],
+      template: '<div v-if="modelValue" class="dialog-stub"><slot /><slot name="footer" /></div>',
+    },
+  }
+
+  it('ComputersView: every early return leaves the endpoint untouched', async () => {
+    const { wrapper } = mountWith(ComputersView, { stubs: dialogStub })
+    await flushPromises()
+    deleteComputer.mockClear()
+    getSandbox.mockClear()
+    execSandbox.mockClear()
+    terminateSandbox.mockClear()
+
+    await wrapper.vm.confirmDeleteCard()   // nothing pending
+    await wrapper.vm.refreshAudit()        // no selected lease
+    await wrapper.vm.runTrial()            // no lease and no command
+    await wrapper.vm.confirmTerminate()    // nothing pending
+
+    expect(deleteComputer).not.toHaveBeenCalled()
+    expect(getSandbox).not.toHaveBeenCalled()
+    expect(execSandbox).not.toHaveBeenCalled()
+    expect(terminateSandbox).not.toHaveBeenCalled()
+  })
+
+  it('ComputersView: a second lease request is dropped while one is in flight', async () => {
+    let release
+    createComputer.mockImplementation(() => new Promise((resolve) => { release = () => resolve({ id: 'c9' }) }))
+    const { wrapper } = mountWith(ComputersView, { stubs: dialogStub })
+    await flushPromises()
+    createComputer.mockClear()
+
+    const first = wrapper.vm.create()
+    await wrapper.vm.create()
+    expect(createComputer).toHaveBeenCalledTimes(1)
+    release()
+    await first
+  })
+
+  it('ComputersView: a refresh failure without a machine code keeps its message', async () => {
+    refreshSandboxProviders.mockRejectedValueOnce(new Error('provider probe failed'))
+    const { wrapper } = mountWith(ComputersView, { stubs: dialogStub })
+    await flushPromises()
+    await wrapper.vm.refresh()
+    expect(wrapper.text()).toContain('provider probe failed')
+  })
+
+  it('OrgView: an empty name is a no-op even when the form is submitted directly', async () => {
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+    createResource.mockClear()
+    await wrapper.vm.submit()
+    expect(createResource).not.toHaveBeenCalled()
+  })
+
+  it('PersonaEditor: an unknown selection has no form and an empty id cannot save', async () => {
+    listResources.mockResolvedValue({ resources: [{ id: 'a1', persona: {} }] })
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    wrapper.vm.selectedId = 'ghost'
+    expect(wrapper.vm.selected).toBeNull()
+    wrapper.vm.selectedId = ''
+    await wrapper.vm.save()
+    expect(wrapper.vm.saving).toBe(false)
+  })
+
+  it('SchedulesView: empty goal, unselected history and a blank ticket state', async () => {
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+    createSchedule.mockClear()
+
+    await wrapper.vm.add()
+    expect(createSchedule).not.toHaveBeenCalled()
+    expect(wrapper.vm.history).toEqual([])
+    expect(wrapper.vm.stateLabel('')).toBe('—')
+  })
+
+  it('SchedulesView: the enabled checkbox writes back through v-model', async () => {
+    const { wrapper } = mountWith(SchedulesView)
+    await flushPromises()
+    // `enabled` starts false, so setValue(false) alone is a no-op: the cached
+    // v-model handler only runs when the checkbox actually changes.
+    for (const box of wrapper.findAll('input[type="checkbox"]')) await box.setValue(true)
+    expect(wrapper.vm.enabled).toBe(true)
+    for (const box of wrapper.findAll('input[type="checkbox"]')) await box.setValue(false)
+    expect(wrapper.vm.enabled).toBe(false)
+  })
+
+  it('ThreadView: no @ token means no matches and a resubscribe closes the old stream', async () => {
+    getThread.mockResolvedValue({ thread: { ID: '1', Title: 't' }, messages: [] })
+    const close = vi.fn()
+    subscribeThreadEvents.mockReturnValue({ close })
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    expect(wrapper.vm.mentionMatches).toEqual([])
+    wrapper.vm.subscribe()
+    expect(close).toHaveBeenCalledTimes(1)
   })
 })
 

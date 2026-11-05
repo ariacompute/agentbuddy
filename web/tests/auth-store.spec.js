@@ -51,6 +51,12 @@ describe('auth-store', () => {
       expect(s.can('tasks:write')).toBe(false)
     })
 
+    it('returns the permission list verbatim when the server sent one', () => {
+      const s = useAuthStore()
+      s.user = { isOwner: false, permissions: ['tasks:read', 'tasks:write'] }
+      expect(s.permissions).toEqual(['tasks:read', 'tasks:write'])
+    })
+
     it('oauth providers come from the loaded config', () => {
       const s = useAuthStore()
       s.config = { oauth: [{ name: 'github' }] }

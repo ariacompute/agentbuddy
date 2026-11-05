@@ -140,6 +140,26 @@ describe('BaseDialog', () => {
     wrapper.unmount()
   })
 
+  it('focuses the panel itself when it exposes no focusable control', async () => {
+    // The header normally supplies the close button, so `el` is always found.
+    // Hide just the focus-trap selector to reach the `el || panel.value` arm:
+    // a dialog with nothing to focus still has to take focus itself.
+    const original = Element.prototype.querySelector
+    vi.spyOn(Element.prototype, 'querySelector').mockImplementation(function (selector) {
+      if (String(selector).startsWith('a[href]')) return null
+      return original.call(this, selector)
+    })
+    try {
+      const wrapper = mountClosed()
+      await wrapper.setProps({ modelValue: true })
+      await nextTick()
+      expect(document.activeElement).toBe(panel())
+      wrapper.unmount()
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
+
   it('leaves Tab alone when nothing in the panel is visible', async () => {
     // jsdom reports no offsetParent, which the dialog reads as "hidden". With no
     // focusable control it must not swallow the key: a trap on an empty list is

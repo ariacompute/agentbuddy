@@ -64,35 +64,43 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
+    // One exit per action, after the finally block. Returning from inside both
+    // try and catch leaves the fall-off-the-end path unreachable, which shows up
+    // as a branch no test can take; hoisting the result keeps the same contract
+    // and makes every line reachable.
     async login(email, password) {
       this.busy = true
       this.errorCode = null
+      let result
       try {
         await apiLogin(email, password)
         await this.refresh()
-        return { ok: true }
+        result = { ok: true }
       } catch (error) {
         this.errorCode = error.code
-        return { ok: false, code: error.code }
+        result = { ok: false, code: error.code }
       } finally {
         this.busy = false
       }
+      return result
     },
 
     async register(email, password, displayName) {
       this.busy = true
       this.errorCode = null
+      let result
       try {
         await apiRegister(email, password, displayName)
         await apiLogin(email, password)
         await this.refresh()
-        return { ok: true }
+        result = { ok: true }
       } catch (error) {
         this.errorCode = error.code
-        return { ok: false, code: error.code }
+        result = { ok: false, code: error.code }
       } finally {
         this.busy = false
       }
+      return result
     },
 
     async logout() {

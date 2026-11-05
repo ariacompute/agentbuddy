@@ -933,7 +933,7 @@ M21 只覆盖了本轮改过状态码的两个端点，但 `DELETE /api/computer
 - Rust：三个模块共 30 余条 inline 纯逻辑用例 + headless 路由用例（404 / 状态读取 /
   config 往返 / 非法跳过版本）。
 - web：新增 `tests/upgrade.spec.js`（20 条，用真 `api.js` + stub fetch 钉住三条路由、
-  各机器码文案、失败与无外壳路径、13 语折叠），用例 716 → 749、spec 30 → 31，
+  各机器码文案、失败与无外壳路径、13 语折叠），用例 716 → 748、spec 30 → 31，
   覆盖率语句/行 **100%**、分支 **97.97%**、函数 **99.76%**（10981 语句、1774 分支）。
 - `cargo check --all-targets` 通过；`bun run test` / `bun run test:coverage` 全绿。
   **本机 Windows 的 Rust 测试二进制仍因 Tauri 原生依赖入口缺失无法启动**
@@ -941,3 +941,50 @@ M21 只覆盖了本轮改过状态码的两个端点，但 `DELETE /api/computer
 - `latest-json.mjs collect|manifest` 用临时样本验证过双源 URL；`release.yml` 经 YAML 解析校验。
 - 待外部配置：生成 minisign 密钥对、把公钥填进 `upgrade::UPDATER_PUBKEY`、私钥写仓库 secrets，
   Gitee 镜像按清单上传 `latest.json` 与签名资产。未完成时客户端自动降级为手动下载。
+
+## M24 — 覆盖率收口：四项 100%（2026-11-05）
+
+用户要求把 v8 覆盖率补到 100%。起点是 M23 的 31 spec / 748 用例（语句与行 100%、
+分支 97.97%、函数 99.76%）。先用 `--coverage.reporter=json` 把每个未覆盖分支的
+`branchMap.locations` 映射回源码片段，共定位 **36 个分支 + 1 个函数**，分三类处理。
+
+### 1. 补测试（22 条用例，748 → 770）
+
+- **disabled 按钮背后的守卫**：`tests/view-edges.spec.js` 新增
+  `guards behind disabled controls` 组。这些按钮在会命中守卫的状态下本身就是
+  disabled，`trigger('click')` 到不了处理函数，因此用 `wrapper.vm` 直接调用
+  `<script setup>` 内部函数（已验证可访问）：ComputersView 的 4 个提前 return、
+  单飞 `create()`、无机器码的 `refresh()` 失败；OrgView 空名提交；PersonaEditor
+  未知选中 / 空 id 保存；SchedulesView 空目标 / 无选中历史 / 未知 ticket 状态
+  / `v-model` 回写；ThreadView 无 `@` 令牌的 mention 列表与重复订阅时关闭旧流。
+- **升级卡片防御臂**：`tests/upgrade.spec.js` 新增 `upgrade defensive arms` 组，
+  覆盖空 URL 白名单、未知机器码、无版本号、并发检查/安装、空响应体、无 code 的
+  错误、跳过无版本、config 写入被拒——全部仍走真 `api.js` + stub fetch。
+- **三元 / setup 的不可达 arm**：`base-dialog.spec.js` spy
+  `Element.prototype.querySelector` 制造「无可聚焦控件」以覆盖 `el || panel.value`；
+  `components.spec.js` 补一次 light→dark 切换；`use-copy-node.spec.js` 用
+  `vi.resetModules()` + 假 window 重新求值模块，覆盖 bootstrap 三元的两个 arm；
+  `voice-recorder.spec.js` 用 `createSSRApp` + `renderToString` 在无 window 环境执行
+  setup（jsdom 挂载需要 `window.ShadowRoot`，无法直接 stub）；`auth-store.spec.js`
+  补 `permissions` getter 的数组分支。
+- 顺带修正一处**假阳性**：`SchedulesView` 的 `enabled` 初始为 `false`，
+  原有 `setValue(false)` 是 no-op；改为先 `true` 再 `false`，让 v-model handler 真跑。
+
+### 2. 两处死代码清理（不改对外行为）
+
+- `VoiceRecorder.vue`：`v-else` 里的 `recorder.state === 'recording' ? Square : Mic`
+  恒为 `Mic`（recording 时走上面的 wave `v-if`），删除三元与 `Square` 导入，
+  改为静态 `<Mic v-else />`。
+- `auth-store.js`：login / register 在 try 与 catch 中都 `return`，使 `finally`
+  之后的函数尾路径永远不可达（v8 记为 2 个分支）。改为单一出口：结果先赋给
+  `result`，`finally` 之后统一 `return result`，返回契约与全部断言不变。
+
+### 3. 结果与基线
+
+- `bun run test`：**31 spec / 770 用例**全绿；`bun run build` 通过；lint 无新增告警。
+- `bun run test:coverage`：语句 **100%**（10989）、行 **100%**（10956）、
+  分支 **100%**（1804）、函数 **100%**（433）。**没有 exclude、没有 ignore 注释**。
+- 同步更新 `AGENTS.md`（新增两条覆盖手法与「四项须保持 100%」硬约束）、
+  `requirements.md`（第 36 条验收）、三份 `releasenotes` 的基线数字与
+  「剩余缺口」表述；M23 的用例数由笔误 749 校正为 748。
+- 桌面 Rust 侧不在本次范围（本机 Windows 测试二进制仍无法启动，纯逻辑用例留 CI 实跑）。

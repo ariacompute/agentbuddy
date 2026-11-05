@@ -299,3 +299,85 @@ describe('update copy is folded into the settings namespace', () => {
     }
   })
 })
+
+// The fallbacks below protect against a shell that answers with nothing, a
+// status code the client does not know yet, or a config write that is refused.
+// None of them is reachable from a healthy UI, but each is a real line the
+// desktop client has to survive, so each gets a case here.
+describe('upgrade defensive arms', () => {
+  const emptyBody = { ok: true, status: 200, text: async () => '', json: async () => null }
+
+  it('rejects an empty download URL before trying to parse it', async () => {
+    const { wrapper } = await mountSettings()
+    expect(wrapper.vm.assetHostAllowed('')).toBe(false)
+    expect(wrapper.vm.assetHostAllowed(null)).toBe(false)
+  })
+
+  it('renders an unknown status and a release without a version number', async () => {
+    const { card } = await mountSettings({
+      upgrade: { ...AVAILABLE, status: 'brand_new_status', latestVersion: '' },
+    })
+    expect(card.find('[role="status"]').text()).toContain('Could not check for updates')
+  })
+
+  it('drops a second check or install while one is in flight', async () => {
+    const { wrapper, calls } = await mountSettings()
+    wrapper.vm.upgradeBusy = true
+    await wrapper.vm.runCheck()
+    await wrapper.vm.runInstall()
+    expect(calls.filter((c) => c.url.startsWith('/__shell/upgrade/'))).toHaveLength(0)
+  })
+
+  it('treats an empty check response as unavailable', async () => {
+    const { card } = await mountSettings({ on: { 'POST /__shell/upgrade/check': emptyBody } })
+    await button(card, 'Check for updates').trigger('click')
+    await flushPromises()
+    expect(card.text()).toContain('Automatic updates are not configured')
+  })
+
+  it('keeps the last good state when an install response is empty', async () => {
+    const { card } = await mountSettings({
+      upgrade: AVAILABLE,
+      on: { 'POST /__shell/upgrade/install': emptyBody },
+    })
+    await button(card, 'Upgrade now').trigger('click')
+    await flushPromises()
+    expect(card.text()).toContain('Version 0.3.0 is available.')
+  })
+
+  it('falls back to a generic code when a check error carries none', async () => {
+    const { card } = await mountSettings({
+      on: { 'POST /__shell/upgrade/check': new Error('socket gone') },
+    })
+    await button(card, 'Check for updates').trigger('click')
+    await flushPromises()
+    expect(card.text()).toContain('unavailable')
+  })
+
+  it('falls back to not_configured when an install error carries none', async () => {
+    const { card } = await mountSettings({
+      upgrade: AVAILABLE,
+      on: { 'POST /__shell/upgrade/install': new Error('socket gone') },
+    })
+    await button(card, 'Upgrade now').trigger('click')
+    await flushPromises()
+    expect(card.text()).toContain('not_configured')
+  })
+
+  it('skipping a release without a version does not write config', async () => {
+    const { card, calls } = await mountSettings({ upgrade: { ...AVAILABLE, latestVersion: '' } })
+    await button(card, 'Skip this version').trigger('click')
+    await flushPromises()
+    expect(calls.filter((c) => c.url === '/__shell/config' && c.method === 'POST')).toHaveLength(0)
+  })
+
+  it('keeps the state when the shell refuses to persist the skipped version', async () => {
+    const { card } = await mountSettings({
+      upgrade: AVAILABLE,
+      on: { 'POST /__shell/config': jsonResponse({ code: 'forbidden' }, false, 403) },
+    })
+    await button(card, 'Skip this version').trigger('click')
+    await flushPromises()
+    expect(card.text()).toContain('Version 0.3.0 is available.')
+  })
+})

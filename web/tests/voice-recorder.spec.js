@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { createSSRApp } from 'vue'
+import { renderToString } from 'vue/server-renderer'
 import { flushPromises } from '@vue/test-utils'
 
 import { mountWith } from './helpers/vue-utils.js'
@@ -100,6 +102,20 @@ describe('VoiceRecorder', () => {
     const { wrapper } = mountWith(VoiceRecorder, { props: { threadId: 'th-1' } })
     wrapper.unmount()
     expect(voice.recorder.resets).toBe(1)
+  })
+
+  it('starts from a null recorder when there is no window at all', async () => {
+    // `typeof window !== 'undefined' ? window.MediaRecorder : null` runs in
+    // setup(). jsdom mounting needs window.ShadowRoot, so reach the same setup
+    // through a server render: it evaluates the component without a DOM, which
+    // is exactly the prerender pass this guard exists for.
+    vi.stubGlobal('window', undefined)
+    try {
+      await renderToString(createSSRApp(VoiceRecorder, { threadId: 'th-1' }))
+      expect(voice.recorder.deps.MediaRecorderImpl).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('passes whatever MediaRecorder the window exposes, without assuming it exists', async () => {
