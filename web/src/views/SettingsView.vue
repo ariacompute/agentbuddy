@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useCopy, useLang, setLang } from '../lib/use-copy.js'
 import { LANGUAGES } from '../lib/languages.js'
-import { checkHealth, request } from '../lib/api.js'
+import { checkHealth, request, getUpgrade, checkUpgrade, installUpgrade } from '../lib/api.js'
 import { applyShellNotifySettings } from '../lib/shell-settings.js'
 
 const { t } = useCopy('settings')
@@ -21,6 +21,128 @@ const themeLight = ref(false)
 const server = ref('')
 const version = ref('')
 const build = ref('')
+
+// Release checks are a desktop-shell capability. Outside the shell the read
+// 404s and the card says updates are not configured here; nothing else on this
+// screen depends on it.
+const upgrade = ref(null)
+const upgradeAuto = ref(true)
+const upgradeError = ref('')
+const upgradeBusy = ref(false)
+const shellVersion = ref('')
+
+const RELEASE_PAGES = {
+  github: 'https://github.com/ariacompute/agentbuddy/releases/latest',
+  gitee: 'https://gitee.com/ariacompute/agentbuddy/releases',
+}
+
+// The shell answers with machine codes. Every sentence on this card comes from
+// the copy table; an unknown code falls back to the generic failure text.
+const UPGRADE_STATUS = {
+  idle: '',
+  checking: 'upgradeChecking',
+  up_to_date: 'upgradeUpToDate',
+  available: 'upgradeAvailable',
+  unsupported_platform: 'upgradeUnsupported',
+  downloading: 'upgradeBusy',
+  installing: 'upgradeBusy',
+  not_configured: 'upgradeNotConfigured',
+  network_failed: 'upgradeFailed',
+  manifest_invalid: 'upgradeFailed',
+  signature_failed: 'upgradeFailed',
+  busy: 'upgradeChecking',
+  unavailable: 'upgradeNotConfigured',
+}
+
+/** A manifest may name an asset URL. Never navigate to one we do not trust. */
+function assetHostAllowed(raw) {
+  if (!raw) return false
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    return (
+      url.protocol === 'https:' &&
+      (host === 'github.com' ||
+        host === 'gitee.com' ||
+        host.endsWith('.githubusercontent.com') ||
+        host.endsWith('.gitee.com'))
+    )
+  } catch (e) { return false }
+}
+
+function upgradeStatusText() {
+  const state = upgrade.value
+  if (!state || !state.status) return t('upgradeNotConfigured')
+  const key = UPGRADE_STATUS[state.status] ?? 'upgradeFailed'
+  if (!key) return ''
+  return t(key).replace('{v}', state.latestVersion || '')
+}
+
+function upgradeSourceLabel() {
+  const source = upgrade.value?.source
+  if (source === 'gitee') return 'Gitee'
+  if (source === 'github') return 'GitHub'
+  return '—'
+}
+
+function checkedAtText() {
+  const ts = upgrade.value?.checkedAt
+  if (!ts) return '—'
+  const date = new Date(ts * 1000)
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
+}
+
+function releaseHref() {
+  return RELEASE_PAGES[upgrade.value?.source] || RELEASE_PAGES.github
+}
+
+function currentVersionText() {
+  return upgrade.value?.currentVersion || shellVersion.value || t('unknown')
+}
+
+const canInstall = () =>
+  upgrade.value?.status === 'available' &&
+  (!upgrade.value.downloadUrl || assetHostAllowed(upgrade.value.downloadUrl))
+
+async function readUpgrade() {
+  try {
+    upgrade.value = (await getUpgrade()) || null
+  } catch (e) { upgrade.value = null }
+}
+
+async function runCheck() {
+  if (upgradeBusy.value) return
+  upgradeBusy.value = true
+  upgradeError.value = ''
+  try {
+    upgrade.value = (await checkUpgrade()) || { status: 'unavailable' }
+  } catch (e) {
+    upgradeError.value = e?.code || 'unavailable'
+  } finally { upgradeBusy.value = false }
+}
+
+async function runInstall() {
+  if (upgradeBusy.value) return
+  upgradeBusy.value = true
+  upgradeError.value = ''
+  try {
+    upgrade.value = (await installUpgrade()) || upgrade.value
+  } catch (e) {
+    upgradeError.value = e?.code || 'not_configured'
+  } finally { upgradeBusy.value = false }
+}
+
+async function skipUpgrade() {
+  const skipped = upgrade.value?.latestVersion
+  if (!skipped) return
+  try {
+    await request('/__shell/config', {
+      method: 'POST',
+      body: JSON.stringify({ upgrade_skipped_version: skipped }),
+    })
+    upgrade.value = { ...upgrade.value, status: 'up_to_date', skippedVersion: skipped }
+  } catch (e) { /* not running inside the desktop shell */ }
+}
 
 // The execution node. Its settings live in the shell's config, but whether it is
 // actually running (and why not) only the local process knows, so the state is a
@@ -77,6 +199,7 @@ onMounted(async () => {
     background.value = cfg.background ?? true
     notify.value = cfg.notifyEnabled ?? true
     quiet.value = cfg.notifyQuietMinutes ?? 0
+    upgradeAuto.value = cfg.upgradeAutoCheck ?? true
     // The connected server is the shell's configured upstream — agenthub's
     // /healthz does not report its own URL, so we read it from the shell.
     server.value = cfg.serverUrl || ''
@@ -87,11 +210,14 @@ onMounted(async () => {
     background.value = saved.background ?? true
     notify.value = saved.notify ?? true
     quiet.value = saved.quiet ?? 0
+    upgradeAuto.value = saved.upgradeAuto ?? true
   }
   const local = readLocal()
   voiceInput.value = local.voiceInput ?? true
   themeLight.value = local.theme !== 'dark'
+  shellVersion.value = window.__AGENTBUDDY_VERSION__ || ''
   applyTheme()
+  await readUpgrade()
   try {
     const h = await checkHealth()
     version.value = h.version || t('unknown')
@@ -180,6 +306,7 @@ function saveLocal() {
   local.background = background.value
   local.notify = notify.value
   local.quiet = quiet.value
+  local.upgradeAuto = upgradeAuto.value
   window.localStorage.setItem(KEY, JSON.stringify(local))
   // Keep the canonical theme key in sync so the pre-paint script in index.html
   // and the top-bar ThemeToggle honour the same choice, and apply it live.
@@ -196,6 +323,7 @@ async function save() {
         background: background.value,
         notify_enabled: notify.value,
         notify_quiet_minutes: quiet.value,
+        upgrade_auto_check: upgradeAuto.value,
       }),
     })
   } catch (e) { /* not running inside the desktop shell */ }
@@ -212,6 +340,7 @@ function reset() {
   quiet.value = 0
   voiceInput.value = true
   themeLight.value = true
+  upgradeAuto.value = true
   save()
 }
 </script>
@@ -316,6 +445,42 @@ function reset() {
         <div class="row" style="gap:8px"><span class="muted">{{ t('server') }}</span><code class="mono">{{ server || t('unknown') }}</code></div>
         <div class="row" style="gap:8px"><span class="muted">{{ t('version') }}</span><code class="mono">{{ version }}</code></div>
         <div class="row" style="gap:8px"><span class="muted">{{ t('build') }}</span><code class="mono">{{ build }}</code></div>
+      </section>
+
+      <section class="card stack upgrade-card" data-testid="upgrade-card">
+        <div class="row" style="justify-content:space-between;gap:8px">
+          <h2 class="card-title">{{ t('upgradeTitle') }}</h2>
+          <span class="chip" :class="upgrade?.status === 'available' ? 'chip-on' : ''">
+            {{ t('upgradeSource') }} · {{ upgradeSourceLabel() }}
+          </span>
+        </div>
+
+        <p class="upgrade-state" role="status" aria-live="polite">{{ upgradeStatusText() }}</p>
+        <p v-if="upgradeError" class="muted" style="font-size:11px">
+          {{ t('upgradeFailed') }} <code class="mono">{{ upgradeError }}</code>
+        </p>
+        <div v-if="upgradeBusy" class="upgrade-progress" role="progressbar" :aria-valuetext="t('upgradeBusy')"><span></span></div>
+
+        <div class="row" style="gap:8px"><span class="muted">{{ t('upgradeCurrent') }}</span><code class="mono">{{ currentVersionText() }}</code></div>
+        <div v-if="upgrade?.latestVersion" class="row" style="gap:8px"><span class="muted">{{ t('upgradeLatest') }}</span><code class="mono">{{ upgrade.latestVersion }}</code></div>
+        <div class="row" style="gap:8px"><span class="muted">{{ t('upgradeChecked') }}</span><code class="mono">{{ checkedAtText() }}</code></div>
+
+        <p v-if="upgrade?.notes" class="upgrade-notes muted">{{ upgrade.notes }}</p>
+
+        <div v-if="canInstall()" class="row row-wrap" style="gap:8px">
+          <button class="btn btn-sm" :disabled="upgradeBusy" @click="runInstall">{{ t('upgradeUpgrade') }}</button>
+          <button class="btn btn-sm btn-ghost" :disabled="upgradeBusy" @click="skipUpgrade">{{ t('upgradeSkip') }}</button>
+        </div>
+
+        <label class="switch">
+          <input type="checkbox" v-model="upgradeAuto" @change="save" />
+          <span>{{ t('upgradeAuto') }}</span>
+        </label>
+
+        <div class="row row-wrap" style="gap:8px;align-items:center">
+          <button class="btn btn-sm" :disabled="upgradeBusy" @click="runCheck">{{ t('upgradeCheck') }}</button>
+          <a class="btn btn-sm btn-ghost upgrade-link" :href="releaseHref()" target="_blank" rel="noopener noreferrer">{{ t('upgradeDownload') }}</a>
+        </div>
       </section>
     </div>
 

@@ -4,15 +4,18 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '../lib/auth-store.js'
 import { useWorkbenchStore } from '../lib/workbench-store.js'
 import { useCopy } from '../lib/use-copy.js'
+import { getUpgrade } from '../lib/api.js'
 import {
   LayoutDashboard, MessagesSquare, ListChecks, Network, Radio, Plug,
   Settings as Cog, Monitor, CalendarClock, BookOpen, UserRound, FolderOpen,
+  ArrowUpRight,
 } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
 
 const { t } = useCopy('shell')
 const { t: th } = useCopy('hub')
 const { t: to } = useCopy('ops')
+const { t: ts } = useCopy('settings')
 const auth = useAuthStore()
 const workbench = useWorkbenchStore()
 const route = useRoute()
@@ -22,8 +25,15 @@ const collapsed = ref(false)
 // index.html at request time; in a plain web build the global is absent and the
 // footer version simply stays hidden. Same source/format as LoginView.
 const appVersion = ref('')
-onMounted(() => {
+// One read on mount, not a polling stream: the shell's 24h check updates the
+// state, and the next navigation into the workbench picks it up.
+const upgradeAvailable = ref(false)
+onMounted(async () => {
   appVersion.value = window.__AGENTBUDDY_VERSION__ || ''
+  try {
+    const state = await getUpgrade()
+    upgradeAvailable.value = state?.status === 'available'
+  } catch (e) { /* plain web build has no shell */ }
 })
 
 const links = computed(() => [
@@ -67,6 +77,10 @@ const links = computed(() => [
     </router-link>
 
     <div class="sidebar-foot" v-if="!collapsed">
+      <router-link v-if="upgradeAvailable" to="/settings" class="upgrade-banner" data-testid="upgrade-banner">
+        <ArrowUpRight :size="14" />
+        <span>{{ ts('upgradeBanner') }}</span>
+      </router-link>
       <div>{{ auth.user?.displayName || auth.user?.email }}</div>
       <div v-if="appVersion" class="sidebar-version">{{ appVersion }}</div>
     </div>

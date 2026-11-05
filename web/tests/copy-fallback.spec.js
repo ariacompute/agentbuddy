@@ -8,6 +8,7 @@ import { orgCopy } from '../src/lib/copy/org-copy.js'
 import { channelCopy } from '../src/lib/copy/channel-copy.js'
 import { connectorCopy } from '../src/lib/copy/connector-copy.js'
 import { settingsCopy } from '../src/lib/copy/settings-copy.js'
+import { upgradeCopy } from '../src/lib/copy/upgrade-copy.js'
 import { errorsCopy } from '../src/lib/copy/errors-copy.js'
 import { hubCopy } from '../src/lib/copy/hub-copy.js'
 
@@ -23,6 +24,9 @@ const NAMESPACES = {
   channel: channelCopy,
   connector: connectorCopy,
   settings: settingsCopy,
+  // Folded into `settings` at runtime, but audited on its own so every new
+  // update-card key has to be translated in all 13 languages.
+  upgrade: upgradeCopy,
   errors: errorsCopy,
   hub: hubCopy,
 }

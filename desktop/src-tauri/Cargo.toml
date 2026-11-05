@@ -21,8 +21,14 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "2.7"
+# Signature verification and the platform-specific installer live in the plugin;
+# this crate only decides which release to offer. Its default features use
+# rustls, matching the proxy's TLS stack.
+tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Release tags are semver, not strings: "0.10.0" must beat "0.9.0".
+semver = "1"
 tokio = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "net", "sync", "time", "process"] }
 axum = { version = "0.8", features = ["macros"] }
 # rustls rather than the platform TLS stack: one implementation to reason about

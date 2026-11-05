@@ -78,8 +78,8 @@ desktop/
 - **测试**：`cd web && bun run test`（Vitest）。**勿用裸 `bun test`**（Bun 原生 runner 不加载
   `vitest.config.js`，无 jsdom 环境）。新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线（30 个 spec、**716** 条用例）：
-  语句/行 **100%**、分支 **98.52%**、函数 **99.76%**（10524 条语句、1698 个分支）；
+  `text-summary` + `text`，不写报告目录），当前基线（31 个 spec、**749** 条用例）：
+  语句/行 **100%**、分支 **97.97%**、函数 **99.76%**（10981 条语句、1774 个分支）；
   回落时先看报告里的未覆盖行再补用例。
 - **接线守卫**：`api.js` 的每个具名导出至少要被 `web/src/**`（除 `api.js` 自身）引用一处，
   `tests/api-usage.spec.js` 强制这条且白名单必须为空；新增封装却忘了接界面会直接红。
@@ -162,6 +162,38 @@ desktop/
 - 迁移幂等，新增走新文件（`013` 起）；`store_test.go` 的 `want` 切片钉住文件名清单，必须同步。
 - 新路由必须同时登记 `handlers/listen.go` 的 `Listeners()` 与 `listen_test.go` 的 `probes`。
 - 不新增权限码：通道 / 连接器 / 语音复用 `tasks:read` / `tasks:write` / `resources:*`。
+
+## 自动更新（upgrade）
+
+- **选源**：`src/upgrade/source.rs` 并发探测 GitHub / Gitee 两源的 `latest.json`（Gitee 先经公开
+  release API 解出 tag），取可用且延迟最低者，失败自动落到另一源；**不采集位置、不读 IP、
+  不依赖定位服务**。胜出 + 回落端点经 `UpdaterBuilder::endpoints()` 注入插件，插件顺序 failover。
+- **检查与匹配**：启动延时 8s 首检，之后每 24h（`due()`，时钟回拨视为到期）、`AtomicBool` 单飞；
+  版本用 `semver::Version` 比 `crate::VERSION`；`platform_key(OS, ARCH)` 映射到 Tauri 平台键。
+  发布矩阵当前只有 `linux-x86_64` / `darwin-aarch64` / `windows-x86_64`，其余平台返回
+  `unsupported_platform` 并给手动下载入口，不反复重试。
+- **安装**：`tauri-plugin-updater` 只负责验签、下载、平台化安装与重启。公钥唯一真相是
+  `src/upgrade/mod.rs` 的 `upgrade::UPDATER_PUBKEY`（经 `Builder::pubkey()` 注入），
+  `tauri.conf.json` 的 `plugins.updater.pubkey` 留空；**未配置公钥时「立即升级」返回
+  `not_configured`，绝不安装未验签的包**。生成：`tauri signer generate -w ~/.tauri/agentbuddy.key`，
+  公钥写常量，私钥/口令写 secrets `TAURI_SIGNING_PRIVATE_KEY` /
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
+- **发布产物**：`release.yml` 仅在上述 secret 存在时打开 `bundle.createUpdaterArtifacts`
+  （本地 `make desktop-build` 不受影响），Linux 追加 `appimage`；
+  `desktop/scripts/latest-json.mjs collect|manifest` 产出 `latest.json`（GitHub URL）与
+  `latest-gitee.json`（Gitee URL）。**Gitee 镜像把后者重命名为 `latest.json`，并上传完全相同的
+  签名压缩包与 `.sig`**；清单里的 URL 只能指向自己那一源，绝不跨源混用。
+- **桥、文案与通知**：`GET /__shell/upgrade`、`POST /__shell/upgrade/check`、
+  `POST /__shell/upgrade/install` 继承 `ab_proxy` Cookie 与 Origin 准入，**不给 WebView 任何
+  updater 权限**；状态一律机器码 `UpgradeCode`，web 走 `copy/upgrade-copy.js`（`withCopy` 折进
+  `settings`），外壳走 `i18n/upgrade.rs`，两端 13 语各有测试钉住键集。偏好
+  `upgrade_auto_check` / `upgrade_skipped_version` / `upgrade_last_checked` 复用 `/__shell/config`。
+  后台发现新版本经 `notify::notify_upgrade()` 发通知，标题按 `config.lang` 在发送瞬间解析，
+  深链 `/settings` 复用 `tap` → `window.location.hash`；每版本只发一次，跳过版本不再提醒。
+- **测试**：选源 / semver / 平台映射 / 24h 到期 / 跳过 / 失败回落均为不依赖 `AppHandle` 的
+  inline tests；`web/tests/upgrade.spec.js` 用真 `api.js` + stub fetch 覆盖正常与异常双路径。
+  本机 Windows 的 Rust 测试二进制仍因原生依赖入口缺失无法启动，只能 `cargo check --all-targets`
+  / `cargo test --no-run`，CI（Linux）实跑。
 
 ## 常用命令
 

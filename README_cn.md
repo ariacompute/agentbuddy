@@ -10,6 +10,9 @@
   工作台始终以同源方式通信。
 - Agent、会话线程、任务追踪、审批（HITL 挂起/恢复）、通道（Slack / Teams / Telegram / SMS
   webhook）、连接器（按策略放行的动作），以及语音（录音 → 转写 → 委派）。
+- 自动更新：并发探测 GitHub 与 Gitee，取可用且最快的一源，失败自动切到另一源；启动即查、
+  此后每天一次，按本地操作系统与 CPU 架构匹配签名安装包，一键验签升级后重启。设置里可关闭
+  自动检查，也可跳过某个版本。
 
 ## 快照
 
@@ -67,6 +70,18 @@ make smoke                          # 两条跨进程冒烟（见下）
 | Linux x86_64  | `linux-x86_64.tar.gz`   | `amd64.deb`     |
 | macOS aarch64 | `macos-aarch64.tar.gz`  | `aarch64.dmg`   |
 | Windows x86_64| `windows-x86_64.zip`    | `x64.msi`       |
+
+### 签名更新（一次性配置）
+
+```bash
+tauri signer generate -w ~/.tauri/agentbuddy.key
+```
+
+把公钥写入 `desktop/src-tauri/src/upgrade/mod.rs` 的 `UPDATER_PUBKEY`，私钥与口令写入仓库
+secrets `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。配置后，release
+会额外发布签名更新包、`latest.json`（GitHub 资产 URL）与 `latest-gitee.json`（Gitee 资产 URL）。
+Gitee 镜像把后者重命名为 `latest.json`，并上传完全相同的更新包与 `.sig`。未配置密钥时，
+上述 6 个安装包照常发布，应用只提供手动下载入口，绝不安装未验签的包。
 
 ## 执行环境
 

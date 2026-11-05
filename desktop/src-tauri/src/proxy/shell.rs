@@ -34,6 +34,8 @@ struct ConfigPayload {
     executor_allowlist: Option<Vec<String>>,
     executor_max_concurrency: Option<u16>,
     executor_api_key: Option<String>,
+    upgrade_auto_check: Option<bool>,
+    upgrade_skipped_version: Option<String>,
 }
 
 /// The settings screen's execution-node block. Everything here is local: the
@@ -78,6 +80,11 @@ pub async fn handle(state: &ProxyState, req: Request) -> Response {
         // hidden.
         ("POST", "/__shell/badge") => set_badge(state, req).await,
         ("POST", "/__shell/hide") => hide_window(state),
+        // Release checks. All three inherit the proxy cookie and Origin gate
+        // from `dispatch`; none of them grants the page a Tauri permission.
+        ("GET", "/__shell/upgrade") => read_upgrade(state).await,
+        ("POST", "/__shell/upgrade/check") => check_upgrade(state).await,
+        ("POST", "/__shell/upgrade/install") => install_upgrade(state).await,
         _ => (
             StatusCode::NOT_FOUND,
             axum::Json(json!({ "code": "not_found" })),
@@ -144,6 +151,10 @@ async fn read_config(state: &ProxyState) -> Response {
         "executorMaxConcurrency": config.executor_max_concurrency,
         "executorNodeId": config.executor_node_id,
         "executorHasApiKey": !config.executor_api_key.is_empty(),
+        // The update preferences live in the same config so one save describes
+        // the whole shell; the live check state is /__shell/upgrade.
+        "upgradeAutoCheck": config.upgrade_auto_check,
+        "upgradeSkippedVersion": config.upgrade_skipped_version,
         // Where the agenthub session is kept: "keyring", "file" or "memory".
         // A machine-code, not prose — the settings screen localizes it.
         "sessionBackend": state.store.session_backend(),
@@ -253,6 +264,17 @@ async fn save_config(state: &ProxyState, req: Request) -> Response {
         // A sane ceiling keeps the stored preference meaningful.
         config.notify_quiet_minutes = quiet.min(1440);
     }
+    if let Some(auto) = payload.upgrade_auto_check {
+        config.upgrade_auto_check = auto;
+    }
+    if let Some(skipped) = payload.upgrade_skipped_version {
+        // A version string, not free text: it is persisted and later compared
+        // to a release tag. An empty value clears the skip.
+        let value = skipped.trim();
+        if value.is_empty() || crate::upgrade::source::valid_tag(value) {
+            config.upgrade_skipped_version = value.to_string();
+        }
+    }
     // The execution-node block travels with the rest of the config so a settings
     // screen can save everything in one call; /__shell/executor is the focused
     // endpoint that also reports whether the node came up.
@@ -349,6 +371,45 @@ fn hide_window(state: &ProxyState) -> Response {
     axum::Json(json!({ "ok": true })).into_response()
 }
 
+/// The state the settings card, the sidebar banner and the about page read.
+/// The two preferences come from the config rather than the cached snapshot so
+/// a change made through `/__shell/config` is visible without another check.
+async fn read_upgrade(state: &ProxyState) -> Response {
+    let Some(upgrade) = &state.upgrade else {
+        return failure("not_configured", StatusCode::NOT_FOUND);
+    };
+    let mut snapshot = upgrade.snapshot().await;
+    let config = state.config.read().await;
+    snapshot.auto_check = config.upgrade_auto_check;
+    snapshot.skipped_version = if config.upgrade_skipped_version.trim().is_empty() {
+        None
+    } else {
+        Some(config.upgrade_skipped_version.clone())
+    };
+    axum::Json(snapshot).into_response()
+}
+
+/// Manual "Check for updates": always allowed, even with auto-checking off.
+async fn check_upgrade(state: &ProxyState) -> Response {
+    let Some(upgrade) = &state.upgrade else {
+        return failure("not_configured", StatusCode::NOT_FOUND);
+    };
+    axum::Json(upgrade.check_now(true).await).into_response()
+}
+
+/// Only the settings card calls this, and only after the user pressed the
+/// button. A refusal is an HTTP error carrying a machine code, so the API
+/// client turns it into an `ApiError` the UI can localise.
+async fn install_upgrade(state: &ProxyState) -> Response {
+    let Some(upgrade) = &state.upgrade else {
+        return failure("not_configured", StatusCode::NOT_FOUND);
+    };
+    match upgrade.install().await {
+        Ok(snapshot) => axum::Json(snapshot).into_response(),
+        Err(code) => failure(code.as_str(), StatusCode::BAD_REQUEST),
+    }
+}
+
 /// Records the unread count and mirrors it onto the tray.
 ///
 /// The value is clamped rather than refused: a workbench that counted a hundred
@@ -425,6 +486,7 @@ mod tests {
             // exercised in `proxy::auth` and in the end-to-end proxy tests.
             auth: None,
             unread: Arc::new(std::sync::Mutex::new(0)),
+            upgrade: None,
         }
     }
 
@@ -445,6 +507,91 @@ mod tests {
         let (status, json) = decode(handle(&state, req("GET", "/__shell/nope")).await).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(json["code"], "not_found");
+    }
+
+    /// A headless upgrader: no window, so it can never install — but the GET
+    /// route and the config round-trip are fully testable.
+    async fn state_with_upgrade() -> ProxyState {
+        let mut state = state().await;
+        state.upgrade = Some(crate::upgrade::Upgrader::new(
+            state.config.clone(),
+            state.store.clone(),
+            None,
+        ));
+        state
+    }
+
+    fn json_post(path: &str, body: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_upgrade_routes_answer_not_configured_without_a_window() {
+        let state = state().await;
+        for (method, path) in [
+            ("GET", "/__shell/upgrade"),
+            ("POST", "/__shell/upgrade/check"),
+            ("POST", "/__shell/upgrade/install"),
+        ] {
+            let (status, json) = decode(handle(&state, req(method, path)).await).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{method} {path}");
+            assert_eq!(json["code"], "not_configured");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_upgrade_state_is_readable_without_touching_the_network() {
+        let state = state_with_upgrade().await;
+        let (status, json) = decode(handle(&state, req("GET", "/__shell/upgrade")).await).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["status"], "idle");
+        assert_eq!(json["currentVersion"], crate::VERSION);
+        assert_eq!(json["autoCheck"], true);
+        assert!(json["latestVersion"].is_null());
+    }
+
+    #[tokio::test]
+    async fn the_config_endpoint_persists_the_update_preferences() {
+        let state = state().await;
+        let (status, _) = decode(
+            handle(
+                &state,
+                json_post(
+                    "/__shell/config",
+                    r#"{"upgrade_auto_check":false,"upgrade_skipped_version":"0.9.0"}"#,
+                ),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, json) = decode(handle(&state, req("GET", "/__shell/config")).await).await;
+        assert_eq!(json["upgradeAutoCheck"], false);
+        assert_eq!(json["upgradeSkippedVersion"], "0.9.0");
+    }
+
+    #[tokio::test]
+    async fn a_hostile_skipped_version_is_not_stored() {
+        let state = state().await;
+        let (status, _) = decode(
+            handle(
+                &state,
+                json_post(
+                    "/__shell/config",
+                    r#"{"upgrade_skipped_version":"../../etc/passwd"}"#,
+                ),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, json) = decode(handle(&state, req("GET", "/__shell/config")).await).await;
+        assert_eq!(json["upgradeSkippedVersion"], "");
     }
 
     /// The same state, with admission control on — the only configuration in

@@ -13,6 +13,12 @@
 #   aarch64.dmg              native installer, Apple Silicon macOS
 #   windows-x86_64.zip       portable, x86_64 Windows
 #   x64.msi                  native installer, x86_64 Windows
+#
+# When TAURI_SIGNING_PRIVATE_KEY is configured, each leg also produces a signed
+# updater archive + .sig and the release job assembles `latest.json` (GitHub
+# asset URLs) and `latest-gitee.json` (Gitee asset URLs). Gitee mirrors upload
+# the latter renamed to `latest.json`, together with the exact same archives
+# and signatures — one manifest per mirror, never a cross-mirror download.
 
 name: release
 
@@ -94,12 +100,37 @@ jobs:
               desktop/src-tauri/Cargo.toml && rm -f desktop/src-tauri/Cargo.toml.bak
           fi
 
+      - name: Enable signed updater artifacts
+        id: updater
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$SIGNING_KEY" ]; then
+            # Only the release build turns this on. A local `make desktop-build`
+            # never needs a signing key, and must keep producing plain bundles.
+            node -e "const fs=require('fs');const p='desktop/src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.bundle=c.bundle||{};c.bundle.createUpdaterArtifacts=true;fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n')"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No TAURI_SIGNING_PRIVATE_KEY; publishing installers without updater artifacts."
+          fi
+
       - name: Build desktop app
         working-directory: desktop
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           bun install
           bun run icons   # derive desktop/src-tauri/icons from assets/app-icon.png (git-ignored)
-          bun run build -- --bundles ${{ matrix.bundles }}
+          BUNDLES="${{ matrix.bundles }}"
+          if [ "${{ steps.updater.outputs.enabled }}" = "true" ] && [ "${{ matrix.platform }}" = "linux" ]; then
+            # The Linux updater archive is derived from an AppImage.
+            BUNDLES="$BUNDLES,appimage"
+          fi
+          bun run build -- --bundles "$BUNDLES"
 
       - name: Package artifacts (Linux)
         if: matrix.platform == 'linux'
@@ -111,6 +142,7 @@ jobs:
           DEB=$(ls desktop/src-tauri/target/release/bundle/deb/*.deb | head -n1)
           cp "$DEB" "$OUT/agentbuddy-amd64-${VERSION}.deb"
           tar -czf "$OUT/agentbuddy-linux-x86_64-${VERSION}.tar.gz" -C "$(dirname "$BIN")" agentbuddy
+          node desktop/scripts/latest-json.mjs collect linux-x86_64 "$OUT"
 
       - name: Package artifacts (macOS)
         if: matrix.platform == 'macos'
@@ -122,6 +154,7 @@ jobs:
           DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -n1)
           cp "$DMG" "$OUT/agentbuddy-aarch64-${VERSION}.dmg"
           tar -czf "$OUT/agentbuddy-macos-aarch64-${VERSION}.tar.gz" -C "$(dirname "$APP")" "$(basename "$APP")"
+          node desktop/scripts/latest-json.mjs collect darwin-aarch64 "$OUT"
 
       - name: Package artifacts (Windows)
         if: matrix.platform == 'windows'
@@ -134,6 +167,7 @@ jobs:
           $MSI = (Get-ChildItem desktop/src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1).FullName
           Copy-Item $MSI "$OUT/agentbuddy-x64-${env:VERSION}.msi"
           Compress-Archive -Path $EXE -DestinationPath "$OUT/agentbuddy-windows-x86_64-${env:VERSION}.zip"
+          node desktop/scripts/latest-json.mjs collect windows-x86_64 "$OUT"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -153,6 +187,25 @@ jobs:
           merge-multiple: true
       - name: List assets
         run: ls -lh release-assets
+      - name: Generate updater manifests
+        shell: bash
+        env:
+          RELEASE_NOTES: ${{ github.event.release.body }}
+        run: |
+          node desktop/scripts/latest-json.mjs manifest release-assets "${GITHUB_REF_NAME#v}"
+      - name: Gitee mirror checklist
+        continue-on-error: true
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if curl -fsS --max-time 20 \
+            "https://gitee.com/api/v5/repos/ariacompute/agentbuddy/releases/tags/$TAG" >/dev/null; then
+            echo "Gitee release $TAG is present."
+          else
+            echo "::warning::Gitee release $TAG is missing or unreachable; mirror it manually."
+          fi
+          echo "### Gitee mirror" >> "$GITHUB_STEP_SUMMARY"
+          echo "Upload \`latest-gitee.json\` renamed to \`latest.json\`, plus every updater archive and its \`.sig\`, to the Gitee release for $TAG." >> "$GITHUB_STEP_SUMMARY"
       - name: Generate checksums
         run: |
           cd release-assets

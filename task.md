@@ -871,3 +871,73 @@ M21 只覆盖了本轮改过状态码的两个端点，但 `DELETE /api/computer
 - `cd web && bun run build` 通过；`AGENTS.md`、`requirements.md`（4.2 新增「删除的幂等语义」）、
   两份 `releasenotes` 的 716 与覆盖率数字已同步。
 - 桌面外壳未受影响：改动只落在网页视图与测试。
+
+## M23 — 自动更新：双源选优 / 定时检查 / 平台匹配（2026-11-05）
+
+原需求三点：按网络自动选 GitHub 或 Gitee、定时查 release 并在本地较旧时提示、
+按本地操作系统挑 release 类型。澄清后定下：选源只看**可达性 + 延迟**（不采集位置）、
+发现新版后由用户确认再**自动验签安装并重启**（保留手动下载）、Gitee 已有同名 release、
+启动即查 + 每 24h 一次且可关自动检查 / 跳过版本。
+
+### 1. 新增 Rust 模块 `src/upgrade/`
+
+- `source.rs`：两源并发探测（`tokio::join!`，连接/整体超时 5s/6s）；Gitee 没有稳定的
+  `latest/download` 别名，先经公开 release API 解出 `tag_name`（`valid_tag()` 只放行
+  `[A-Za-z0-9._-]`）再拼 `releases/download/{tag}/latest.json`。`fastest()` 取延迟最低者、
+  平局按声明顺序 GitHub 优先；`ordered_endpoints()` 给出「胜出 → 回落」供插件顺序 failover，
+  两源全失败仍留 GitHub 静态清单。主机白名单 + HTTPS + 无 userinfo，重定向后的最终 URL 复查，
+  清单资产还要求与来源同源（`matches_host`），杜绝「查 GitHub 却从别处下载」。
+- `manifest.rs`：`ReleaseManifest` / `PlatformAsset` 解析（256 KiB 上限、版本必须可 semver）、
+  `is_newer()` 用 `semver::Version` 剥 `v` 前缀且本地不可解析时**不**自动升级、
+  `platform_key()` 把 `std::env::consts::OS|ARCH` 映射到 Tauri 平台键，
+  `select_platform()` 缺键返回 `unsupported_platform`、签名空或 URL 越界返回 `manifest_invalid`。
+- `mod.rs`：`UpgradeCode`（13 个机器码，serde 与 `as_str()` 有测试钉住一致）、
+  `UpgradeState`（camelCase）、`decide()` / `apply()` 把结果折成状态的纯函数（失败时清掉旧版本
+  详情）、`due()`（24h 到期、时钟回拨视为到期）、`should_announce()`（每版本一次、跳过不提醒）；
+  `Upgrader` 负责启动延时 8s 首检 + `interval_at` 每 24h、`AtomicBool` 单飞、配置门控、
+  持久化 `upgrade_last_checked`、后台通知，以及 `install()` 把探测得到的端点注入
+  `UpdaterBuilder::endpoints()` 后 `check()` + `download_and_install()`，Windows 由插件退出、
+  其余平台 `app.restart()`。
+
+### 2. 接线
+
+- `Cargo.toml` 加 `tauri-plugin-updater = "2"`（默认 rustls，与代理一致）与 `semver = "1"`；
+  `lib.rs` 注册模块并以 `Builder::new().pubkey(upgrade::UPDATER_PUBKEY).build()` 挂插件，
+  **公钥常量是唯一真相**，`tauri.conf.json` 的 `plugins.updater.pubkey` 留空（只满足插件配置
+  反序列化）；`capabilities/default.json` 不动——网页视图拿不到任何 updater 命令。
+- `config.rs` 三个 `#[serde(default)]` 字段；`proxy/mod.rs` 的 `ProxyState` 加
+  `Option<Arc<Upgrader>>`，仅真实窗口才构造并启动定时器（无窗口路由器保持静默）；
+  `proxy/shell.rs` 加三条 `/__shell/upgrade*` 路由、config 读写两个升级偏好，
+  跳过版本字符串用 `valid_tag()` 过滤；4 处测试里的 `ProxyState` 字面量同步补 `upgrade: None`。
+- `notify.rs` 抽 `upgrade_notice()` 纯函数（13 语 + `{v}` 替换可无窗口单测），
+  `notify_upgrade()` 复用 `remember_link("/settings")` 与既有 `tap` → hash 跳转。
+- 外壳文案放新表 `i18n/upgrade.rs`（13 语 × 13 key），`i18n::lookup()` 同时查 `copy` 与
+  `upgrade` 两张表、`block_for()` chain 两份键，于是关于页的 `t(key)` 与英文回落语义不变；
+  `shell.html` 关于卡片加状态行、来源、检查/升级/下载三个按钮。
+
+### 3. 前端与发布
+
+- `api.js` 三个新封装；`copy/upgrade-copy.js`（13 语 × 18 key）经 `withCopy()` 折进
+  `settings` 命名空间，`copy-fallback.spec.js` 把它作为独立命名空间审计；
+  `SettingsView.vue` 加更新卡片（版本/来源/检查时间/更新说明/进度/机器码错误、
+  检查 / 升级 / 跳过 / 手动下载、自动检查开关），`Sidebar.vue` 加 `available` 时的单色横幅，
+  `style.css` 末尾只加令牌化样式与 reduced-motion 关闭规则。
+- `release.yml` 仅在 `TAURI_SIGNING_PRIVATE_KEY` 存在时才打开 `createUpdaterArtifacts`
+  （本地构建零影响）、Linux 追加 `appimage`；`desktop/scripts/latest-json.mjs` 的
+  `collect` 保留 Tauri 原始产物文件名（插件据此推断包类型）并内嵌签名，
+  `manifest` 产出各自指向本源的 `latest.json` / `latest-gitee.json`；
+  发布 job 追加 Gitee 镜像清单检查（失败不阻断）。
+
+### 4. 用例与校验
+
+- Rust：三个模块共 30 余条 inline 纯逻辑用例 + headless 路由用例（404 / 状态读取 /
+  config 往返 / 非法跳过版本）。
+- web：新增 `tests/upgrade.spec.js`（20 条，用真 `api.js` + stub fetch 钉住三条路由、
+  各机器码文案、失败与无外壳路径、13 语折叠），用例 716 → 749、spec 30 → 31，
+  覆盖率语句/行 **100%**、分支 **97.97%**、函数 **99.76%**（10981 语句、1774 分支）。
+- `cargo check --all-targets` 通过；`bun run test` / `bun run test:coverage` 全绿。
+  **本机 Windows 的 Rust 测试二进制仍因 Tauri 原生依赖入口缺失无法启动**
+  （`STATUS_ENTRYPOINT_NOT_FOUND`），`cargo test --lib` 只完成编译，纯逻辑用例留给 CI（Linux）实跑。
+- `latest-json.mjs collect|manifest` 用临时样本验证过双源 URL；`release.yml` 经 YAML 解析校验。
+- 待外部配置：生成 minisign 密钥对、把公钥填进 `upgrade::UPDATER_PUBKEY`、私钥写仓库 secrets，
+  Gitee 镜像按清单上传 `latest.json` 与签名资产。未完成时客户端自动降级为手动下载。

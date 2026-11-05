@@ -48,5 +48,14 @@
     "macOS": {
       "infoPlist": "Info.plist"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": [
+        "https://github.com/ariacompute/agentbuddy/releases/latest/download/latest.json",
+        "https://gitee.com/ariacompute/agentbuddy/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

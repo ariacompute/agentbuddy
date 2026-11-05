@@ -18,6 +18,7 @@ pub mod notify;
 pub mod proxy;
 pub mod session;
 pub mod tray;
+pub mod upgrade;
 
 /// The build version, used by the `vX.Y.Z@<7-char commit>` stamp. Derived at
 /// build time from the latest git tag (see `build.rs` / `AGENTBUDDY_VERSION`), so
@@ -44,6 +45,14 @@ pub struct ShellContext {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        // The updater's commands are never exposed to the WebView: it is used
+        // from Rust only, through /__shell/upgrade. The public key is injected
+        // here so there is exactly one place to configure it.
+        .plugin(
+            tauri_plugin_updater::Builder::new()
+                .pubkey(upgrade::UPDATER_PUBKEY)
+                .build(),
+        )
         .setup(|app| {
             let handle = app.handle().clone();
 

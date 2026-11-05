@@ -437,3 +437,59 @@
 29. 超时清场（F17.7）：unix 下超时后先对整棵进程组 TERM、250ms 宽限后 KILL，孙进程不残留；`pid <= 1` 或 `kill` 失败时降级为直接子进程 `start_kill`，绝不向自身组发信号。Windows 无组语义，明确退回直接子进程终止。
 30. 跨进程冒烟：`make smoke` 用真实 socket 跑通两条链路——「工作台 store → 真实 `node:http` 桩」（含 401 透传与断连不被误判为会话过期）与「真实上游 → 外壳代理 → bootstrap nonce → Cookie → `/api` 转发 → `/__shell/notify` → 外来 Origin 403」；全部只走 `127.0.0.1`，不触外网。
 31. 登录与人格（F1.3 / F10.2）：点击 OAuth 提供方按钮即 `window.open` 跳转，不抛异常；Agent 人格表单可编辑 `role` 并在保存后再次打开仍在（不再被覆盖为空）。
+32. 自动更新（F19）：两源并发探测择优与单源失败回落有纯函数用例；semver 比较、OS/arch →
+    平台键映射、无匹配降级、24h 到期与跳过版本均有用例；`GET /__shell/upgrade` 与两条 POST
+    在无窗口路由器下有正常 + 异常用例。
+33. 更新卡片、侧栏横幅、关于页均按机器码渲染 13 语本地文案；`api-usage.spec.js` 白名单仍为空；
+    `copy-fallback.spec.js` 与桌面 `i18n/upgrade.rs` 的 13 语键集守卫全绿。
+34. 发布流程生成 `latest.json`（GitHub URL）与 `latest-gitee.json`（Gitee URL），
+    `latest-json.mjs collect|manifest` 可用样本验证；未配置签名密钥时发布照常产出原有 6 个资产。
+35. 未配置公钥时「立即升级」返回 `not_configured` 且不下载任何包；WebView 未获得 updater 权限。
+
+## 7. 自动更新（F19）
+
+### 7.1 功能边界
+
+- 桌面外壳自行检查 `github.com/ariacompute/agentbuddy` 与 `gitee.com/ariacompute/agentbuddy`
+  的 release；**并发探测**两源更新清单的可达性与响应延迟，取可用且最快者，单源失败自动回落到
+  另一源。不采集用户位置、不读出口 IP、不依赖第三方定位服务。
+- 启动时检查一次（窗口就绪后延时），之后每 24 小时一次；设置页提供手动检查。自动检查可关闭、
+  特定版本可跳过，偏好持久化在 `config.json`。
+- 本地版本较老时给出系统通知（点击到 `/settings`）与设置页卡片、侧栏横幅、关于页状态；
+  用户确认「立即升级」后由 `tauri-plugin-updater` 验签、下载、安装并重启；始终保留「手动下载」。
+- 按本地 OS + CPU 架构匹配 `latest.json` 的 Tauri 平台键；无匹配包时明确提示并给手动下载入口。
+- 纯 Web 构建没有 `/__shell`，所有更新请求静默失败，卡片显示「此构建未配置自动更新」。
+
+### 7.2 接口契约
+
+| 路由 | 方法 | 作用 |
+| --- | --- | --- |
+| `/__shell/upgrade` | GET | 返回 `UpgradeState`（camelCase） |
+| `/__shell/upgrade/check` | POST | 手动检查（`force=true`，忽略自动检查开关） |
+| `/__shell/upgrade/install` | POST | 用户确认后验签、下载、安装、重启 |
+| `/__shell/config` | GET/POST | 读写 `upgradeAutoCheck` / `upgradeSkippedVersion` |
+
+`UpgradeState.status` 是机器码：`idle | checking | up_to_date | available |
+unsupported_platform | downloading | installing | not_configured | network_failed |
+manifest_invalid | signature_failed | busy | unavailable`。界面不得解析自然语言，只按机器码查
+本地文案；`source` 为 `github` / `gitee`；`downloadUrl` 与清单资产 URL 均须经主机白名单校验
+（HTTPS、GitHub/Gitee 及其下载 CDN，且与清单来源一致）。三条新路由继承 `ab_proxy` Cookie 与
+`Origin` 准入，不新增 IPC 面、不给 WebView 任何 updater 权限。
+
+### 7.3 发布形态
+
+- `latest.json`：`version`（纯 semver，无 `v`）、`notes`、`pub_date`、
+  `platforms[平台键].{url,signature}`。
+- 两份清单分别写 GitHub / Gitee 自己的资产 URL；Gitee 镜像上传时把 `latest-gitee.json`
+  重命名为 `latest.json`，并附完全相同的签名压缩包与 `.sig`。同一公钥、同一签名字节。
+- 本轮不扩充发布矩阵：仅 `linux-x86_64` / `darwin-aarch64` / `windows-x86_64`；
+  其他平台走 `unsupported_platform` 降级。
+
+### 7.4 异常与降级
+
+- 两源都不可达 → `network_failed`，状态卡片可重试，不重试风暴、不阻塞窗口。
+- 清单畸形 / 版本不可解析 / 签名缺失 / 资产 URL 落在白名单外 → `manifest_invalid`。
+- 公钥未配置（发布时缺 `TAURI_SIGNING_PRIVATE_KEY`）→ 检查与手动下载照常，安装返回
+  `not_configured`；`latest.json` 无 platforms 键时客户端走「不支持平台」。
+- 并发检查/安装 → `busy`，由 `AtomicBool` 单飞挡住，不会重复下载。
+- 系统通知失败或 `notify_enabled=false` → 只影响提醒，不影响卡片状态；深链一次点击消费一次。

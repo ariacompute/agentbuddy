@@ -70,6 +70,18 @@ pub struct AppConfig {
     /// in with", which is the common case: the node acts as its own user.
     #[serde(default)]
     pub executor_api_key: String,
+    /// Check the upstream releases on startup and once a day. On by default;
+    /// manual checks still work when this is off.
+    #[serde(default = "default_true")]
+    pub upgrade_auto_check: bool,
+    /// A release the user chose not to be reminded about again. Empty means
+    /// nothing is skipped.
+    #[serde(default)]
+    pub upgrade_skipped_version: String,
+    /// Unix seconds of the last completed check. 0 means "never". Persisted so
+    /// a manual check can keep the daily timer from asking again immediately.
+    #[serde(default)]
+    pub upgrade_last_checked: i64,
 }
 
 impl Default for AppConfig {
@@ -87,6 +99,9 @@ impl Default for AppConfig {
             executor_max_concurrency: default_concurrency(),
             executor_node_id: String::new(),
             executor_api_key: String::new(),
+            upgrade_auto_check: true,
+            upgrade_skipped_version: String::new(),
+            upgrade_last_checked: 0,
         }
     }
 }
@@ -438,6 +453,9 @@ mod tests {
             executor_max_concurrency: 2,
             executor_node_id: "node-abc".into(),
             executor_api_key: "key".into(),
+            upgrade_auto_check: false,
+            upgrade_skipped_version: "0.9.0".into(),
+            upgrade_last_checked: 1_700_000_000,
         };
         store.save(&config).unwrap();
         assert_eq!(store.load(), config);

@@ -31,6 +31,16 @@ over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known
   Only same-origin paths are accepted (`//host`, `javascript:` and control
   characters are refused), the value is JSON-encoded before it reaches `eval`, and
   a click consumes it once.
+- **Auto-update**: at startup and then once every 24 hours the shell probes both
+  `github.com/ariacompute/agentbuddy` and `gitee.com/ariacompute/agentbuddy` in
+  parallel, using whichever mirror answers fastest — no IP or location lookup, and
+  a failed mirror falls back to the other. Semver comparison plus OS/architecture
+  matching pick the signed package for this machine. A newer release raises a
+  system notification (clicking it opens Settings) and shows a settings card, a
+  sidebar banner and an About-page status. "Upgrade now" lets
+  `tauri-plugin-updater` verify the minisign signature, install and restart;
+  automatic checks can be switched off and a version skipped. Platforms without a
+  published package get a manual-download link instead of a retry loop.
 - **Session persistence**: the agenthub session cookie is persisted across app
   restarts — saved per server URL and resumed in the cookie jar on launch — so a
   server switch or relaunch does not force a re-login.
@@ -176,6 +186,12 @@ The node lives in the Rust process. The web view only reads its state through
 
 - `deb` + portable tarball (Linux), `dmg` + portable tarball (macOS aarch64),
   `msi` + portable zip (Windows), plus `SHA256SUMS`.
+- With `TAURI_SIGNING_PRIVATE_KEY` configured, a release also carries signed
+  updater archives, `latest.json` (GitHub asset URLs) and `latest-gitee.json`
+  (Gitee asset URLs). Gitee mirrors rename the latter to `latest.json` and upload
+  the very same archives and `.sig` files; each manifest only ever points at its
+  own mirror. Without the signing key, the six original assets are published
+  exactly as before and clients fall back to manual download.
 - Building from source on Linux also needs `libdbus-1-dev` and `pkg-config`: the
   session lives in the Secret Service, which is reached over D-Bus. Windows and
   macOS need nothing extra — Credential Manager and Keychain are part of the OS.
@@ -194,10 +210,11 @@ The node lives in the Rust process. The web view only reads its state through
   branches the happy paths never took, plus the shared-files screen and the
   connector approval queue, and a follow-up pass over the arms a happy path never
   takes: a failure with no machine code, a row missing its MIME type or name, an
-  approval without arguments). **30 spec files, 716 cases**, all offline.
+  approval without arguments, and the upgrade card with all three shell routes,
+  every status machine code and the no-shell path). **31 spec files, 749 cases**, all offline.
 - `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements
-  and lines, **98.52%** of branches and **99.76%** of functions (10524 statements,
-  1698 branches). The remaining gap is defensive code that cannot be reached
+  and lines, **97.97%** of branches and **99.76%** of functions (10981 statements,
+  1774 branches). The remaining gap is defensive code that cannot be reached
   through the UI — guards whose buttons are disabled in the state that would
   trigger them, and one browser-environment check that jsdom always satisfies.
 - `cargo test` covers the proxy (admission control, the nonce handshake, cookie

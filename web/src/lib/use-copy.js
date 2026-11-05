@@ -14,6 +14,8 @@ import { connectorCopy } from './copy/connector-copy.js'
 import { enumsCopy } from './copy/enums-copy.js'
 import { errorsCopy } from './copy/errors-copy.js'
 import { settingsCopy } from './copy/settings-copy.js'
+import { upgradeCopy } from './copy/upgrade-copy.js'
+import { withCopy } from './copy/scheduler-copy.js'
 import { hubCopy } from './copy/hub-copy.js'
 import { opsCopy } from './copy/ops-copy.js'
 import { filesCopy } from './copy/files-copy.js'
@@ -28,7 +30,9 @@ const COPIES = {
   org: orgCopy,
   channel: channelCopy,
   connector: connectorCopy,
-  settings: settingsCopy,
+  // The update card is a separate table so the long-standing settings copy
+  // stays reviewable, but the screen resolves it through the same `t()`.
+  settings: withCopy(settingsCopy, upgradeCopy),
   errors: errorsCopy,
   hub: hubCopy,
   ops: opsCopy,

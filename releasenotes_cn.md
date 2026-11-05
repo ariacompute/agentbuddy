@@ -27,6 +27,13 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
   纯 Web 构建下静默）。tooltip 在所有平台显示「N 条未读」，支持的平台再在托盘标题上显示数字
   （超过 99 显示 `99+`）；计数留在进程里，因此切换语言重建菜单后角标不会消失，归零时才清空。
   文案走 13 语 `trayUnread`，纯函数实现，无窗口也能单测。
+- **自动更新**：启动后及此后每 24 小时，外壳并发探测
+  `github.com/ariacompute/agentbuddy` 与 `gitee.com/ariacompute/agentbuddy`，取响应最快的一源
+  ——不看 IP、不采集位置；单源失败自动切到另一源。版本按 semver 比较，再按本地操作系统与
+  CPU 架构匹配对应的签名安装包。发现新版本时弹系统通知（点击进入设置页），并在设置页卡片、
+  侧栏横幅与关于页同时显示状态；点「立即升级」后由 `tauri-plugin-updater` 校验 minisign
+  签名、安装并重启。自动检查可关闭、某个版本可跳过；当前平台没有发布包时给手动下载入口，
+  不重试风暴。
 - **会话持久化**：agenthub 会话 cookie 在应用重启间持久化——按服务器 URL 保存，启动时回放进
   cookie jar——切换服务器或重启不会强制重新登录。
 - **主题**：应用默认浅色主题，连接/关于页提供切换并设置持久化的 `agentbuddy.theme`。
@@ -132,6 +139,10 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
 
 - `deb` + 便携 tarball（Linux）、`dmg` + 便携 tarball（macOS aarch64）、`msi` + 便携 zip
   （Windows），并附 `SHA256SUMS`。
+- 配置 `TAURI_SIGNING_PRIVATE_KEY` 后，release 额外附带签名更新包、`latest.json`
+  （GitHub 资产 URL）与 `latest-gitee.json`（Gitee 资产 URL）。Gitee 镜像把后者重命名为
+  `latest.json`，并上传完全相同的更新包与 `.sig`；每份清单只指向自己那一源。未配置密钥时
+  仍按原样发布 6 个资产，客户端自动降级为手动下载。
 - Linux 上从源码构建还需 `libdbus-1-dev` 与 `pkg-config`：会话存在 Secret Service 里，
   经 D-Bus 访问。Windows 与 macOS 无额外依赖——凭据管理器与钥匙串是系统自带的。
 
@@ -143,15 +154,18 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
   倒计时、通道新建/删除/重试与仅 SMS 出现的 destination 字段、执行环境控制台与租约操作、
   登录与注册、逐屏的「界面→端点」正常与异常双路径、`lib/api.js` 的导出引用守卫，
   以及专门覆盖「正常路径走不到的分支」的一组用例，外加共享文件页与连接器审批队列，
-  以及最后一轮补的边角：无机器码的失败、缺 MIME / 缺连接器名的行、没有参数的审批）。
-  **共 30 个 spec、716 条用例**，全程离线。
+  以及最后一轮补的边角：无机器码的失败、缺 MIME / 缺连接器名的行、没有参数的审批，
+  外加更新卡片的三条外壳路由、每种状态机器码与「无外壳」路径）。
+  **共 31 个 spec、749 条用例**，全程离线。
 - `bun run test:coverage`（v8，对应 `make web-coverage`）报告：语句与行 **100%**、
-  分支 **98.52%**、函数 **99.76%**（10524 条语句、1698 个分支）。剩下的缺口是
+  分支 **97.97%**、函数 **99.76%**（10981 条语句、1774 个分支）。剩下的缺口是
   通过界面不可能触发的防御代码——触发它的那个按钮在对应状态下本身就是 disabled，
   外加一处 jsdom 恒为真的浏览器环境判定。
 - `cargo test` 覆盖代理（准入控制、nonce 握手、Cookie 重写、流式转发、来源闸、角标端点）、
   配置（语言回落、按服务器隔离的会话存储、明文迁移）、i18n（13 语键集与英文顺序完全一致、
-  语言代码编译期对齐 `web/src/lib/languages.js`）与托盘映射——共 180 条，含本轮的托盘角标
+  语言代码编译期对齐 `web/src/lib/languages.js`）与托盘映射；本轮另加升级模块的纯逻辑用例
+  （双源择优、semver 比较、平台映射、24h 到期、跳过版本、失败回落）与无窗口路由用例，
+  以及此前的托盘角标
   （0 条、`99+`、每种语言各一断言）与 5 条静态文件服务用例（真实 `app_version_stamp()` 形状，
   而非复制一份格式串；客户端路由回落到 shell 且 CSP **每响应**一个新 nonce；缺文件是 404 而不是
   SPA 回落；`assets/` 长期缓存 vs 其余 `no-cache`；about 页的 boot `page`）。已在 Linux（WSL2）与 CI 上执行；Windows

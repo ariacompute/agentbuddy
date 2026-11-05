@@ -354,9 +354,15 @@
         <dl class="rows">
           <div class="row"><dt id="label-version"></dt><dd id="value-version"></dd></div>
           <div class="row"><dt id="label-server-about"></dt><dd id="value-server"></dd></div>
+          <div class="row"><dt id="label-upgrade-source"></dt><dd id="value-upgrade-source">—</dd></div>
         </dl>
+        <p class="label" id="label-upgrade"></p>
+        <p class="status" id="upgrade-status" role="status" aria-live="polite"></p>
         <div class="actions">
           <button class="btn primary" id="back" type="button"></button>
+          <button class="btn" id="upgrade-check" type="button"></button>
+          <button class="btn" id="upgrade-install" type="button" hidden></button>
+          <button class="btn" id="upgrade-download" type="button"></button>
         </div>
       </section>
     </main>
@@ -390,6 +396,11 @@
         el('label-server-about').textContent = t('aboutServer')
         el('back').textContent = t('trayOpen')
         el('later').textContent = t('actionLater')
+        el('label-upgrade').textContent = t('aboutUpgrade')
+        el('label-upgrade-source').textContent = t('upgradeSource')
+        el('upgrade-check').textContent = t('upgradeCheck')
+        el('upgrade-install').textContent = t('upgradeUpgrade')
+        el('upgrade-download').textContent = t('upgradeDownload')
         setButton(t('actionConnect'))
       }
 
@@ -479,6 +490,86 @@
         })
       }
 
+      // The update answer is a machine code plus data; the shell owns the prose.
+      // Both mirrors are probed in Rust, so this page never reaches an external
+      // host itself (the CSP is connect-src 'self').
+      const UPGRADE_KEYS = {
+        idle: '',
+        checking: 'upgradeChecking',
+        up_to_date: 'upgradeUpToDate',
+        available: 'upgradeAvailable',
+        unsupported_platform: 'upgradeUnsupported',
+        downloading: 'upgradeBusy',
+        installing: 'upgradeBusy',
+        not_configured: 'upgradeFailed',
+        network_failed: 'upgradeFailed',
+        manifest_invalid: 'upgradeFailed',
+        signature_failed: 'upgradeFailed',
+        busy: 'upgradeChecking',
+        unavailable: 'upgradeFailed',
+      }
+      const RELEASE_PAGES = {
+        github: 'https://github.com/ariacompute/agentbuddy/releases/latest',
+        gitee: 'https://gitee.com/ariacompute/agentbuddy/releases',
+      }
+      let upgradeSource = 'github'
+
+      function renderUpgrade(data) {
+        const status = (data && data.status) || 'unavailable'
+        upgradeSource = (data && data.source) || upgradeSource
+        const key = UPGRADE_KEYS[status] || 'upgradeFailed'
+        el('upgrade-status').textContent = key
+          ? t(key).replace('{v}', (data && data.latestVersion) || '')
+          : ''
+        el('upgrade-status').dataset.tone =
+          /failed|invalid|unsupported|unavailable/.test(status) ? 'bad' : ''
+        el('value-upgrade-source').textContent =
+          upgradeSource === 'gitee' ? 'Gitee' : upgradeSource === 'github' ? 'GitHub' : '—'
+        el('upgrade-install').hidden = status !== 'available'
+        el('upgrade-install').disabled = false
+        el('upgrade-check').disabled =
+          ['checking', 'downloading', 'installing', 'busy'].includes(status)
+      }
+
+      async function refreshUpgrade() {
+        try {
+          const res = await fetch('/__shell/upgrade', { credentials: 'same-origin' })
+          renderUpgrade(res.ok ? await res.json() : null)
+        } catch (e) {
+          renderUpgrade(null)
+        }
+      }
+
+      async function checkUpgrade() {
+        el('upgrade-check').disabled = true
+        el('upgrade-status').textContent = t('upgradeChecking')
+        try {
+          const res = await fetch('/__shell/upgrade/check', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          })
+          renderUpgrade(res.ok ? await res.json() : null)
+        } catch (e) {
+          renderUpgrade(null)
+        }
+      }
+
+      async function installUpgrade() {
+        el('upgrade-install').disabled = true
+        el('upgrade-status').textContent = t('upgradeBusy')
+        try {
+          const res = await fetch('/__shell/upgrade/install', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          })
+          renderUpgrade(res.ok ? await res.json() : null)
+        } catch (e) {
+          renderUpgrade(null)
+        }
+      }
+
       function render() {
         applyLanguage()
         if (boot.page === 'about') {
@@ -489,6 +580,11 @@
           el('back').onclick = () => {
             window.location.href = '/'
           }
+          el('upgrade-check').onclick = checkUpgrade
+          el('upgrade-install').onclick = installUpgrade
+          el('upgrade-download').onclick = () =>
+            window.open(RELEASE_PAGES[upgradeSource] || RELEASE_PAGES.github, '_blank', 'noopener')
+          refreshUpgrade()
           return
         }
         el('server').value = boot.serverUrl || ''

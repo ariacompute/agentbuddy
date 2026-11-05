@@ -6,6 +6,7 @@
 //! `zh`/`zh-TW` split, the same English fallback.
 
 pub mod copy;
+pub mod upgrade;
 
 pub use copy::LANGUAGES;
 
@@ -58,18 +59,33 @@ pub fn translate(lang: &str, key: &str) -> &'static str {
     lookup(lang, key).unwrap_or("")
 }
 
-fn lookup(lang: &str, key: &str) -> Option<&'static str> {
-    let in_lang = copy::block(lang).iter().find(|(k, _)| *k == key).map(|(_, v)| *v);
-    if in_lang.is_some() {
-        return in_lang;
+/// The connection/tray table and the update table are looked up as one flat
+/// namespace, so `t('upgradeCheck')` on the about page works exactly like
+/// `t('trayOpen')`. The split is bookkeeping, not a distinction callers see.
+fn in_tables(lang: &str, key: &str) -> Option<&'static str> {
+    for table in [copy::block(lang), upgrade::block(lang)] {
+        if let Some((_, value)) = table.iter().find(|(known, _)| *known == key) {
+            return Some(*value);
+        }
     }
-    copy::block("en").iter().find(|(k, _)| *k == key).map(|(_, v)| *v)
+    None
+}
+
+fn lookup(lang: &str, key: &str) -> Option<&'static str> {
+    in_tables(lang, key).or_else(|| {
+        if lang == "en" {
+            None
+        } else {
+            in_tables("en", key)
+        }
+    })
 }
 
 /// The whole block for one language, English fallback per key, ready to hand to
-/// the connection page as JSON.
+/// the connection page and the about page as JSON.
 pub fn block_for(lang: &str) -> Vec<(&'static str, &'static str)> {
     copy::keys()
+        .chain(upgrade::keys())
         .map(|key| (key, translate(lang, key)))
         .collect()
 }
@@ -118,7 +134,7 @@ mod tests {
 
     #[test]
     fn gives_every_language_its_own_translation_of_every_key() {
-        for key in copy::keys() {
+        for key in copy::keys().chain(upgrade::keys()) {
             let english = translate("en", key);
             assert!(!english.is_empty(), "{key} has no English text");
             for code in CODES {
@@ -145,7 +161,11 @@ mod tests {
     fn block_for_returns_every_key_with_text() {
         for code in CODES {
             let block = block_for(code);
-            assert_eq!(block.len(), copy::keys().count(), "{code} lost a key");
+            assert_eq!(
+                block.len(),
+                copy::keys().count() + upgrade::keys().count(),
+                "{code} lost a key"
+            );
             for (key, value) in &block {
                 assert!(!value.is_empty(), "{code}.{key} renders nothing");
             }
@@ -154,9 +174,22 @@ mod tests {
 
     #[test]
     fn falls_back_to_english_for_an_unsupported_language() {
-        for key in copy::keys() {
+        for key in copy::keys().chain(upgrade::keys()) {
             assert_eq!(translate("nl", key), translate("en", key), "nl.{key}");
         }
+    }
+
+    #[test]
+    fn the_update_keys_are_part_of_the_boot_block() {
+        let zh: Vec<_> = block_for("zh");
+        let translated = zh
+            .iter()
+            .find(|(key, _)| *key == "upgradeCheck")
+            .map(|(_, value)| *value)
+            .unwrap();
+        assert_eq!(translated, "检查更新");
+        assert_ne!(translated, translate("en", "upgradeCheck"));
+        assert_eq!(zh.len(), copy::keys().count() + upgrade::keys().count());
     }
 
     #[test]

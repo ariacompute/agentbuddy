@@ -118,6 +118,36 @@ pub fn install(app: &tauri::AppHandle) {
     }
 }
 
+/// Resolves the update toast's text at send time, in the app's language.
+/// Kept separate from `notify_upgrade` so the 13 translations and the `{v}`
+/// substitution can be tested without an `AppHandle`.
+pub fn upgrade_notice(lang: &str, version: &str) -> (String, String) {
+    (
+        crate::i18n::translate(lang, "upgradeNotifyTitle").to_string(),
+        crate::i18n::translate(lang, "upgradeNotifyBody").replace("{v}", version),
+    )
+}
+
+/// The background version check raises its toast here rather than through the
+/// webview: at that moment no page may be mounted. The link is parked for the
+/// same `tap` handler the workbench uses, so a click opens the settings card
+/// instead of merely raising the window.
+pub fn notify_upgrade(app: &tauri::AppHandle, lang: &str, version: &str) -> bool {
+    let (title, body) = upgrade_notice(lang, version);
+    if title.is_empty() || body.is_empty() || !remember_link("/settings") {
+        return false;
+    }
+    match app.notification().builder().title(&title).body(&body).show() {
+        Ok(()) => true,
+        Err(err) => {
+            eprintln!("agentbuddy desktop: update notification failed: {err}");
+            // Nothing will be clicked; do not leave a target for another toast.
+            let _ = take_link();
+            false
+        }
+    }
+}
+
 pub async fn handle(state: &ProxyState, req: Request) -> Response {
     let payload = match axum::body::to_bytes(req.into_body(), 64 * 1024).await {
         // A body that does not parse is the webview's bug, not the user's: it is
@@ -196,6 +226,26 @@ mod tests {
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
+    #[test]
+    fn the_update_toast_is_translated_and_carries_the_version() {
+        const CODES: [&str; 13] = [
+            "en", "zh", "zh-TW", "es", "fr", "de", "it", "ru", "ja", "ko", "pt", "ar", "hi",
+        ];
+        for code in CODES {
+            let (title, body) = upgrade_notice(code, "0.3.0");
+            assert!(!title.is_empty(), "{code} has no toast title");
+            assert!(!body.is_empty(), "{code} has no toast body");
+            assert!(body.contains("0.3.0"), "{code} dropped the version");
+        }
+        assert_ne!(upgrade_notice("zh", "0.3.0"), upgrade_notice("en", "0.3.0"));
+    }
+
+    #[test]
+    fn the_settings_page_is_a_valid_toast_target() {
+        assert!(is_in_app_path("/settings"));
+        assert!(hash_expr("/settings").unwrap().contains("#/settings"));
+    }
+
     /// A headless proxy: no window (`app: None`), the only shape the unit tests
     /// can build. It still has to answer every branch correctly.
     async fn state_with(notify_enabled: bool) -> ProxyState {
@@ -215,6 +265,7 @@ mod tests {
             executor,
             auth: None,
             unread: Arc::new(std::sync::Mutex::new(0)),
+            upgrade: None,
         }
     }
 

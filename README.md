@@ -12,6 +12,11 @@ interconnection platform.
 - Agents, threads, task tracing, approvals (HITL park/resume), channels
   (Slack / Teams / Telegram / SMS webhooks), connectors (policy-gated actions),
   and voice (record → transcribe → delegate).
+- Automatic updates: GitHub and Gitee are probed in parallel and the fastest
+  reachable mirror wins, with failover to the other. Checks run on startup and
+  daily; the signed installer is matched to the local OS/CPU and a one-click
+  verified upgrade restarts the app. Automatic checks can be turned off and a
+  version skipped in Settings.
 
 ## Snapshot
 
@@ -74,6 +79,21 @@ Publishes installers through [`.github/workflows/release.yml`](.github/workflows
 | Linux x86_64  | `linux-x86_64.tar.gz`   | `amd64.deb`      |
 | macOS aarch64 | `macos-aarch64.tar.gz`  | `aarch64.dmg`    |
 | Windows x86_64| `windows-x86_64.zip`    | `x64.msi`        |
+
+### Signed updates (one-time setup)
+
+```bash
+tauri signer generate -w ~/.tauri/agentbuddy.key
+```
+
+Put the public key into `desktop/src-tauri/src/upgrade/mod.rs` (`UPDATER_PUBKEY`)
+and the private key and password into the repository secrets
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. With those
+set, a release also publishes signed updater archives, `latest.json` (GitHub
+asset URLs) and `latest-gitee.json` (Gitee asset URLs). Gitee mirrors rename the
+latter to `latest.json` and upload the same archives and `.sig` files. Without
+the key, the six installers above are published exactly as before and the app
+falls back to a manual download link instead of installing an unverified package.
 
 ## Execution environments
 

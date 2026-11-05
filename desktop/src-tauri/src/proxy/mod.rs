@@ -76,6 +76,9 @@ pub struct ProxyState {
     /// than in the tray so a language change (which rebuilds the menu) can put
     /// the same number back instead of losing it.
     pub unread: Arc<Mutex<u32>>,
+    /// Release checks and installs. `None` in headless tests, where there is
+    /// neither a window to install into nor a timer worth starting.
+    pub upgrade: Option<Arc<crate::upgrade::Upgrader>>,
 }
 
 pub struct ProxyHandle {
@@ -138,6 +141,14 @@ async fn start_inner(
     let bootstrap_url = auth
         .as_ref()
         .map(|auth| format!("{url}{BOOTSTRAP_PATH}?nonce={}", auth.new_nonce()));
+    // Only a real window gets the daily timer and an AppHandle to install with.
+    // The headless routers the tests drive stay completely quiet — no outbound
+    // release probes from a unit test.
+    let upgrade = app.as_ref().map(|_| {
+        let upgrader = crate::upgrade::Upgrader::new(config.clone(), store.clone(), app.clone());
+        upgrader.start_timer();
+        upgrader
+    });
     let state = ProxyState {
         clients,
         config,
@@ -148,6 +159,7 @@ async fn start_inner(
         executor: executor.clone(),
         auth,
         unread: Arc::new(Mutex::new(0)),
+        upgrade,
     };
     let router = Router::new().fallback(dispatch).with_state(state);
     let task = tokio::spawn(async move {
@@ -326,6 +338,7 @@ mod tests {
             executor,
             auth: Some(auth.clone()),
             unread: Arc::new(Mutex::new(0)),
+            upgrade: None,
         };
         (state, auth)
     }
@@ -820,6 +833,7 @@ mod tests {
             executor,
             auth: Some(gate.clone()),
             unread: Arc::new(Mutex::new(0)),
+            upgrade: None,
         };
         let router = Router::new().fallback(dispatch).with_state(state);
         tokio::spawn(async move {

@@ -375,6 +375,18 @@ export const notifyShell = ({ title, body, link }) =>
  */
 export const setTrayBadge = (count) => post('/__shell/badge', { count })
 
+// Release checks. `status` and every error are machine codes; the UI resolves
+// them through the settings copy table. In a plain web build all three 404 and
+// callers fall back to "updates are only available in the desktop app".
+/** Current version, latest version, chosen mirror and check state. */
+export const getUpgrade = () => get('/__shell/upgrade')
+
+/** Manual check. The shell allows it even when automatic checking is off. */
+export const checkUpgrade = () => post('/__shell/upgrade/check', {})
+
+/** Verify the signature, install the matched package and restart. */
+export const installUpgrade = () => post('/__shell/upgrade/install', {})
+
 // ---- Speech --------------------------------------------------------------
 
 /** Uploads a recorded audio blob to be transcribed, delegated and answered. */
