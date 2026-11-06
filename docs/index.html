@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>agentbuddy · 图示 / Diagrams</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff;
+      --fg: #000000;
+      --muted: #666666;
+      --line: #dddddd;
+      --panel: #f5f5f5;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #000000;
+        --fg: #ffffff;
+        --muted: #aaaaaa;
+        --line: #333333;
+        --panel: #111111;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 48px 20px 64px;
+    }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 0 0 16px; font-size: clamp(28px, 5vw, 40px); line-height: 1.25; }
+    h2 { margin: 40px 0 12px; font-size: 18px; letter-spacing: 0.04em; }
+    p { margin: 0 0 12px; }
+    .note { color: var(--muted); font-size: 14px; }
+    ul { margin: 0; padding: 0; list-style: none; }
+    li { border-top: 1px solid var(--line); }
+    li:last-child { border-bottom: 1px solid var(--line); }
+    a.card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 56px;
+      padding: 12px 16px;
+      color: inherit;
+      text-decoration: none;
+    }
+    a.card:hover, a.card:focus-visible { background: var(--panel); }
+    a.card:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+    a.card span { font-weight: 600; }
+    a.card small { color: var(--muted); font-size: 13px; text-align: right; }
+    a.card::after { content: "\2192"; font-size: 18px; }
+    footer {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      margin-top: 48px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      font-size: 14px;
+    }
+    footer a { min-height: 44px; display: inline-flex; align-items: center; color: var(--muted); }
+    footer a:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="eyebrow" lang="en">agentbuddy + agenthub</p>
+    <h1>图示 <span lang="en">/ Diagrams</span></h1>
+    <p>三张可交互图，分别说明运行时架构、一次 A2A 委派与任务状态机。</p>
+    <p lang="en">Three interactive diagrams: the runtime architecture, one A2A delegation, and the task state machine.</p>
+    <p class="note">每张图都是单文件 HTML，可下载后离线打开；支持明暗主题、节点搜索、路径追踪与 PNG / SVG 导出。</p>
+  </header>
+
+  <section aria-labelledby="en-title">
+    <h2 id="en-title" lang="en">English</h2>
+    <ul>
+      <li><a class="card" href="diagrams/agenthub-agentbuddy.architecture.en.html" lang="en"><span>Runtime architecture</span><small>desktop shell ↔ server</small></a></li>
+      <li><a class="card" href="diagrams/agenthub-agentbuddy.sequence.en.html" lang="en"><span>One A2A delegation</span><small>message/send → tasks/resume</small></a></li>
+      <li><a class="card" href="diagrams/agenthub-agentbuddy.lifecycle.en.html" lang="en"><span>Task state machine</span><small>HITL park / resume</small></a></li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="zh-title">
+    <h2 id="zh-title">中文</h2>
+    <ul>
+      <li><a class="card" href="diagrams/agenthub-agentbuddy.architecture.html"><span>运行时架构</span><small>桌面外壳 ↔ 服务端</small></a></li>
+      <li><a class="card" href="diagrams/agenthub-agentbuddy.sequence.html"><span>一次 A2A 委派</span><small>message/send → tasks/resume</small></a></li>
+      <li><a class="card" href="diagrams/agenthub-agentbuddy.lifecycle.html"><span>任务状态机</span><small>HITL 挂起 / 恢复</small></a></li>
+    </ul>
+  </section>
+
+  <footer>
+    <a href="https://github.com/ariacompute/agentbuddy" lang="en">GitHub · ariacompute/agentbuddy</a>
+    <a href="https://github.com/ariacompute/agentbuddy/blob/main/README.md" lang="en">README</a>
+    <a href="https://github.com/ariacompute/agentbuddy/blob/main/README_cn.md">README_cn</a>
+  </footer>
+</main>
+</body>
+</html>
