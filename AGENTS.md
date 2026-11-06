@@ -78,7 +78,7 @@ desktop/
 - **测试**：`cd web && bun run test`（Vitest）。**勿用裸 `bun test`**（Bun 原生 runner 不加载
   `vitest.config.js`，无 jsdom 环境）。新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线（31 个 spec、**770** 条用例）：
+  `text-summary` + `text`，不写报告目录），当前基线（32 个 spec、**785** 条用例）：
   语句/行 **100%**、分支 **100%**、函数 **100%**（10989 条语句、1804 个分支、433 个函数）；
   **四项须保持 100%**，回落时先看报告里的未覆盖行再补用例，禁止用 exclude 绕过。
   界面上按钮 disabled 因而点不到的守卫，用 `wrapper.vm` 直接调用处理函数覆盖；
@@ -196,11 +196,19 @@ desktop/
   尾随空格/换行足以造成 `Invalid padding`。`prepare-updater-secrets.mjs` 兼容明文两行文件、
   拒绝路径 / 公钥 / 二次编码值、去掉口令 CR/LF，规范化后经 `GITHUB_ENV` 交给构建步骤
   （故 build step 不再设同名 step env）。
-- **发布产物**：`release.yml` 仅在 `TAURI_SIGNING_PRIVATE_KEY` 存在时打开 `bundle.createUpdaterArtifacts`
-  （本地 `make desktop-build` 不受影响），Linux 追加 `appimage`；
-  `desktop/scripts/latest-json.mjs collect|manifest` 产出 `latest.json`（GitHub URL）与
-  `latest-gitee.json`（Gitee URL）。**Gitee 镜像把后者重命名为 `latest.json`，并上传完全相同的
-  签名压缩包与 `.sig`**；清单里的 URL 只能指向自己那一源，绝不跨源混用。
+- **发布产物**：每次 release 恰好 9 个 assets —— 6 个下载（Linux deb + 便携 tar.gz、
+  macOS dmg + app 便携 tar.gz、Windows msi + 便携 zip）、`latest.json`、
+  `latest-gitee.json`、`SHA256SUMS`。`bundle.createUpdaterArtifacts` **恒不开启**，
+  Linux 也不再追加 `appimage`，因此不存在额外更新包、重复 msi、82MB AppImage、
+  `.sig` 或 `updater-*.json`。`TAURI_SIGNING_PRIVATE_KEY` 存在时，各 leg 用
+  `tauri signer sign --app-version V` 直接签自己的 2 个下载；
+  `desktop/scripts/latest-json.mjs collect` 归一化签名、删除临时 `.sig`、把元数据写进
+  独立 `meta/` artifact，`manifest` 产出 `latest.json`（GitHub URL）与
+  `latest-gitee.json`（Gitee URL）：`platforms` 指向可安装资产（deb / macOS tar.gz / msi），
+  新增 `signatures` 覆盖全部 6 个下载（旧客户端忽略未知字段）；`verify` 断言恰好 9 个文件。
+  **Gitee 镜像把后者重命名为 `latest.json`，并上传同样的 6 个下载**，不再上传 `.sig`；
+  清单里的 URL 只能指向自己那一源，绝不跨源混用。缺签名密钥时 9 个文件照常发布，
+  只是 `platforms`/`signatures` 为空，客户端走手动下载。
 - **桥、文案与通知**：`GET /__shell/upgrade`、`POST /__shell/upgrade/check`、
   `POST /__shell/upgrade/install` 继承 `ab_proxy` Cookie 与 Origin 准入，**不给 WebView 任何
   updater 权限**；状态一律机器码 `UpgradeCode`，web 走 `copy/upgrade-copy.js`（`withCopy` 折进

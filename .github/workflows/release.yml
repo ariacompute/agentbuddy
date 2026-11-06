@@ -6,30 +6,35 @@
 # executable in a portable archive so users get both an installer and a
 # no-install download.
 #
-# Resulting release assets (per version V):
-#   linux-x86_64.tar.gz      portable, x86_64 Linux
-#   amd64.deb                native installer, x86_64 Linux
-#   macos-aarch64.tar.gz     portable, Apple Silicon macOS (.app)
-#   aarch64.dmg              native installer, Apple Silicon macOS
-#   windows-x86_64.zip       portable, x86_64 Windows
-#   x64.msi                  native installer, x86_64 Windows
+# Resulting release assets (per version V) — exactly nine files:
+#   agentbuddy-amd64-V.deb                native installer, x86_64 Linux
+#   agentbuddy-linux-x86_64-V.tar.gz      portable, x86_64 Linux
+#   agentbuddy-aarch64-V.dmg              native installer, Apple Silicon macOS
+#   agentbuddy-macos-aarch64-V.tar.gz     portable, Apple Silicon macOS (.app)
+#   agentbuddy-x64-V.msi                  native installer, x86_64 Windows
+#   agentbuddy-windows-x86_64-V.zip       portable, x86_64 Windows
+#   latest.json / latest-gitee.json       updater manifests
+#   SHA256SUMS                            checksums for the six downloads
 #
-# When TAURI_SIGNING_PRIVATE_KEY is configured, each leg also produces a signed
-# updater archive + .sig and the release job assembles `latest.json` (GitHub
-# asset URLs) and `latest-gitee.json` (Gitee asset URLs). Gitee mirrors upload
-# the latter renamed to `latest.json`, together with the exact same archives
-# and signatures — one manifest per mirror, never a cross-mirror download.
+# There is deliberately NO separate updater archive, no `.sig` asset and no
+# `updater-*.json` on the release page. When TAURI_SIGNING_PRIVATE_KEY is
+# configured, each leg signs its two downloads directly with
+# `tauri signer sign --app-version V`; the base64 signatures are embedded in
+# the two manifests (`platforms` for the installable asset, `signatures` for
+# all six) and the temporary `.sig` files are consumed by `latest-json.mjs
+# collect`, which writes internal metadata to a separate artifact. Gitee
+# mirrors upload the same six downloads plus `latest-gitee.json` renamed to
+# `latest.json` — one manifest per mirror, never a cross-mirror download.
+# `bundle.createUpdaterArtifacts` is never enabled, so no extra AppImage,
+# app.tar.gz or duplicate MSI is built.
+#
 # The matching public key comes from the UPDATER_PUBKEY secret and is written
 # into BOTH desktop/src-tauri/src/upgrade/mod.rs (runtime verification) and
-# tauri.conf.json's plugins.updater.pubkey (tauri build's signing check) before
-# `tauri build`; neither file holds a key in git. tauri-cli base64-decodes the
-# config value into a two-line minisign public key box and matches it against
-# the signing key, so leaving that field empty fails with
-# "Missing comment in public key".
+# tauri.conf.json's plugins.updater.pubkey; neither file holds a key in git.
 # TAURI_SIGNING_PRIVATE_KEY / UPDATER_PUBKEY hold the single-line base64 key
 # contents verbatim (do NOT base64 them again). The configure step validates
 # both formats and fails early with a hint instead of surfacing "Invalid
-# padding" or "Missing comment in public key" minutes into bundling.
+# padding" minutes into bundling.
 
 name: release
 
@@ -129,39 +134,48 @@ jobs:
         # Signing variables are exported by the step above through GITHUB_ENV,
         # after normalising the secrets. A step-level env here would override
         # them with the raw values and reintroduce the base64 padding failure.
+        # `tauri build` only produces plain bundles; the downloads are signed
+        # afterwards, so no appimage / updater artifacts are ever built.
         run: |
           bun install
           bun run icons   # derive desktop/src-tauri/icons from assets/app-icon.png (git-ignored)
-          BUNDLES="${{ matrix.bundles }}"
-          if [ "${{ steps.updater.outputs.enabled }}" = "true" ] && [ "${{ matrix.platform }}" = "linux" ]; then
-            # The Linux updater archive is derived from an AppImage.
-            BUNDLES="$BUNDLES,appimage"
-          fi
-          bun run build -- --bundles "$BUNDLES"
+          bun run build -- --bundles "${{ matrix.bundles }}"
 
       - name: Package artifacts (Linux)
         if: matrix.platform == 'linux'
         shell: bash
         run: |
           set -euo pipefail
-          OUT="$GITHUB_WORKSPACE/out"; mkdir -p "$OUT"
+          OUT="$GITHUB_WORKSPACE/out"; META="$GITHUB_WORKSPACE/meta"
+          mkdir -p "$OUT" "$META"
           BIN="desktop/src-tauri/target/release/agentbuddy"
           DEB=$(ls desktop/src-tauri/target/release/bundle/deb/*.deb | head -n1)
           cp "$DEB" "$OUT/agentbuddy-amd64-${VERSION}.deb"
           tar -czf "$OUT/agentbuddy-linux-x86_64-${VERSION}.tar.gz" -C "$(dirname "$BIN")" agentbuddy
-          node desktop/scripts/latest-json.mjs collect linux-x86_64 "$OUT"
+          if [ "${{ steps.updater.outputs.enabled }}" = "true" ]; then
+            for asset in "$OUT"/agentbuddy-*; do
+              (cd desktop && bun run tauri signer sign "$asset" --app-version "$VERSION")
+            done
+          fi
+          node desktop/scripts/latest-json.mjs collect linux-x86_64 "$OUT" "$META"
 
       - name: Package artifacts (macOS)
         if: matrix.platform == 'macos'
         shell: bash
         run: |
           set -euo pipefail
-          OUT="$GITHUB_WORKSPACE/out"; mkdir -p "$OUT"
+          OUT="$GITHUB_WORKSPACE/out"; META="$GITHUB_WORKSPACE/meta"
+          mkdir -p "$OUT" "$META"
           APP=$(ls -d desktop/src-tauri/target/release/bundle/macos/*.app | head -n1)
           DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -n1)
           cp "$DMG" "$OUT/agentbuddy-aarch64-${VERSION}.dmg"
           tar -czf "$OUT/agentbuddy-macos-aarch64-${VERSION}.tar.gz" -C "$(dirname "$APP")" "$(basename "$APP")"
-          node desktop/scripts/latest-json.mjs collect darwin-aarch64 "$OUT"
+          if [ "${{ steps.updater.outputs.enabled }}" = "true" ]; then
+            for asset in "$OUT"/agentbuddy-*; do
+              (cd desktop && bun run tauri signer sign "$asset" --app-version "$VERSION")
+            done
+          fi
+          node desktop/scripts/latest-json.mjs collect darwin-aarch64 "$OUT" "$META"
 
       - name: Package artifacts (Windows)
         if: matrix.platform == 'windows'
@@ -169,18 +183,35 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $OUT = "$env:GITHUB_WORKSPACE/out"
-          New-Item -ItemType Directory -Force -Path $OUT | Out-Null
+          $META = "$env:GITHUB_WORKSPACE/meta"
+          New-Item -ItemType Directory -Force -Path $OUT, $META | Out-Null
           $EXE = "desktop/src-tauri/target/release/agentbuddy.exe"
           $MSI = (Get-ChildItem desktop/src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1).FullName
           Copy-Item $MSI "$OUT/agentbuddy-x64-${env:VERSION}.msi"
           Compress-Archive -Path $EXE -DestinationPath "$OUT/agentbuddy-windows-x86_64-${env:VERSION}.zip"
-          node desktop/scripts/latest-json.mjs collect windows-x86_64 "$OUT"
+          if ("${{ steps.updater.outputs.enabled }}" -eq "true") {
+            Get-ChildItem "$OUT/agentbuddy-*" | ForEach-Object {
+              Push-Location desktop
+              try { bun run tauri signer sign $_.FullName --app-version $env:VERSION }
+              finally { Pop-Location }
+            }
+          }
+          node desktop/scripts/latest-json.mjs collect windows-x86_64 $OUT $META
 
-      - name: Upload artifacts
+      # The publishable downloads and the internal signature metadata travel in
+      # separate artifacts. Only `release-assets/` is ever attached to the
+      # GitHub release, so `.sig` files and `updater-*.json` can never leak.
+      - name: Upload release assets
         uses: actions/upload-artifact@v4
         with:
-          name: agentbuddy-${{ matrix.platform }}-${{ matrix.arch }}
+          name: agentbuddy-assets-${{ matrix.platform }}-${{ matrix.arch }}
           path: out
+          if-no-files-found: error
+      - name: Upload internal metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentbuddy-meta-${{ matrix.platform }}-${{ matrix.arch }}
+          path: meta
           if-no-files-found: error
 
   release:
@@ -190,7 +221,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
+          pattern: agentbuddy-assets-*
           path: release-assets
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: agentbuddy-meta-*
+          path: release-meta
           merge-multiple: true
       - name: List assets
         run: ls -lh release-assets
@@ -199,7 +236,7 @@ jobs:
         env:
           RELEASE_NOTES: ${{ github.event.release.body }}
         run: |
-          node desktop/scripts/latest-json.mjs manifest release-assets "${GITHUB_REF_NAME#v}"
+          node desktop/scripts/latest-json.mjs manifest release-assets release-meta "${GITHUB_REF_NAME#v}"
       - name: Gitee mirror checklist
         continue-on-error: true
         shell: bash
@@ -212,12 +249,16 @@ jobs:
             echo "::warning::Gitee release $TAG is missing or unreachable; mirror it manually."
           fi
           echo "### Gitee mirror" >> "$GITHUB_STEP_SUMMARY"
-          echo "Upload \`latest-gitee.json\` renamed to \`latest.json\`, plus every updater archive and its \`.sig\`, to the Gitee release for $TAG." >> "$GITHUB_STEP_SUMMARY"
+          echo "Upload the six \`agentbuddy-*\` downloads and \`latest-gitee.json\` renamed to \`latest.json\` to the Gitee release for $TAG. Signatures are embedded in the manifest; no \`.sig\` files are needed." >> "$GITHUB_STEP_SUMMARY"
       - name: Generate checksums
         run: |
           cd release-assets
-          sha256sum * > SHA256SUMS
+          sha256sum agentbuddy-* > SHA256SUMS
           cat SHA256SUMS
+      - name: Verify release assets
+        shell: bash
+        run: |
+          node desktop/scripts/latest-json.mjs verify release-assets "${GITHUB_REF_NAME#v}"
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -225,6 +266,18 @@ jobs:
           # to attach the built assets to the GitHub release (the deprecated
           # agentbuddy workflow used the same secret as GITHUB_TOKEN).
           token: ${{ secrets.ARIACOMPUTE_TOKEN }}
-          files: release-assets/*
+          # An explicit allowlist on top of the verify step above: even a stray
+          # file in release-assets/ can never become a release asset.
+          files: |
+            release-assets/agentbuddy-amd64-*.deb
+            release-assets/agentbuddy-linux-x86_64-*.tar.gz
+            release-assets/agentbuddy-aarch64-*.dmg
+            release-assets/agentbuddy-macos-aarch64-*.tar.gz
+            release-assets/agentbuddy-x64-*.msi
+            release-assets/agentbuddy-windows-x86_64-*.zip
+            release-assets/latest.json
+            release-assets/latest-gitee.json
+            release-assets/SHA256SUMS
+          fail_on_unmatched_files: true
           draft: false
           prerelease: false

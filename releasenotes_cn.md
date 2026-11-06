@@ -137,14 +137,18 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
 
 ## 八、跨平台构建与发布
 
-- `deb` + 便携 tarball（Linux）、`dmg` + 便携 tarball（macOS aarch64）、`msi` + 便携 zip
-  （Windows），并附 `SHA256SUMS`。
-- 配置仓库 secrets `UPDATER_PUBKEY` 与 `TAURI_SIGNING_PRIVATE_KEY` 后，release 会在
-  `tauri build` 前把公钥注入两处：`desktop/src-tauri/src/upgrade/mod.rs`（编译进二进制，
-  运行时验签）与 `tauri.conf.json` 的 `plugins.updater.pubkey`（打包时校验签名私钥），
-  公钥不进仓库；同时额外附带签名更新包、`latest.json`（GitHub 资产 URL）与
-  `latest-gitee.json`（Gitee 资产 URL）。Gitee 镜像把后者重命名为 `latest.json`，并上传
-  完全相同的更新包与 `.sig`；每份清单只指向自己那一源。未配置密钥时仍按原样发布 6 个资产，
+- 6 个下载：`deb` + 便携 tarball（Linux）、`dmg` + 便携 tarball（macOS aarch64）、
+  `msi` + 便携 zip（Windows）；加 `latest.json`、`latest-gitee.json`、`SHA256SUMS`
+  共恰好 9 个 assets。
+- 配置仓库 secrets `UPDATER_PUBKEY` 与 `TAURI_SIGNING_PRIVATE_KEY` 后，release 把公钥注入
+  `desktop/src-tauri/src/upgrade/mod.rs`（运行时验签）与 `tauri.conf.json` 的
+  `plugins.updater.pubkey`，并用 `tauri signer sign --app-version V` **直接给 6 个下载签名**。
+  base64 签名内嵌在 `latest.json`（GitHub 资产 URL）与 `latest-gitee.json`（Gitee 资产 URL）：
+  `platforms` 指向各平台可安装的那个资产，`signatures` 覆盖全部 6 个。不再发布独立更新包、
+  `.sig` 或 `updater-*.json`，且从不打开 `bundle.createUpdaterArtifacts`——因此不会产出
+  AppImage 与重复 msi。Gitee 镜像上传同样 6 个下载，并把 `latest-gitee.json` 重命名为
+  `latest.json`；每份清单只指向自己那一源。发布前的 `verify` 步骤会拒绝任何不等于这 9 个
+  文件的集合。未配置密钥时同样发布这 9 个文件，但 `platforms`/`signatures` 为空，
   客户端自动降级为手动下载。
 - Linux 上从源码构建还需 `libdbus-1-dev` 与 `pkg-config`：会话存在 Secret Service 里，
   经 D-Bus 访问。Windows 与 macOS 无额外依赖——凭据管理器与钥匙串是系统自带的。
@@ -161,7 +165,7 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
   外加更新卡片的三条外壳路由、每种状态机器码与「无外壳」路径；最后再补一轮
   「按钮 disabled 时点不到的守卫」——直接调用处理函数覆盖提前返回、空响应体与未知机器码，
   并用服务端渲染覆盖无 `window` 的 setup 分支）。
-  **共 31 个 spec、770 条用例**，全程离线。
+  **共 32 个 spec、785 条用例**，全程离线。
 - `bun run test:coverage`（v8，对应 `make web-coverage`）报告：语句、行、分支、函数四项
   均 **100%**（10989 条语句、1804 个分支、433 个函数）。没有未覆盖的防御分支，
   也没有从报告里排除任何文件。

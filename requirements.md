@@ -258,7 +258,7 @@
 | N4 | **错误只传机器码**：store 只存 `error.code`，文案全部本地化 |
 | N5 | **无障碍**：触控目标 ≥44px；焦点环 2px + 2px offset；`prefers-reduced-motion: reduce` 下禁全部动效 |
 | N6 | **SSE 真流式**：环回代理 `Body::from_stream`，强制 `accept-encoding: identity`，禁整体超时 |
-| N7 | 三平台：Linux（deb/appimage）、macOS（dmg+app，aarch64）、Windows（msi） |
+| N7 | 三平台：Linux（deb + 便携 tar.gz）、macOS（dmg + app 便携 tar.gz，aarch64）、Windows（msi + 便携 zip）；不产出 appimage，每次 release 恰好 9 个 assets |
 
 ## 4. 服务端契约（本轮新增）
 
@@ -415,7 +415,7 @@
 7. 语音：录音 → 上传 → transcript 入会话 → agent 回复 → TTS 音频可回放。
 8. 连接器 `ask` 策略：动作 park 到 `input-required`，审批后 resume 且**不二次 park**。
 9. 通道：伪造签名的 webhook 被拒（401 + `channel_signature_invalid`），合法签名生成 thread 消息。
-10. 三平台 CI 产出 deb / dmg / msi 与 SHA256SUMS。
+10. 三平台 CI 产出 6 个下载、两份清单与 SHA256SUMS，发布前 `verify` 断言恰好 9 个 assets。
 11. 角色（F10）：新建 Agent 写入 `persona`（角色/指令/MBTI/头像），工作台与 Threads 正确渲染人格标签。
 12. Agent 计算机（F11/F17）：`POST /api/computers` 真实申请执行环境租约并回显 `provider` / `leaseId` / `nodeId` / `expiresAt`；`DELETE` 先终止租约再删行；视图自身不引入子进程。
 13. 目标调度（F13）：cron 保存即算出下次到期，到期后自动触发并回写最近运行时间 / 状态 / 下次到期；「立即运行」返回 202 Trigger，「推进一拍」触发一轮判定与派单；目标页可见水位（待判定 / 运行中 / 待人工 / 本批数量）、该目标运行历史与最近触发流，点击任务链接跳到 `/tasks/:id`；调度器关闭时相关区块显示灰字而非报错弹窗。
@@ -443,7 +443,9 @@
 33. 更新卡片、侧栏横幅、关于页均按机器码渲染 13 语本地文案；`api-usage.spec.js` 白名单仍为空；
     `copy-fallback.spec.js` 与桌面 `i18n/upgrade.rs` 的 13 语键集守卫全绿。
 34. 发布流程生成 `latest.json`（GitHub URL）与 `latest-gitee.json`（Gitee URL），
-    `latest-json.mjs collect|manifest` 可用样本验证；未配置签名密钥时发布照常产出原有 6 个资产。
+    `latest-json.mjs collect|manifest|verify` 有离线正常 + 异常用例；6 个下载全部签名、
+    签名内嵌清单，发布集合钉住 9 个 assets；未配置签名密钥时同样发布 9 个文件，
+    仅 `platforms`/`signatures` 为空。
 35. 未配置公钥时「立即升级」返回 `not_configured` 且不下载任何包；WebView 未获得 updater 权限。
 36. v8 覆盖率四项（语句 / 行 / 分支 / 函数）均 **100%**。界面上按钮 disabled 因而点不到的
     守卫分支须通过直接调用处理函数、服务端渲染等手段真实覆盖，**不得**用 `exclude` / ignore
@@ -481,15 +483,26 @@ manifest_invalid | signature_failed | busy | unavailable`。界面不得解析�
 
 ### 7.3 发布形态
 
+- 每次 release 恰好 9 个 assets：6 个下载（Linux deb + 便携 tar.gz、macOS dmg + app
+  便携 tar.gz、Windows msi + 便携 zip）、`latest.json`、`latest-gitee.json`、`SHA256SUMS`。
+  **不发布**独立签名更新包、`.sig`、`updater-*.json` 或 AppImage；`bundle.createUpdaterArtifacts`
+  恒为关闭。
 - `latest.json`：`version`（纯 semver，无 `v`）、`notes`、`pub_date`、
-  `platforms[平台键].{url,signature}`。
-- 两份清单分别写 GitHub / Gitee 自己的资产 URL；Gitee 镜像上传时把 `latest-gitee.json`
-  重命名为 `latest.json`，并附完全相同的签名压缩包与 `.sig`。同一公钥、同一签名字节。
+  `platforms[平台键].{url,signature}`、新增可选 `signatures[文件名]`（6 项）。
+  `platforms` 只能指向插件能安装的已有资产：`linux-x86_64 → deb`、
+  `darwin-aarch64 → macos-aarch64.tar.gz`、`windows-x86_64 → msi`；dmg、Linux tar.gz、
+  Windows zip 仅供手动下载。旧客户端没有 `deny_unknown_fields`，忽略 `signatures` 即可兼容。
+- 6 个下载由各构建 leg 用 `tauri signer sign --app-version V` 直接签名（trusted comment
+  绑定版本），base64 签名内嵌两份清单；`collect` 消费临时 `.sig` 后删除，元数据走独立
+  artifact，绝不进入发布目录。两份清单分别写 GitHub / Gitee 自己的资产 URL；Gitee 镜像
+  上传同样 6 个下载，并把 `latest-gitee.json` 重命名为 `latest.json`，**不再上传 `.sig`**。
+- 发布前 `latest-json.mjs verify` 断言目录恰好是这 9 个文件、两份清单同源且版本一致、
+  `SHA256SUMS` 只覆盖 6 个下载；发布步骤再用显式白名单兜底。未配置签名密钥时
+  `platforms`/`signatures` 为空，客户端走手动下载。
 - 验签公钥来自仓库 secret `UPDATER_PUBKEY`：release 构建前由
   `desktop/scripts/inject-updater-pubkey.mjs` 同时写入 `src/upgrade/mod.rs` 的
   `UPDATER_PUBKEY`（运行时验签）与 `tauri.conf.json` 的 `plugins.updater.pubkey`
-  （`tauri build` 打包时校验签名私钥配对）；两处在源码里都留空、公钥不进仓库。
-  只写常量而漏掉 config 会让打包报 `Missing comment in public key`。
+  （插件默认配置，与运行时常量保持一致）；两处在源码里都留空、公钥不进仓库。
 - 本轮不扩充发布矩阵：仅 `linux-x86_64` / `darwin-aarch64` / `windows-x86_64`；
   其他平台走 `unsupported_platform` 降级。
 

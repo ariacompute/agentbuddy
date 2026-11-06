@@ -63,7 +63,9 @@ make smoke                          # 两条跨进程冒烟（见下）
 
 ## 发布
 
-通过 [`.github/workflows/release.yml`](.github/workflows/release.yml) 构建并发布安装包：
+通过 [`.github/workflows/release.yml`](.github/workflows/release.yml) 构建并发布安装包。
+每次 release 恰好 9 个 assets：下表 6 个下载，加 `latest.json`、`latest-gitee.json`
+与 `SHA256SUMS`。**不再发布**独立的签名更新包、`.sig` 或 `updater-*.json`。
 
 | 平台          | 便携版                  | 安装包          |
 | ------------- | ----------------------- | --------------- |
@@ -91,21 +93,6 @@ gh secret set UPDATER_PUBKEY < ~/.tauri/agentbuddy.key.pub
 gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
-
-`UPDATER_PUBKEY` 必须是整个 `.key.pub` 文件：解码后是两行 minisign public key box
-（`untrusted comment: … public key` 头 + 公钥行）。只填裸 `RW…` 公钥行、明文两行文本或
-二次编码值，都会在打包前被脚本拦下。`tauri-cli` 对每个值只解码一次，所以在网页里手工
-粘贴时带入的尾随空格或换行就足以造成 `Invalid padding`；用文件重定向最稳。release 流程
-也兼容明文两行 minisign 私钥、去掉口令尾部换行，并在值其实是路径 / 错填的密钥 /
-二次编码字符串时构建前报错。
-
-release 流程在 `tauri build` 前把 `UPDATER_PUBKEY` 注入**两处**：
-`desktop/src-tauri/src/upgrade/mod.rs`（编译进二进制，运行时验签）与 `tauri.conf.json` 的
-`plugins.updater.pubkey`（`tauri build` 解码后校验签名私钥是否配对）。两处在源码里都恒为空、
-公钥**不进仓库**，本地构建仍返回 `not_configured`。配置后，release 会额外发布签名更新包、
-`latest.json`（GitHub 资产 URL）与 `latest-gitee.json`（Gitee 资产 URL）。
-Gitee 镜像把后者重命名为 `latest.json`，并上传完全相同的更新包与 `.sig`。未配置密钥时，
-上述 6 个安装包照常发布，应用只提供手动下载入口，绝不安装未验签的包。
 
 ## 执行环境
 

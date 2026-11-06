@@ -141,6 +141,23 @@ mod tests {
     }
 
     #[test]
+    fn ignores_the_extra_signatures_map_from_newer_releases() {
+        // Newer releases sign all six downloads and publish the signatures in
+        // the manifest itself instead of as `.sig` assets. Older clients must
+        // keep reading `platforms` and simply ignore the unknown field.
+        let mut raw = serde_json::from_str::<serde_json::Value>(&body("0.3.0", GITHUB_ASSET)).unwrap();
+        raw["signatures"] = serde_json::json!({
+            "agentbuddy-x64-0.3.0.msi": "c2lnbmF0dXJlLWJ5dGVz",
+            "agentbuddy-windows-x86_64-0.3.0.zip": "c2lnbmF0dXJlLWJ5dGVz"
+        });
+        let parsed = manifest(&raw.to_string());
+        assert_eq!(parsed.version, "0.3.0");
+        assert_eq!(parsed.platforms.len(), 2);
+        assert!(parsed.platforms.contains_key("windows-x86_64"));
+        assert!(select_platform(&parsed, "windows-x86_64", Upstream::Github).is_ok());
+    }
+
+    #[test]
     fn refuses_manifests_that_cannot_be_trusted() {
         assert_eq!(parse_manifest(""), Err(UpgradeCode::ManifestInvalid));
         assert_eq!(parse_manifest("not json"), Err(UpgradeCode::ManifestInvalid));

@@ -12,7 +12,9 @@
 //
 // Normalise whitespace, accept a plain two-line minisign file as well, reject
 // paths / public keys / double-encoded values early, and pass the result to the
-// build step through GITHUB_ENV. Nothing secret is ever printed.
+// rest of the job through GITHUB_ENV. `tauri build` no longer signs anything;
+// the same two env vars are read by `bun run tauri signer sign` after packaging.
+// Nothing secret is ever printed.
 
 import fs from 'node:fs'
 

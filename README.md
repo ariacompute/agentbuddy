@@ -72,7 +72,10 @@ only — nothing leaves the machine:
 
 ## Release
 
-Publishes installers through [`.github/workflows/release.yml`](.github/workflows/release.yml):
+Publishes installers through [`.github/workflows/release.yml`](.github/workflows/release.yml).
+Each release has exactly nine assets: the six downloads below, `latest.json`,
+`latest-gitee.json` and `SHA256SUMS`. There is no separate updater archive,
+no `.sig` asset and no `updater-*.json` on the release page.
 
 | Platform      | Portable                | Installer        |
 | ------------- | ----------------------- | ---------------- |
@@ -102,27 +105,6 @@ gh secret set UPDATER_PUBKEY < ~/.tauri/agentbuddy.key.pub
 gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
-
-`UPDATER_PUBKEY` must be the whole `.key.pub` file: decoding it yields a
-two-line minisign public key box (`untrusted comment: … public key` plus the
-key line). A bare `RW…` key line, the plain two-line text or a double-encoded
-value is rejected before bundling. `tauri-cli` decodes each value once, so a
-trailing space or newline introduced by pasting into the web UI is enough to
-cause `Invalid padding`; redirecting the file avoids that. The workflow accepts
-a plain two-line minisign private key, strips trailing newlines from the
-password, and fails early if a value is a path, the wrong key or double-encoded.
-
-The release workflow injects `UPDATER_PUBKEY` into **two** places before
-`tauri build`: `desktop/src-tauri/src/upgrade/mod.rs` (compiled into the binary
-for runtime verification) and `tauri.conf.json`'s `plugins.updater.pubkey`
-(which `tauri build` decodes and matches against the signing key). Both stay
-empty in git — the key is never committed, and local builds keep answering
-`not_configured`. With the signing secrets set, a release also publishes signed updater archives,
-`latest.json` (GitHub asset URLs) and `latest-gitee.json` (Gitee asset URLs).
-Gitee mirrors rename the latter to `latest.json` and upload the same archives
-and `.sig` files. Without
-the key, the six installers above are published exactly as before and the app
-falls back to a manual download link instead of installing an unverified package.
 
 ## Execution environments
 

@@ -184,18 +184,23 @@ The node lives in the Rust process. The web view only reads its state through
 
 ## 8. Cross-platform Build & Release
 
-- `deb` + portable tarball (Linux), `dmg` + portable tarball (macOS aarch64),
-  `msi` + portable zip (Windows), plus `SHA256SUMS`.
+- Six downloads: `deb` + portable tarball (Linux), `dmg` + portable tarball
+  (macOS aarch64), `msi` + portable zip (Windows). Together with `latest.json`,
+  `latest-gitee.json` and `SHA256SUMS` that is exactly nine assets per release.
 - With `UPDATER_PUBKEY` and `TAURI_SIGNING_PRIVATE_KEY` set as repository secrets,
-  the public key is injected before `tauri build` into both
-  `desktop/src-tauri/src/upgrade/mod.rs` (compiled into the binary, never
-  committed) and `tauri.conf.json`'s `plugins.updater.pubkey` (build-time
-  signing check), and the release carries signed updater archives,
-  `latest.json` (GitHub asset URLs) and
-  `latest-gitee.json` (Gitee asset URLs). Gitee mirrors rename the latter to
-  `latest.json` and upload the very same archives and `.sig` files; each manifest
-  only ever points at its own mirror. Without the signing key, the six original
-  assets are published exactly as before and clients fall back to manual download.
+  the public key is injected into `desktop/src-tauri/src/upgrade/mod.rs` (runtime
+  verification) and `tauri.conf.json`'s `plugins.updater.pubkey`, and each of the
+  six downloads is signed directly with `tauri signer sign --app-version V`.
+  The base64 signatures live inside `latest.json` (GitHub asset URLs) and
+  `latest-gitee.json` (Gitee asset URLs): `platforms` points at the installable
+  asset for each OS, `signatures` covers all six. No extra updater archive,
+  `.sig` file or `updater-*.json` is published, and `bundle.createUpdaterArtifacts`
+  is never enabled — so no AppImage or duplicate MSI is built. Gitee mirrors
+  upload the same six downloads plus `latest-gitee.json` renamed to
+  `latest.json`; each manifest only ever points at its own mirror. A `verify`
+  step refuses to publish unless the set is exactly these nine files. Without
+  the signing key the same nine files ship with empty `platforms`/`signatures`
+  and clients fall back to manual download.
 - Building from source on Linux also needs `libdbus-1-dev` and `pkg-config`: the
   session lives in the Secret Service, which is reached over D-Bus. Windows and
   macOS need nothing extra — Credential Manager and Keychain are part of the OS.
@@ -218,7 +223,7 @@ The node lives in the Rust process. The web view only reads its state through
   every status machine code and the no-shell path). A final pass calls the
   handlers behind disabled controls directly (early returns, empty bodies,
   unknown machine codes) and server-renders the no-`window` setup branch.
-  **31 spec files, 770 cases**, all offline.
+  **32 spec files, 785 cases**, all offline.
 - `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements,
   lines, branches and functions (10989 statements, 1804 branches, 433 functions).
   No defensive arm is left untested and no file is excluded from the report.

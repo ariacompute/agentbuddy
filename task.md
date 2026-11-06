@@ -945,7 +945,8 @@ M21 只覆盖了本轮改过状态码的两个端点，但 `DELETE /api/computer
   （release 构建时由 `desktop/scripts/inject-updater-pubkey.mjs` 写入
   `src/upgrade/mod.rs` 的常量，源码恒为空），私钥/口令写 secrets
   `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`；
-  Gitee 镜像按清单上传 `latest.json` 与签名资产。未完成时客户端自动降级为手动下载。
+  Gitee 镜像上传同样的 6 个下载并把 `latest-gitee.json` 重命名为 `latest.json`；签名已内嵌
+  清单，不上传任何 `.sig` 或独立更新包。未完成时客户端自动降级为手动下载。
 
 ## M24 — 覆盖率收口：四项 100%（2026-11-05）
 
@@ -1120,3 +1121,59 @@ let pk = pk_box.into_public_key().context("failed to convert updater pubkey")?;
   不改文件、裸公钥行 / 明文两行 / 二次编码 / 私钥 / 路径 / 乱码均失败、缺
   `plugins.updater` 失败、无 secret 时两处保持源码空值。
 - `release.yml` 经 YAML 解析；`cargo check --all-targets` 通过、无 warning。
+
+## M29 — 收敛 release assets（对照 v1.3.0 线上实际产物）
+
+> 本轮之后，M23～M28 历史条目中关于 `createUpdaterArtifacts`、Linux
+> `appimage`、「签名更新包 + `.sig`」的描述都是**当时的实现记录**，已被本节取代；
+> 按实施记录惯例保留不改写。
+
+### 1. 问题
+
+v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的 6 个：
+6 个用户下载、6 个多余更新包/签名（`agentbuddy.app.tar.gz(±.sig)`、
+`agentbuddy_1.3.0_amd64.AppImage(±.sig)` 82MB、
+`agentbuddy_1.3.0_x64_en-US.msi(±.sig)` 与用户版 msi **字节完全相同**）、
+3 个 `updater-*.json` 中间文件、`latest.json`、`latest-gitee.json`、`SHA256SUMS`。
+根因是 `release.yml` 的 `files: release-assets/*` 把 `collect` 的中间产物也一起发布，
+且 `createUpdaterArtifacts` 让打包器额外生成了一套更新包。
+
+### 2. 收敛
+
+- `.github/workflows/release.yml`：删除签名时给 Linux 追加 `appimage` 的分支；
+  三个 Package 步骤在签名开启时用 `bun run tauri signer sign --app-version V`
+  直接给自己的 2 个下载签名；`collect` 输出到独立 `meta/` 并上传成
+  `agentbuddy-meta-*` artifact，发布目录只收 `agentbuddy-assets-*`；
+  `SHA256SUMS` 只对 `agentbuddy-*` 求和；新增 `verify` 步骤；
+  `files:` 改 9 条显式白名单 + `fail_on_unmatched_files: true`；
+  Gitee 镜像 checklist 改为「上传 6 个下载 + 重命名后的清单，无需 `.sig`」。
+- `desktop/scripts/latest-json.mjs`：改为 `collect|manifest|verify` 三子命令。
+  `collect` 归一化 `.sig`（兼容 base64 与明文 minisign box）后删除临时文件，
+  按平台挑出可安装资产写入内部 meta；`manifest` 汇总出 `platforms`（3 键，指向
+  deb / macOS app tarball / msi）与新增 `signatures`（6 项）；`verify` 断言恰好
+  9 个文件、两份清单同源同版本、`SHA256SUMS` 只覆盖 6 个下载。
+  `platforms` 的选型依据 `tauri-plugin-updater 2.14.1`：Windows 便携 zip 内是裸 exe
+  会被当 NSIS，Linux Deb bundle type 走 `dpkg -i`，macOS 固定解包根为 `.app` 的 gz tar。
+- `desktop/scripts/inject-updater-pubkey.mjs`：不再写 `bundle.createUpdaterArtifacts`，
+  保留公钥双处注入与 `enabled`（现仅门禁显式签名）；
+  `prepare-updater-secrets.mjs` 头注释说明两个 env 同时供 `tauri signer sign` 使用。
+- `desktop/src-tauri/tauri.conf.json`：`bundle.targets` 去掉 `appimage`。
+- Rust 生产逻辑零改动；`manifest.rs` 加一条用例钉住旧客户端忽略新增 `signatures` 字段。
+- 文档同步：`README.md` / `README_cn.md`、`releasenotes.md` / `releasenotes_cn.md`、
+  `requirements.md`（N7 / 验收 10、34 / 7.3 发布形态）、`AGENTS.md`（发布产物条目）、
+  以及 `release.yml` 与两个 mjs 的头注释。
+
+### 3. 验证
+
+- 本地用一次性 minisign 密钥端到端跑通 `bun run tauri signer sign --app-version V`：
+  `<asset>.sig` 落在下载旁边、内容为 base64(minisign box)、trusted comment 绑定版本，
+  `collect` 正确归一化并删除临时 `.sig`；临时密钥与样本已清理。
+- 新增 `web/tests/release-assets.spec.js`：以真实子进程跑 `collect|manifest|verify`
+  的离线黑盒用例 15 条，覆盖正常 9 资产 / 三平台同源 URL / 6 项签名 / 无密钥降级，
+  以及未知平台、部分签名、孤立 `.sig`、非法签名字节、路径穿越、重复平台、
+  版本绑定不符、非法 semver、多余/缺失文件、残缺平台集、跨源 URL、篡改签名等异常路径。
+- `release.yml` 经 Bun 内置 YAML 解析；三个 mjs 经 `node --check`；
+  桌面端 `cargo test --no-run` 编译校验（本机 Windows 测试二进制仍因 Tauri 原生依赖
+  `STATUS_ENTRYPOINT_NOT_FOUND` 无法启动，纯逻辑用例留 CI/Linux 实跑）；
+  web 全量 32 spec / 785 用例通过，`test:coverage` 语句/行/分支/函数四项均 **100%**
+  （新 spec 不 import `web/src`，不影响基线）。

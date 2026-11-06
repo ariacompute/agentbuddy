@@ -7,17 +7,21 @@
 //
 // The SAME public key must reach TWO consumers:
 //   1. src/upgrade/mod.rs -> runtime verification via `Builder::pubkey()`.
-//   2. tauri.conf.json    -> `tauri build` reads `plugins > updater > pubkey`,
-//      base64-decodes it, calls minisign's `PublicKeyBox::from_string`, then
-//      checks it matches the signing key. Leaving that field empty makes the
-//      bundle fail with "failed to convert updater pubkey: Missing comment in
-//      public key", even when the runtime constant is set correctly.
+//   2. tauri.conf.json    -> `plugins > updater > pubkey`, read by the plugin
+//      config at build time and kept in sync with the runtime constant.
+//
+// Signing no longer happens inside `tauri build`: the release workflow signs
+// the six published downloads afterwards with `tauri signer sign`. Therefore
+// `bundle.createUpdaterArtifacts` is NEVER set — doing so would make the
+// bundler emit a second, redundant set of updater archives and .sig files
+// (including an 80+ MB Linux AppImage).
 //
 // This script writes both files; both stay empty in git, so a local build
 // without secrets keeps answering `not_configured` and produces plain bundles.
 //
-// GITHUB_OUTPUT receives `pubkey` / `enabled` for the rest of the job. Running
-// the script locally without it just prints the would-be outputs.
+// GITHUB_OUTPUT receives `pubkey` / `enabled` for the rest of the job. `enabled`
+// now only gates the explicit signing step; running the script locally without
+// GITHUB_OUTPUT just prints the would-be outputs.
 
 import fs from 'node:fs'
 
@@ -62,7 +66,7 @@ const isPublicKeyBox = (value) => {
 }
 
 if (signing && !key) {
-  fail(`TAURI_SIGNING_PRIVATE_KEY is set but UPDATER_PUBKEY is not; tauri build reads plugins > updater > pubkey and would fail with "Missing comment in public key". Set it with: ${SET_KEY_HINT}`)
+  fail(`TAURI_SIGNING_PRIVATE_KEY is set but UPDATER_PUBKEY is not; the client would refuse to verify any signed download. Set it with: ${SET_KEY_HINT}`)
 }
 
 if (key) {
@@ -76,10 +80,8 @@ if (key) {
   const conf = JSON.parse(fs.readFileSync(CONF, 'utf8'))
   if (!conf.plugins?.updater) fail(`plugins.updater not found in ${CONF}`)
   conf.plugins.updater.pubkey = key
-  if (signing) {
-    conf.bundle = conf.bundle || {}
-    conf.bundle.createUpdaterArtifacts = true
-  }
+  // Deliberately no `bundle.createUpdaterArtifacts`: the six published
+  // downloads are signed explicitly after `tauri build`.
   fs.writeFileSync(CONF, `${JSON.stringify(conf, null, 2)}\n`)
   console.log(`Injected UPDATER_PUBKEY (${key.length} chars) into ${MOD_RS} and ${CONF}`)
   emit('pubkey', 'true')
@@ -89,11 +91,11 @@ if (key) {
 }
 
 if (signing) {
-  // Local `make desktop-build` and unsigned releases keep producing plain
-  // bundles, exactly as before the updater existed.
+  // Gates `bun run tauri signer sign` in the packaging steps; `tauri build`
+  // itself still produces plain bundles.
   emit('enabled', 'true')
 } else {
   emit('enabled', 'false')
-  notice('No TAURI_SIGNING_PRIVATE_KEY; publishing installers without updater artifacts')
-  if (key) warn('UPDATER_PUBKEY is set but no signing key; this release will have no signed updater archives')
+  notice('No TAURI_SIGNING_PRIVATE_KEY; publishing the six downloads unsigned, clients offer manual download')
+  if (key) warn('UPDATER_PUBKEY is set but no signing key; this release will have no signatures')
 }
