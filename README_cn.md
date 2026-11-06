@@ -87,15 +87,18 @@ bunx tauri signer generate -w ~/.tauri/agentbuddy.key
 `~/.tauri/agentbuddy.key.pub`。只有 Rust 工具链时也可 `cargo install tauri-cli --version '^2' --locked`
 后用 `cargo tauri signer generate -w ~/.tauri/agentbuddy.key`。
 
-三个值都放仓库 secrets：把终端打印的**单行 base64 公钥**（不是两行的 `.pub` 文件）写入
-`UPDATER_PUBKEY`，私钥写入 `TAURI_SIGNING_PRIVATE_KEY`，口令写入
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：
+三个值都放仓库 secrets。两个密钥文件本身就是**单行 base64**，直接取文件内容即可，
+**不要再 `base64 -w0` 二次编码**：
 
 ```bash
-gh secret set UPDATER_PUBKEY  # 粘贴打印出来的公钥
+gh secret set UPDATER_PUBKEY < ~/.tauri/agentbuddy.key.pub
 gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
+
+`tauri-cli` 把该值解码一次后解析 minisign 文本，所以在网页里手工粘贴时带入的尾随空格
+或换行就足以造成 `Invalid padding`；用文件重定向最稳。release 流程也兼容明文两行
+minisign 文件、去掉口令尾部换行，并在值其实是路径 / 公钥 / 二次编码字符串时构建前报错。
 
 release 流程在 `tauri build` 前把 `UPDATER_PUBKEY` 注入
 `desktop/src-tauri/src/upgrade/mod.rs`，公钥编译进二进制但**不进仓库**：源码里常量恒为空，

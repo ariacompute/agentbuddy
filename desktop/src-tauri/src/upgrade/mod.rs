@@ -416,13 +416,16 @@ impl Upgrader {
             self.fail(UpgradeCode::SignatureFailed, &config).await;
             return Err(UpgradeCode::SignatureFailed);
         }
-        // On Windows the plugin exits the app after starting the installer.
-        // Elsewhere the new bundle is in place but the running process is old.
-        #[cfg(not(windows))]
-        let result: Result<UpgradeState, UpgradeCode> = app.restart();
-        #[cfg(windows)]
-        let result = Ok(self.snapshot().await);
-        result
+        // On Windows the plugin exits the app after starting the installer, so
+        // the snapshot is the last thing this call returns. Elsewhere
+        // `AppHandle::restart()` diverges (`!`) and coerces to the result type:
+        // binding it to a variable and returning that variable leaves an
+        // unreachable expression, which rustc warns about.
+        if cfg!(windows) {
+            Ok(self.snapshot().await)
+        } else {
+            app.restart()
+        }
     }
 
     async fn set<F: FnOnce(&mut UpgradeState)>(&self, patch: F) -> UpgradeState {

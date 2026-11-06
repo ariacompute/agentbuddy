@@ -184,6 +184,14 @@ desktop/
   没有全局命令；Rust 侧可用 `cargo tauri signer generate`）；把终端打印的单行 base64 公钥
   写 secret `UPDATER_PUBKEY`，私钥/口令写 secrets `TAURI_SIGNING_PRIVATE_KEY` /
   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
+- **密钥格式**：`~/.tauri/agentbuddy.key`（私钥）与 `.key.pub`（公钥）本身就是
+  **单行 base64**（解码后才是两行 minisign 文本），secret 直接取文件内容：
+  `gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key`、
+  `gh secret set UPDATER_PUBKEY < ~/.tauri/agentbuddy.key.pub`；**不要再 `base64 -w0`
+  二次编码**。tauri-cli 把该值解码一次后交给 `SecretKeyBox::from_string`，网页粘贴带入的
+  尾随空格/换行足以造成 `Invalid padding`。`prepare-updater-secrets.mjs` 兼容明文两行文件、
+  拒绝路径 / 公钥 / 二次编码值、去掉口令 CR/LF，规范化后经 `GITHUB_ENV` 交给构建步骤
+  （故 build step 不再设同名 step env）。
 - **发布产物**：`release.yml` 仅在 `TAURI_SIGNING_PRIVATE_KEY` 存在时打开 `bundle.createUpdaterArtifacts`
   （本地 `make desktop-build` 不受影响），Linux 追加 `appimage`；
   `desktop/scripts/latest-json.mjs collect|manifest` 产出 `latest.json`（GitHub URL）与

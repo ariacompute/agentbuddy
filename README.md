@@ -97,16 +97,22 @@ Enter a password when prompted. The CLI prints the public key and writes
 Rust-only toolchain, `cargo install tauri-cli --version '^2' --locked` plus
 `cargo tauri signer generate -w ~/.tauri/agentbuddy.key` works as well.
 
-All three values live in repository secrets. Paste the single-line base64 public
-key printed by the generator into `UPDATER_PUBKEY` (not the two-line `.pub`
-file), the private key into `TAURI_SIGNING_PRIVATE_KEY`, and the password into
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`:
+All three values live in repository secrets. Both key files are already
+single-line base64 — use their contents verbatim; **do not** run `base64 -w0`
+on them, that would double-encode the value:
 
 ```bash
-gh secret set UPDATER_PUBKEY  # paste the printed public key
+gh secret set UPDATER_PUBKEY < ~/.tauri/agentbuddy.key.pub
 gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
+
+`tauri-cli` decodes the value once and parses the resulting minisign text, so a
+trailing space or newline introduced by pasting into the web UI is enough to
+cause `Invalid padding`; redirecting the file avoids that. The workflow also
+accepts a plain two-line minisign file, strips trailing newlines from the
+password, and fails early if the value is a path, a public key or a
+double-encoded string.
 
 The release workflow injects `UPDATER_PUBKEY` into
 `desktop/src-tauri/src/upgrade/mod.rs` before `tauri build`, so the key is

@@ -22,6 +22,10 @@
 # The matching public key comes from the UPDATER_PUBKEY secret and is written
 # into desktop/src-tauri/src/upgrade/mod.rs before `tauri build`, so rustc bakes
 # it into the binary without the key ever being committed.
+# TAURI_SIGNING_PRIVATE_KEY / UPDATER_PUBKEY hold the single-line base64 key
+# contents verbatim (do NOT base64 them again). The signing step normalises
+# stray whitespace, accepts a plain minisign file, and fails early with a hint
+# instead of surfacing "Invalid padding" four minutes into bundling.
 
 name: release
 
@@ -110,14 +114,17 @@ jobs:
           # Injected into src/upgrade/mod.rs at build time; never committed.
           UPDATER_PUBKEY: ${{ secrets.UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: node desktop/scripts/inject-updater-pubkey.mjs
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          node desktop/scripts/inject-updater-pubkey.mjs
+          node desktop/scripts/prepare-updater-secrets.mjs
 
       - name: Build desktop app
         working-directory: desktop
         shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        # Signing variables are exported by the step above through GITHUB_ENV,
+        # after normalising the secrets. A step-level env here would override
+        # them with the raw values and reintroduce the base64 padding failure.
         run: |
           bun install
           bun run icons   # derive desktop/src-tauri/icons from assets/app-icon.png (git-ignored)

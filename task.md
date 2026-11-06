@@ -1013,3 +1013,61 @@ M21 只覆盖了本轮改过状态码的两个端点，但 `DELETE /api/computer
 - 验证：`release.yml` 经 YAML 解析校验；注入脚本离线自测 6 个场景全绿——双 secret、
   幂等重注入、仅公钥、仅私钥、两者皆无、非法 `.pub` 文本必须失败且不动文件、
   带空白的合法公钥。
+
+## M26 — 修 CI 的 unreachable 警告与签名私钥格式（2026-11-06）
+
+Linux release 报两处：`src/upgrade/mod.rs:425` unreachable expression 警告，以及打包末尾
+`failed to decode base64 key: Invalid padding` 直接失败。
+
+### 1. `app.restart()` 是发散函数
+
+Tauri v2 的 `AppHandle::restart()` 返回 `!`。原写法
+`#[cfg(not(windows))] let result: Result<…> = app.restart(); … result` 让 Linux 上的
+`result` 恒不可达。改为 `if cfg!(windows) { Ok(snapshot) } else { app.restart() }`：
+`!` 直接协变为函数返回类型，后面再无语句；用 `cfg!` 而非 `#[cfg]` 还让两个分支在本机
+Windows 编译期都被检查（CI 报的恰是非 Windows 分支）。
+`cargo check --all-targets` 已无 warning。
+
+### 2. 私钥 secret 必须是整个 `.key` 文件的 base64
+
+查 tauri-cli `crates/tauri-cli/src/helpers/updater_signature.rs`：`secret_key()` 先对
+`TAURI_SIGNING_PRIVATE_KEY` 整体 `STANDARD.decode()`，再把解码文本交给
+`SecretKeyBox::from_string()`。因此该变量应放**整个 `.key` 文件的 base64**，明文两行文件、
+路径或「只贴第二行」都会失败（用户遇到的是 `Invalid padding`）。
+
+- 新增 `desktop/scripts/prepare-updater-secrets.mjs`：兼容明文文件（自动 base64 编码，
+  保留 `untrusted comment` 头与末尾换行）、校验已是 base64 的值解码后确为 minisign 私钥、
+  去掉口令里的 CR/LF；把规范化值与口令经 `GITHUB_ENV` 交给构建步骤并 `::add-mask::`。
+  格式不对时在构建前 `::error::` 给出 `base64 -w0 … | gh secret set …` 命令，不再等
+  4 分钟打包才失败。
+- `release.yml` 的 Configure step 依次跑两个脚本；**删除 Build desktop app step 的同名
+  step env**（step env 会覆盖 GITHUB_ENV 里的规范化值），改由 GITHUB_ENV 提供。
+- 文档（README 中英 / AGENTS / release.yml 头注释）改成
+  `base64 -w0 ~/.tauri/agentbuddy.key | gh secret set TAURI_SIGNING_PRIVATE_KEY`。
+
+### 3. 验证
+
+- `cargo check --all-targets` 通过、无 warning；`release.yml` 经 YAML 解析，确认
+  Configure step 三个 secret、Build step 无同名 env。
+- 新脚本离线 6 场景：明文→base64、已编码直传、路径必须失败且不导出、错误内容 base64
+  必须失败、无密钥、CRLF 明文；连同口令清理与 `::add-mask::` 全绿。
+
+## M27 — 复查实际密钥文件，纠正 M26 的私钥格式结论（2026-11-06）
+
+只读复查 WSL2 `/home/lemonjia/.tauri/agentbuddy.key` 与 `.key.pub`（仅结构/权限，未输出
+密钥内容）：
+
+- 私钥 348 字节、`0600`；公钥 152 字节、`0644`；两者都是**单行 base64**、无 CRLF、
+  无尾随换行；解码后各为两行 minisign 文本（`untrusted comment: … secret/public key`
+  + base64 行）。
+- 即 `tauri signer generate -w` 写出的文件本身已是 base64。**M26 里「secret 必须是整个
+  `.key` 文件的 base64，用 `base64 -w0` 生成」是错误结论**，那样会二次编码。
+- 正确值：`TAURI_SIGNING_PRIVATE_KEY` = `.key` 内容，`UPDATER_PUBKEY` = `.key.pub` 内容，
+  都直接 `gh secret set NAME < file`（文件无尾随换行，避开网页粘贴带入的空格）。
+  用户 CI 的 `Invalid padding` 更可能来自粘贴时的尾随空白或填错文件。
+
+修正：`prepare-updater-secrets.mjs` 的 hint 改回 `gh secret set … < file`，校验加严为
+「解码后必须是 comment 含 `secret key` 且第二行为 base64」，据此拒绝公钥 / 二次编码 /
+截断值；明文分支同样要求 secret key 头。README 中英、AGENTS.md、release.yml 头注释
+全部改为「直接用文件内容，不要再 base64」。离线自测覆盖单行 base64 私钥、明文两行、
+公钥误填、二次编码、路径、无密钥、尾随空白与口令 CRLF。
