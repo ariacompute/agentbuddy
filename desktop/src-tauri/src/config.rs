@@ -20,6 +20,13 @@ use crate::session::{self, SessionBackend};
 /// The credential-store account name the execution node's API key lives under.
 const EXECUTOR_SECRET: &str = "executor_api_key";
 
+/// The address the connection page's server field starts with on a first run.
+/// It is language-independent on purpose: one constant is injected into the
+/// boot object for all 13 languages, so no translation can carry a different
+/// default. `server_url` itself still defaults to empty — a fresh install must
+/// open the connection page instead of silently talking to a local port.
+pub const DEFAULT_SERVER_URL: &str = "http://localhost:3500";
+
 /// The persisted shape. `server_url` empty means "not configured yet", which is
 /// what sends the shell to the connection page.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -378,6 +385,20 @@ fn session_path_for(dir: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_connection_page_starts_at_the_local_server() {
+        assert_eq!(DEFAULT_SERVER_URL, "http://localhost:3500");
+        assert_eq!(
+            normalize_server_url(DEFAULT_SERVER_URL).unwrap(),
+            DEFAULT_SERVER_URL,
+            "the default must be usable by the connection probe as-is"
+        );
+        // Pre-filling the field is not the same as configuring the shell: a
+        // first run still shows the connection page.
+        assert!(!AppConfig::default().is_configured());
+        assert!(AppConfig::default().server_url.is_empty());
+    }
 
     #[test]
     fn accepts_http_and_https_addresses() {

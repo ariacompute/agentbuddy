@@ -160,6 +160,7 @@ fn render_shell_page(
         "lang": lang,
         "version": app_version_stamp(),
         "serverUrl": config.server_url,
+        "defaultServerUrl": crate::config::DEFAULT_SERVER_URL,
         "insecure": config.accept_invalid_certs,
         "background": config.background,
         "notifyEnabled": config.notify_enabled,
@@ -379,6 +380,61 @@ mod tests {
         assert!(html.contains("\"languages\""), "the boot object must carry the language table");
         assert!(html.contains("\"dirs\""), "the boot object must carry the RTL/LTR directions");
         assert!(html.contains("\"page\":\"connect\""), "the boot object must carry the page name");
+        assert!(
+            html.contains(&format!(
+                "\"defaultServerUrl\":\"{}\"",
+                crate::config::DEFAULT_SERVER_URL
+            )),
+            "the boot object must carry the default server address"
+        );
+    }
+
+    /// The pre-filled address lives in one Rust constant, not in 13 copy blocks
+    /// that could drift apart: every language's boot object must carry the same
+    /// value, and every language's copy table must still be there.
+    #[test]
+    fn every_language_gets_the_same_default_server_address() {
+        let Some(file) = Shell::get("shell.html") else {
+            eprintln!("skipping: assets/shell.html is missing");
+            return;
+        };
+        let expected = format!("\"defaultServerUrl\":\"{}\"", crate::config::DEFAULT_SERVER_URL);
+        for (code, _) in crate::i18n::LANGUAGES {
+            let config = crate::config::AppConfig {
+                lang: code.to_string(),
+                ..Default::default()
+            };
+            let html = render_shell_page(&file, &config, "connect", "n0nce");
+            assert!(
+                html.contains(&format!("\"lang\":\"{code}\"")),
+                "{code} did not reach the boot object"
+            );
+            assert!(
+                html.contains(&format!("\"{code}\":{{")),
+                "{code} copy table is missing from the boot object"
+            );
+            assert!(html.contains(&expected), "{code} lost the default server address");
+        }
+    }
+
+    /// A boot field nobody reads would still leave the first-run address empty.
+    /// The connection page has to consume it both as the value and as the hint
+    /// shown after the field is cleared, and no stale example may remain.
+    #[test]
+    fn the_connection_page_reads_the_boot_default() {
+        let Some(file) = Shell::get("shell.html") else {
+            eprintln!("skipping: assets/shell.html is missing");
+            return;
+        };
+        let html = String::from_utf8_lossy(&file.data);
+        assert!(
+            html.matches("boot.defaultServerUrl").count() >= 2,
+            "the connection page no longer pre-fills the default server address"
+        );
+        assert!(
+            !html.contains("agenthub.example.com"),
+            "a stale example address is still shown in the server field"
+        );
     }
 
     /// The about page is the same file with a different `page`, so the boot

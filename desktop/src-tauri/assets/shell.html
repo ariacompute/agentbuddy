@@ -305,7 +305,6 @@
             spellcheck="false"
             autocomplete="off"
             autocapitalize="off"
-            placeholder="https://agenthub.example.com"
             aria-describedby="status"
           />
         </label>
@@ -587,7 +586,10 @@
           refreshUpgrade()
           return
         }
-        el('server').value = boot.serverUrl || ''
+        // One language-independent default for all 13 languages: pre-fill the
+        // field (and the hint shown after clearing it) from the Rust constant.
+        el('server').placeholder = boot.defaultServerUrl || ''
+        el('server').value = boot.serverUrl || boot.defaultServerUrl || ''
         el('insecure').checked = !!boot.insecure
         el('background').checked = !!boot.background
         el('notify').checked = !!boot.notifyEnabled
