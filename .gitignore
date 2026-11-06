@@ -20,6 +20,10 @@ coverage.out
 coverage/
 *.log
 
+# Generated diagram evidence (archify): local receipts and visual-check sidecars
+docs/diagrams/*.delivery.json
+diagrams/evidence/
+
 # Editors / OS
 .vscode/
 .idea/

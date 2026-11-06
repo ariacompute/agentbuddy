@@ -1,0 +1,57 @@
+{
+  "schema_version": 3,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "AgentHub Task State Machine",
+    "output": "docs/diagrams/agenthub-agentbuddy.lifecycle.en.html",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "mainPath": ["submitted", "working", "completed"],
+  "states": [
+    { "id": "submitted", "type": "start", "label": "submitted", "sublabel": "Request accepted", "tag": "Entry", "step": "01" },
+    { "id": "working", "type": "active", "label": "working", "sublabel": "Adapter execution / artifacts", "tag": "Progress", "step": "02" },
+    { "id": "completed", "type": "success", "label": "completed", "sublabel": "Terminal, no further transitions", "tag": "Done", "step": "03" },
+    { "id": "inputRequired", "type": "waiting", "label": "input-required", "sublabel": "Awaiting human input", "tag": "Parked" },
+    { "id": "failed", "type": "failure", "label": "failed", "sublabel": "Terminal, no further transitions", "tag": "Failed" },
+    { "id": "canceled", "type": "failure", "label": "canceled", "sublabel": "Terminal, no further transitions", "tag": "Canceled" }
+  ],
+  "transitions": [
+    { "id": "accept-task", "from": "submitted", "to": "working", "label": "Accept" },
+    { "id": "finish-task", "from": "working", "to": "completed", "label": "Execution complete" },
+    { "id": "park-task", "from": "working", "to": "inputRequired", "label": "Needs human input", "variant": "security" },
+    { "id": "resume-task", "from": "inputRequired", "to": "working", "label": "tasks/resume", "variant": "emphasis" },
+    { "id": "fail-task", "from": "working", "to": "failed", "label": "Execution failed", "variant": "security" },
+    { "id": "cancel-task", "from": "working", "to": "canceled", "label": "tasks/cancel", "variant": "security" },
+    { "id": "cancel-parked", "from": "inputRequired", "to": "canceled", "label": "Reject / cancel", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Legal transitions",
+      "items": [
+        "The state machine explicitly checks CanTransition; illegal transitions return invalid_state_transition (-32005)",
+        "completed / failed / canceled are terminal states and cannot be left",
+        "unknown is valid as neither a source nor a target"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Park and resume",
+      "items": [
+        "The input-required question and its timestamp persist with the task in task_pending and are cleared on resume",
+        "Resume by taskId via tasks/resume; resuming a task that is not parked returns task_not_resumable",
+        "A parked task holds no execution slot and waits until a person returns"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Traceable",
+      "items": [
+        "Every state change is fanned out over SSE and persisted asynchronously to the events table",
+        "After a disconnect, replay with since=<seq> and then rejoin the live stream",
+        "The span timeline and the accumulated artifacts are persisted with the task"
+      ]
+    }
+  ]
+}

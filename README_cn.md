@@ -20,6 +20,20 @@
 
 ![agentbuddy 工作台](workbench_cn.png)
 
+## 图示
+
+三张可交互图分别说明运行时架构、一次 A2A 委派与任务状态机。每张都是单文件 HTML，
+可在线打开；也可以 clone 仓库后直接打开 `docs/diagrams/` 里的文件，无需服务端，
+离线效果一致。
+
+| 图示 | 可交互 | 静态预览 |
+| --- | --- | --- |
+| 运行时架构 | [打开](https://ariacompute.github.io/agentbuddy/diagrams/agenthub-agentbuddy.architecture.html) | [PNG](diagrams/agenthub-agentbuddy.architecture.png) |
+| 一次 A2A 委派（`message/send` → `tasks/resume`） | [打开](https://ariacompute.github.io/agentbuddy/diagrams/agenthub-agentbuddy.sequence.html) | [PNG](diagrams/agenthub-agentbuddy.sequence.png) |
+| 任务状态机 | [打开](https://ariacompute.github.io/agentbuddy/diagrams/agenthub-agentbuddy.lifecycle.html) | [PNG](diagrams/agenthub-agentbuddy.lifecycle.png) |
+
+![AgentHub + AgentBuddy 运行时架构](diagrams/agenthub-agentbuddy.architecture.png)
+
 ## 开发
 
 前置依赖：[bun](https://bun.sh) 1.4+ 与 Rust 工具链（edition 2021）。

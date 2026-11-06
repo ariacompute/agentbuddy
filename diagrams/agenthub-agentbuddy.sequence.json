@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "一次 A2A 委派：从 message/send 到 tasks/resume",
+    "output": "docs/diagrams/agenthub-agentbuddy.sequence.html",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "participants": [
+    { "id": "user", "type": "external", "label": "用户", "sublabel": "桌面工作台" },
+    { "id": "workbench", "type": "frontend", "label": "Vue 3 工作台", "sublabel": "同源 fetch" },
+    { "id": "proxy", "type": "security", "label": "环回代理", "sublabel": "四前缀转发" },
+    { "id": "a2a", "type": "backend", "label": "POST /a2a", "sublabel": "JSON-RPC 2.0" },
+    { "id": "hub", "type": "backend", "label": "Hub 状态机", "sublabel": "任务推进" },
+    { "id": "broker", "type": "messagebus", "label": "SSE Broker", "sublabel": "events 表回放" },
+    { "id": "human", "type": "external", "label": "人工审批", "sublabel": "HITL" }
+  ],
+  "segments": [
+    { "from": 150, "to": 250, "label": "提交" },
+    { "from": 255, "to": 355, "label": "流式推进" },
+    { "from": 360, "to": 436, "label": "人工介入" },
+    { "from": 445, "to": 640, "label": "恢复与终态" }
+  ],
+  "messages": [
+    { "id": "delegate", "from": "user", "to": "workbench", "y": 160, "label": "发起委派", "variant": "emphasis" },
+    { "id": "same-origin", "from": "workbench", "to": "proxy", "y": 195, "label": "同源 fetch" },
+    { "id": "send", "from": "proxy", "to": "a2a", "y": 230, "label": "message/send", "variant": "emphasis" },
+    { "id": "accept", "from": "a2a", "to": "hub", "y": 265, "label": "submitted" },
+    { "id": "working", "from": "hub", "to": "broker", "y": 300, "label": "working + artifact 帧", "variant": "dashed" },
+    { "id": "stream", "from": "broker", "to": "workbench", "y": 335, "label": "SSE 实时帧", "variant": "return" },
+    { "id": "park", "from": "hub", "to": "human", "y": 370, "label": "input-required 挂起", "variant": "security" },
+    { "id": "approve", "from": "human", "to": "workbench", "y": 405, "label": "审批 / 补充输入", "variant": "security" },
+    { "id": "resume-ui", "from": "workbench", "to": "proxy", "y": 440, "label": "tasks/resume" },
+    { "id": "resume-rpc", "from": "proxy", "to": "a2a", "y": 475, "label": "tasks/resume", "variant": "emphasis" },
+    { "id": "continue", "from": "a2a", "to": "hub", "y": 510, "label": "恢复执行" },
+    { "id": "terminal", "from": "hub", "to": "broker", "y": 545, "label": "completed 状态事件", "variant": "return" },
+    { "id": "final-frame", "from": "broker", "to": "workbench", "y": 580, "label": "终态事件", "variant": "return" },
+    { "id": "render", "from": "workbench", "to": "user", "y": 615, "label": "结果呈现", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "workbench", "from": 155, "to": 620, "type": "frontend" },
+    { "participant": "proxy", "from": 190, "to": 480, "type": "security" },
+    { "participant": "a2a", "from": 225, "to": 515, "type": "backend" },
+    { "participant": "hub", "from": 260, "to": 550, "type": "backend" },
+    { "participant": "broker", "from": 295, "to": 585, "type": "messagebus" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "流式契约",
+      "items": [
+        "message/stream 以 SSE 推送状态与 artifact 帧，没有 [DONE] 哨兵",
+        "终止由 completed / failed / canceled / input-required 状态事件表达",
+        "断线后可用 GET /api/tasks/{id}/events?since=<seq> 回放再接实时流"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "HITL 挂起与恢复",
+      "items": [
+        "input-required 可无限期挂起，提问随任务落 task_pending",
+        "凭 taskId 经 tasks/resume 续接；未挂起任务恢复返回 task_not_resumable",
+        "人工消息优先于调度器的评估结论"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "同源通信",
+      "items": [
+        "工作台只与 127.0.0.1 上的环回代理同源通信",
+        "会话保存在 HttpOnly Cookie 中，由代理复用",
+        "任务主体、artifact、span 与事件帧同步或尽力而为地落库"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "schema_version": 3,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "AgentHub 任务状态机",
+    "output": "docs/diagrams/agenthub-agentbuddy.lifecycle.html",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "mainPath": ["submitted", "working", "completed"],
+  "states": [
+    { "id": "submitted", "type": "start", "label": "submitted", "sublabel": "请求已受理", "tag": "入口", "step": "01" },
+    { "id": "working", "type": "active", "label": "working", "sublabel": "适配执行 / artifact 累积", "tag": "推进", "step": "02" },
+    { "id": "completed", "type": "success", "label": "completed", "sublabel": "终态，不可再迁出", "tag": "完成", "step": "03" },
+    { "id": "inputRequired", "type": "waiting", "label": "input-required", "sublabel": "等待人工输入，可无限期挂起", "tag": "挂起" },
+    { "id": "failed", "type": "failure", "label": "failed", "sublabel": "终态，不可再迁出", "tag": "失败" },
+    { "id": "canceled", "type": "failure", "label": "canceled", "sublabel": "终态，不可再迁出", "tag": "取消" }
+  ],
+  "transitions": [
+    { "id": "accept-task", "from": "submitted", "to": "working", "label": "受理" },
+    { "id": "finish-task", "from": "working", "to": "completed", "label": "执行完成" },
+    { "id": "park-task", "from": "working", "to": "inputRequired", "label": "需要人工输入", "variant": "security" },
+    { "id": "resume-task", "from": "inputRequired", "to": "working", "label": "tasks/resume", "variant": "emphasis" },
+    { "id": "fail-task", "from": "working", "to": "failed", "label": "执行失败", "variant": "security" },
+    { "id": "cancel-task", "from": "working", "to": "canceled", "label": "tasks/cancel", "variant": "security" },
+    { "id": "cancel-parked", "from": "inputRequired", "to": "canceled", "label": "拒绝 / 取消", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "合法迁移",
+      "items": [
+        "状态机显式校验 CanTransition，非法迁移返回 invalid_state_transition（-32005）",
+        "completed / failed / canceled 是终态，不能再迁出",
+        "unknown 不可作为起点或终点"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "挂起与续接",
+      "items": [
+        "input-required 的提问与提问时间随任务落 task_pending，恢复后清空",
+        "凭 taskId 经 tasks/resume 续接恢复；未挂起任务恢复返回 task_not_resumable",
+        "暂停不占用执行槽位，人回来之前任务一直等得住"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "可追踪",
+      "items": [
+        "每次状态变化经 SSE 扇出，并异步落 events 表",
+        "断线后按 since=<seq> 回放，再接实时流",
+        "span 时间线与 artifact 累积列表随任务一起落库"
+      ]
+    }
+  ]
+}

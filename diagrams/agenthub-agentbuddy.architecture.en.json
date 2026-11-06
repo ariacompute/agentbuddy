@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AgentHub + AgentBuddy Runtime Architecture",
+    "output": "docs/diagrams/agenthub-agentbuddy.architecture.en.html",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "user", "type": "external", "label": "User", "sublabel": "Desktop user", "pos": [40, 300], "size": [130, 64] },
+    { "id": "keyring", "type": "security", "label": "OS Keychain", "sublabel": "Session cookie", "pos": [250, 140], "size": [130, 64] },
+    { "id": "workbench", "type": "frontend", "label": "Vue 3 Workbench", "sublabel": "15 screens / 13 locales", "pos": [250, 300], "size": [130, 64] },
+    { "id": "notifier", "type": "messagebus", "label": "Notifications", "sublabel": "Tray unread badge", "pos": [250, 450], "size": [130, 64] },
+    { "id": "proxy", "type": "security", "label": "Loopback Proxy", "sublabel": "127.0.0.1 random port", "pos": [460, 300], "size": [130, 64] },
+    { "id": "byom", "type": "backend", "label": "Executor (BYOM)", "sublabel": "Optional, off by default", "pos": [460, 450], "size": [130, 64] },
+    { "id": "registry", "type": "backend", "label": "Registry", "sublabel": "5 asset kinds + approval", "pos": [670, 140], "size": [130, 64] },
+    { "id": "a2a", "type": "backend", "label": "POST /a2a", "sublabel": "JSON-RPC 2.0 :3500", "pos": [670, 300], "size": [130, 64] },
+    { "id": "sandbox", "type": "security", "label": "Sandbox", "sublabel": "docker by default", "pos": [670, 450], "size": [130, 64] },
+    { "id": "router", "type": "backend", "label": "Router", "sublabel": "Trigger to ticket", "pos": [880, 140], "size": [130, 64] },
+    { "id": "hub", "type": "backend", "label": "Hub State Machine", "sublabel": "Task flow / HITL", "pos": [880, 300], "size": [130, 64] },
+    { "id": "db", "type": "database", "label": "PostgreSQL", "sublabel": "Host :5434", "pos": [880, 450], "size": [130, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Local: agentbuddy (no backend, no database)", "wraps": ["keyring", "workbench", "notifier", "proxy", "byom"] },
+    { "kind": "region", "label": "Server: agenthub (self-hosted)", "wraps": ["registry", "a2a", "sandbox", "router", "hub", "db"] }
+  ],
+  "connections": [
+    { "id": "open-workbench", "from": "user", "to": "workbench", "label": "Open", "variant": "emphasis" },
+    { "id": "cookie-store", "from": "workbench", "to": "keyring", "label": "Store credential" },
+    { "id": "notify", "from": "workbench", "to": "notifier", "label": "Notify" },
+    { "id": "same-origin", "from": "workbench", "to": "proxy", "label": "Relative requests" },
+    { "id": "forward", "from": "proxy", "to": "a2a", "label": "Forward" },
+    { "id": "select-resource", "from": "a2a", "to": "registry", "label": "Select resource" },
+    { "id": "dispatch", "from": "a2a", "to": "hub", "label": "A2A call" },
+    { "id": "router-to-hub", "from": "router", "to": "hub", "label": "hub.Send" },
+    { "id": "lease-sandbox", "from": "a2a", "to": "sandbox", "label": "Isolated exec" },
+    { "id": "persist", "from": "hub", "to": "db", "label": "Persist" },
+    { "id": "node-jobs", "from": "sandbox", "to": "byom", "label": "Claim job", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "slate",
+      "title": "Division of labor",
+      "items": [
+        "AgentBuddy has no backend and no database; it opens the workbench against a server chosen by the user",
+        "AgentHub is a single Go binary; resources, tasks, spans, events and callbacks all persist to PostgreSQL",
+        "New server-side /api/* endpoints require no desktop client changes"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Admission and security boundary",
+      "items": [
+        "The loopback proxy forwards only /api, /a2a, /healthz and /.well-known",
+        "A one-time nonce exchanges for an HttpOnly ab_proxy cookie; a mismatched Origin is refused before authentication",
+        "A fresh CSP nonce per response; the session cookie is kept in the OS keychain",
+        "The BYOM executor is optional and off by default; the webview has no command-execution permission"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "External protocol",
+      "items": [
+        "Any A2A-compliant agent can discover and call via GET /.well-known/agent.json",
+        "POST /a2a serves message/send, message/stream, tasks/get, tasks/cancel and tasks/resume",
+        "The desktop workbench is not a required path for external agents"
+      ]
+    }
+  ]
+}

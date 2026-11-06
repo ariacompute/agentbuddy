@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AgentHub + AgentBuddy 运行时架构",
+    "output": "docs/diagrams/agenthub-agentbuddy.architecture.html",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "user", "type": "external", "label": "用户", "sublabel": "桌面使用者", "pos": [40, 300], "size": [130, 64] },
+    { "id": "keyring", "type": "security", "label": "系统凭据库", "sublabel": "会话 Cookie", "pos": [250, 140], "size": [130, 64] },
+    { "id": "workbench", "type": "frontend", "label": "Vue 3 工作台", "sublabel": "15 屏 / 13 语", "pos": [250, 300], "size": [130, 64] },
+    { "id": "notifier", "type": "messagebus", "label": "系统通知", "sublabel": "托盘未读角标", "pos": [250, 450], "size": [130, 64] },
+    { "id": "proxy", "type": "security", "label": "环回代理", "sublabel": "127.0.0.1 随机端口", "pos": [460, 300], "size": [130, 64] },
+    { "id": "byom", "type": "backend", "label": "执行节点 BYOM", "sublabel": "可选 · 默认关闭", "pos": [460, 450], "size": [130, 64] },
+    { "id": "registry", "type": "backend", "label": "Registry", "sublabel": "五类资产 + 审批", "pos": [670, 140], "size": [130, 64] },
+    { "id": "a2a", "type": "backend", "label": "POST /a2a", "sublabel": "JSON-RPC 2.0 :3500", "pos": [670, 300], "size": [130, 64] },
+    { "id": "sandbox", "type": "security", "label": "Sandbox", "sublabel": "默认 docker", "pos": [670, 450], "size": [130, 64] },
+    { "id": "router", "type": "backend", "label": "Router", "sublabel": "触发 → 工单", "pos": [880, 140], "size": [130, 64] },
+    { "id": "hub", "type": "backend", "label": "Hub 状态机", "sublabel": "任务推进 / HITL", "pos": [880, 300], "size": [130, 64] },
+    { "id": "db", "type": "database", "label": "PostgreSQL", "sublabel": "宿主 :5434", "pos": [880, 450], "size": [130, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "本机 · agentbuddy（无后端 / 无数据库）", "wraps": ["keyring", "workbench", "notifier", "proxy", "byom"] },
+    { "kind": "region", "label": "服务端 · agenthub（可自托管）", "wraps": ["registry", "a2a", "sandbox", "router", "hub", "db"] }
+  ],
+  "connections": [
+    { "id": "open-workbench", "from": "user", "to": "workbench", "label": "打开", "variant": "emphasis" },
+    { "id": "cookie-store", "from": "workbench", "to": "keyring", "label": "凭据入库" },
+    { "id": "notify", "from": "workbench", "to": "notifier", "label": "系统通知" },
+    { "id": "same-origin", "from": "workbench", "to": "proxy", "label": "相对请求" },
+    { "id": "forward", "from": "proxy", "to": "a2a", "label": "转发" },
+    { "id": "select-resource", "from": "a2a", "to": "registry", "label": "资源选择" },
+    { "id": "dispatch", "from": "a2a", "to": "hub", "label": "A2A 调用" },
+    { "id": "router-to-hub", "from": "router", "to": "hub", "label": "hub.Send" },
+    { "id": "lease-sandbox", "from": "a2a", "to": "sandbox", "label": "执行隔离" },
+    { "id": "persist", "from": "hub", "to": "db", "label": "落库" },
+    { "id": "node-jobs", "from": "sandbox", "to": "byom", "label": "领取任务", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "slate",
+      "title": "分工",
+      "items": [
+        "AgentBuddy 自身无后端、无数据库，只把工作台对着用户指定的服务端打开",
+        "AgentHub 是 Go 单二进制，资源 / 任务 / span / 事件 / 回调全部落 PostgreSQL",
+        "服务端新增 /api/* 端点不需要改桌面端代码"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "准入与安全边界",
+      "items": [
+        "环回代理只转发 /api、/a2a、/healthz、/.well-known 四个前缀",
+        "一次性 nonce 兑换 HttpOnly ab_proxy Cookie；Origin 不符先于鉴权拒绝",
+        "每响应 CSP nonce；会话 Cookie 存系统凭据库",
+        "执行节点 BYOM 可选且默认关闭，网页视图拿不到命令执行权限"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "对外协议",
+      "items": [
+        "任何遵循 A2A 的 Agent 都可经 GET /.well-known/agent.json 发现并调用",
+        "POST /a2a 提供 message/send、message/stream、tasks/get、tasks/cancel、tasks/resume 等方法",
+        "桌面工作台不是外部 Agent 的必经路径"
+      ]
+    }
+  ]
+}

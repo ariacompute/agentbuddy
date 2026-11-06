@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "One A2A delegation: from message/send to tasks/resume",
+    "output": "docs/diagrams/agenthub-agentbuddy.sequence.en.html",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "participants": [
+    { "id": "user", "type": "external", "label": "User", "sublabel": "Desktop workbench" },
+    { "id": "workbench", "type": "frontend", "label": "Vue 3 Workbench", "sublabel": "Same-origin fetch" },
+    { "id": "proxy", "type": "security", "label": "Loopback Proxy", "sublabel": "4 prefix routes" },
+    { "id": "a2a", "type": "backend", "label": "POST /a2a", "sublabel": "JSON-RPC 2.0" },
+    { "id": "hub", "type": "backend", "label": "Hub State Machine", "sublabel": "Task progress" },
+    { "id": "broker", "type": "messagebus", "label": "SSE Broker", "sublabel": "events table replay" },
+    { "id": "human", "type": "external", "label": "Human Review", "sublabel": "HITL" }
+  ],
+  "segments": [
+    { "from": 150, "to": 250, "label": "Submit" },
+    { "from": 255, "to": 355, "label": "Stream progress" },
+    { "from": 360, "to": 436, "label": "Human intervention" },
+    { "from": 445, "to": 640, "label": "Resume and terminal state" }
+  ],
+  "messages": [
+    { "id": "delegate", "from": "user", "to": "workbench", "y": 160, "label": "Delegate", "variant": "emphasis" },
+    { "id": "same-origin", "from": "workbench", "to": "proxy", "y": 195, "label": "Same-origin fetch" },
+    { "id": "send", "from": "proxy", "to": "a2a", "y": 230, "label": "message/send", "variant": "emphasis" },
+    { "id": "accept", "from": "a2a", "to": "hub", "y": 265, "label": "submitted" },
+    { "id": "working", "from": "hub", "to": "broker", "y": 300, "label": "working + artifact frames", "variant": "dashed" },
+    { "id": "stream", "from": "broker", "to": "workbench", "y": 335, "label": "SSE live frames", "variant": "return" },
+    { "id": "park", "from": "hub", "to": "human", "y": 370, "label": "input-required parked", "variant": "security" },
+    { "id": "approve", "from": "human", "to": "workbench", "y": 405, "label": "Approve / add input", "variant": "security" },
+    { "id": "resume-ui", "from": "workbench", "to": "proxy", "y": 440, "label": "tasks/resume" },
+    { "id": "resume-rpc", "from": "proxy", "to": "a2a", "y": 475, "label": "tasks/resume", "variant": "emphasis" },
+    { "id": "continue", "from": "a2a", "to": "hub", "y": 510, "label": "Resume execution" },
+    { "id": "terminal", "from": "hub", "to": "broker", "y": 545, "label": "completed state event", "variant": "return" },
+    { "id": "final-frame", "from": "broker", "to": "workbench", "y": 580, "label": "Terminal event", "variant": "return" },
+    { "id": "render", "from": "workbench", "to": "user", "y": 615, "label": "Render result", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "workbench", "from": 155, "to": 620, "type": "frontend" },
+    { "participant": "proxy", "from": 190, "to": 480, "type": "security" },
+    { "participant": "a2a", "from": 225, "to": 515, "type": "backend" },
+    { "participant": "hub", "from": 260, "to": 550, "type": "backend" },
+    { "participant": "broker", "from": 295, "to": 585, "type": "messagebus" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Streaming contract",
+      "items": [
+        "message/stream pushes status and artifact frames over SSE; there is no [DONE] sentinel",
+        "Termination is expressed by completed / failed / canceled / input-required state events",
+        "After a disconnect, GET /api/tasks/{id}/events?since=<seq> replays events before the live stream rejoins"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "HITL park and resume",
+      "items": [
+        "input-required can stay parked indefinitely; the question is persisted with the task in task_pending",
+        "Resume by taskId via tasks/resume; resuming a task that is not parked returns task_not_resumable",
+        "A human message takes precedence over the router's assessment"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Same-origin communication",
+      "items": [
+        "The workbench talks only to the loopback proxy on 127.0.0.1, same origin",
+        "The session lives in an HttpOnly cookie that the proxy reuses",
+        "Task bodies, artifacts, spans and event frames are persisted synchronously or best-effort"
+      ]
+    }
+  ]
+}
