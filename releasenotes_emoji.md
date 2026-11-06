@@ -1,6 +1,6 @@
 # 🚀 AgentBuddy 发布说明
 
-> AgentBuddy 是 AgentHub 的桌面客户端。账号、任务和数据都在服务端，客户端只管界面和本机能力。
+> AgentBuddy 是 AgentHub 服务的桌面客户端。账号、任务和数据都在服务端，客户端只管界面和本机能力。
 
 ---
 
