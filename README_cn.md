@@ -73,13 +73,34 @@ make smoke                          # 两条跨进程冒烟（见下）
 
 ### 签名更新（一次性配置）
 
+`tauri` 是 `desktop/` 的本地 devDependency（`desktop/node_modules/.bin`），**没有全局命令**。
+在仓库根执行：
+
 ```bash
-tauri signer generate -w ~/.tauri/agentbuddy.key
+cd desktop
+bun install
+mkdir -p ~/.tauri
+bunx tauri signer generate -w ~/.tauri/agentbuddy.key
 ```
 
-把公钥写入 `desktop/src-tauri/src/upgrade/mod.rs` 的 `UPDATER_PUBKEY`，私钥与口令写入仓库
-secrets `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。配置后，release
-会额外发布签名更新包、`latest.json`（GitHub 资产 URL）与 `latest-gitee.json`（Gitee 资产 URL）。
+按提示输入口令，CLI 会打印公钥，并生成 `~/.tauri/agentbuddy.key`（私钥）与
+`~/.tauri/agentbuddy.key.pub`。只有 Rust 工具链时也可 `cargo install tauri-cli --version '^2' --locked`
+后用 `cargo tauri signer generate -w ~/.tauri/agentbuddy.key`。
+
+三个值都放仓库 secrets：把终端打印的**单行 base64 公钥**（不是两行的 `.pub` 文件）写入
+`UPDATER_PUBKEY`，私钥写入 `TAURI_SIGNING_PRIVATE_KEY`，口令写入
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：
+
+```bash
+gh secret set UPDATER_PUBKEY  # 粘贴打印出来的公钥
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+```
+
+release 流程在 `tauri build` 前把 `UPDATER_PUBKEY` 注入
+`desktop/src-tauri/src/upgrade/mod.rs`，公钥编译进二进制但**不进仓库**：源码里常量恒为空，
+本地构建仍返回 `not_configured`。配置后，release 会额外发布签名更新包、
+`latest.json`（GitHub 资产 URL）与 `latest-gitee.json`（Gitee 资产 URL）。
 Gitee 镜像把后者重命名为 `latest.json`，并上传完全相同的更新包与 `.sig`。未配置密钥时，
 上述 6 个安装包照常发布，应用只提供手动下载入口，绝不安装未验签的包。
 

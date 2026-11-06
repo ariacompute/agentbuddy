@@ -485,6 +485,9 @@ manifest_invalid | signature_failed | busy | unavailable`。界面不得解析�
   `platforms[平台键].{url,signature}`。
 - 两份清单分别写 GitHub / Gitee 自己的资产 URL；Gitee 镜像上传时把 `latest-gitee.json`
   重命名为 `latest.json`，并附完全相同的签名压缩包与 `.sig`。同一公钥、同一签名字节。
+- 验签公钥来自仓库 secret `UPDATER_PUBKEY`：release 构建前由
+  `desktop/scripts/inject-updater-pubkey.mjs` 写入 `src/upgrade/mod.rs` 的 `UPDATER_PUBKEY`
+  后编译进二进制；源码与 `tauri.conf.json` 都不保存公钥，secret 缺失时常量为空。
 - 本轮不扩充发布矩阵：仅 `linux-x86_64` / `darwin-aarch64` / `windows-x86_64`；
   其他平台走 `unsupported_platform` 降级。
 
@@ -492,7 +495,7 @@ manifest_invalid | signature_failed | busy | unavailable`。界面不得解析�
 
 - 两源都不可达 → `network_failed`，状态卡片可重试，不重试风暴、不阻塞窗口。
 - 清单畸形 / 版本不可解析 / 签名缺失 / 资产 URL 落在白名单外 → `manifest_invalid`。
-- 公钥未配置（发布时缺 `TAURI_SIGNING_PRIVATE_KEY`）→ 检查与手动下载照常，安装返回
+- 公钥未配置（缺 secret `UPDATER_PUBKEY`，源码常量为空）→ 检查与手动下载照常，安装返回
   `not_configured`；`latest.json` 无 platforms 键时客户端走「不支持平台」。
 - 并发检查/安装 → `busy`，由 `AtomicBool` 单飞挡住，不会重复下载。
 - 系统通知失败或 `notify_enabled=false` → 只影响提醒，不影响卡片状态；深链一次点击消费一次。

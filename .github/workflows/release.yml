@@ -19,6 +19,9 @@
 # asset URLs) and `latest-gitee.json` (Gitee asset URLs). Gitee mirrors upload
 # the latter renamed to `latest.json`, together with the exact same archives
 # and signatures — one manifest per mirror, never a cross-mirror download.
+# The matching public key comes from the UPDATER_PUBKEY secret and is written
+# into desktop/src-tauri/src/upgrade/mod.rs before `tauri build`, so rustc bakes
+# it into the binary without the key ever being committed.
 
 name: release
 
@@ -100,21 +103,14 @@ jobs:
               desktop/src-tauri/Cargo.toml && rm -f desktop/src-tauri/Cargo.toml.bak
           fi
 
-      - name: Enable signed updater artifacts
+      - name: Configure updater signing
         id: updater
         shell: bash
         env:
-          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          if [ -n "$SIGNING_KEY" ]; then
-            # Only the release build turns this on. A local `make desktop-build`
-            # never needs a signing key, and must keep producing plain bundles.
-            node -e "const fs=require('fs');const p='desktop/src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.bundle=c.bundle||{};c.bundle.createUpdaterArtifacts=true;fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n')"
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No TAURI_SIGNING_PRIVATE_KEY; publishing installers without updater artifacts."
-          fi
+          # Injected into src/upgrade/mod.rs at build time; never committed.
+          UPDATER_PUBKEY: ${{ secrets.UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: node desktop/scripts/inject-updater-pubkey.mjs
 
       - name: Build desktop app
         working-directory: desktop

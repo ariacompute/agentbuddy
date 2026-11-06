@@ -186,12 +186,14 @@ The node lives in the Rust process. The web view only reads its state through
 
 - `deb` + portable tarball (Linux), `dmg` + portable tarball (macOS aarch64),
   `msi` + portable zip (Windows), plus `SHA256SUMS`.
-- With `TAURI_SIGNING_PRIVATE_KEY` configured, a release also carries signed
-  updater archives, `latest.json` (GitHub asset URLs) and `latest-gitee.json`
-  (Gitee asset URLs). Gitee mirrors rename the latter to `latest.json` and upload
-  the very same archives and `.sig` files; each manifest only ever points at its
-  own mirror. Without the signing key, the six original assets are published
-  exactly as before and clients fall back to manual download.
+- With `UPDATER_PUBKEY` and `TAURI_SIGNING_PRIVATE_KEY` set as repository secrets,
+  the public key is injected into `desktop/src-tauri/src/upgrade/mod.rs` before
+  `tauri build` and compiled into the binary (never committed), and the release
+  carries signed updater archives, `latest.json` (GitHub asset URLs) and
+  `latest-gitee.json` (Gitee asset URLs). Gitee mirrors rename the latter to
+  `latest.json` and upload the very same archives and `.sig` files; each manifest
+  only ever points at its own mirror. Without the signing key, the six original
+  assets are published exactly as before and clients fall back to manual download.
 - Building from source on Linux also needs `libdbus-1-dev` and `pkg-config`: the
   session lives in the Secret Service, which is reached over D-Bus. Windows and
   macOS need nothing extra — Credential Manager and Keychain are part of the OS.

@@ -82,14 +82,37 @@ Publishes installers through [`.github/workflows/release.yml`](.github/workflows
 
 ### Signed updates (one-time setup)
 
+`tauri` is a local devDependency (`desktop/node_modules/.bin`), not a global
+command. From the repository root:
+
 ```bash
-tauri signer generate -w ~/.tauri/agentbuddy.key
+cd desktop
+bun install
+mkdir -p ~/.tauri
+bunx tauri signer generate -w ~/.tauri/agentbuddy.key
 ```
 
-Put the public key into `desktop/src-tauri/src/upgrade/mod.rs` (`UPDATER_PUBKEY`)
-and the private key and password into the repository secrets
-`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. With those
-set, a release also publishes signed updater archives, `latest.json` (GitHub
+Enter a password when prompted. The CLI prints the public key and writes
+`~/.tauri/agentbuddy.key` (private) and `~/.tauri/agentbuddy.key.pub`. With a
+Rust-only toolchain, `cargo install tauri-cli --version '^2' --locked` plus
+`cargo tauri signer generate -w ~/.tauri/agentbuddy.key` works as well.
+
+All three values live in repository secrets. Paste the single-line base64 public
+key printed by the generator into `UPDATER_PUBKEY` (not the two-line `.pub`
+file), the private key into `TAURI_SIGNING_PRIVATE_KEY`, and the password into
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`:
+
+```bash
+gh secret set UPDATER_PUBKEY  # paste the printed public key
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+```
+
+The release workflow injects `UPDATER_PUBKEY` into
+`desktop/src-tauri/src/upgrade/mod.rs` before `tauri build`, so the key is
+compiled into the binary but never committed — the constant stays empty in the
+source tree, and local builds keep answering `not_configured`. With the signing
+secrets set, a release also publishes signed updater archives, `latest.json` (GitHub
 asset URLs) and `latest-gitee.json` (Gitee asset URLs). Gitee mirrors rename the
 latter to `latest.json` and upload the same archives and `.sig` files. Without
 the key, the six installers above are published exactly as before and the app

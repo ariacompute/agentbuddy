@@ -174,13 +174,17 @@ desktop/
   版本用 `semver::Version` 比 `crate::VERSION`；`platform_key(OS, ARCH)` 映射到 Tauri 平台键。
   发布矩阵当前只有 `linux-x86_64` / `darwin-aarch64` / `windows-x86_64`，其余平台返回
   `unsupported_platform` 并给手动下载入口，不反复重试。
-- **安装**：`tauri-plugin-updater` 只负责验签、下载、平台化安装与重启。公钥唯一真相是
+- **安装**：`tauri-plugin-updater` 只负责验签、下载、平台化安装与重启。验签公钥落在
   `src/upgrade/mod.rs` 的 `upgrade::UPDATER_PUBKEY`（经 `Builder::pubkey()` 注入），
-  `tauri.conf.json` 的 `plugins.updater.pubkey` 留空；**未配置公钥时「立即升级」返回
-  `not_configured`，绝不安装未验签的包**。生成：`tauri signer generate -w ~/.tauri/agentbuddy.key`，
-  公钥写常量，私钥/口令写 secrets `TAURI_SIGNING_PRIVATE_KEY` /
+  `tauri.conf.json` 的 `plugins.updater.pubkey` 留空。**源码里该常量恒为空、公钥不进仓库**：
+  release 构建前 `desktop/scripts/inject-updater-pubkey.mjs` 读 secret `UPDATER_PUBKEY`
+  写入该常量，编译期进二进制；本地构建无 secret 时不改文件。**未配置公钥时「立即升级」
+  返回 `not_configured`，绝不安装未验签的包**。生成：在 `desktop/` 下先 `bun install`，再
+  `bunx tauri signer generate -w ~/.tauri/agentbuddy.key`（`tauri` 只是本地 devDependency，
+  没有全局命令；Rust 侧可用 `cargo tauri signer generate`）；把终端打印的单行 base64 公钥
+  写 secret `UPDATER_PUBKEY`，私钥/口令写 secrets `TAURI_SIGNING_PRIVATE_KEY` /
   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
-- **发布产物**：`release.yml` 仅在上述 secret 存在时打开 `bundle.createUpdaterArtifacts`
+- **发布产物**：`release.yml` 仅在 `TAURI_SIGNING_PRIVATE_KEY` 存在时打开 `bundle.createUpdaterArtifacts`
   （本地 `make desktop-build` 不受影响），Linux 追加 `appimage`；
   `desktop/scripts/latest-json.mjs collect|manifest` 产出 `latest.json`（GitHub URL）与
   `latest-gitee.json`（Gitee URL）。**Gitee 镜像把后者重命名为 `latest.json`，并上传完全相同的

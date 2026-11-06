@@ -939,7 +939,10 @@ M21 只覆盖了本轮改过状态码的两个端点，但 `DELETE /api/computer
   **本机 Windows 的 Rust 测试二进制仍因 Tauri 原生依赖入口缺失无法启动**
   （`STATUS_ENTRYPOINT_NOT_FOUND`），`cargo test --lib` 只完成编译，纯逻辑用例留给 CI（Linux）实跑。
 - `latest-json.mjs collect|manifest` 用临时样本验证过双源 URL；`release.yml` 经 YAML 解析校验。
-- 待外部配置：生成 minisign 密钥对、把公钥填进 `upgrade::UPDATER_PUBKEY`、私钥写仓库 secrets，
+- 待外部配置（M25 起改为 secret 注入）：生成 minisign 密钥对，公钥写 secret `UPDATER_PUBKEY`
+  （release 构建时由 `desktop/scripts/inject-updater-pubkey.mjs` 写入
+  `src/upgrade/mod.rs` 的常量，源码恒为空），私钥/口令写 secrets
+  `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`；
   Gitee 镜像按清单上传 `latest.json` 与签名资产。未完成时客户端自动降级为手动下载。
 
 ## M24 — 覆盖率收口：四项 100%（2026-11-05）
@@ -988,3 +991,25 @@ M21 只覆盖了本轮改过状态码的两个端点，但 `DELETE /api/computer
   `requirements.md`（第 36 条验收）、三份 `releasenotes` 的基线数字与
   「剩余缺口」表述；M23 的用例数由笔误 749 校正为 748。
 - 桌面 Rust 侧不在本次范围（本机 Windows 测试二进制仍无法启动，纯逻辑用例留 CI 实跑）。
+
+## M25 — 验签公钥改由 secret 注入（2026-11-06）
+
+用户要求公钥不再手工写进源码，改用仓库 secret `UPDATER_PUBKEY`，在 release 编译时写入
+`desktop/src-tauri/src/upgrade/mod.rs`。
+
+- 新增 `desktop/scripts/inject-updater-pubkey.mjs`：读 `UPDATER_PUBKEY`（去空白后校验为
+  单行 base64）与 `TAURI_SIGNING_PRIVATE_KEY`；前者精确替换 `mod.rs` 里的
+  `pub const UPDATER_PUBKEY: &str = "…";`，后者才打开 `tauri.conf.json` 的
+  `bundle.createUpdaterArtifacts`。经 `GITHUB_OUTPUT` 输出 `pubkey` / `enabled`，
+  缺任一 secret 时给 notice/warning 而非让发布失败。源码常量恒为空，公钥不进仓库，
+  本地构建不受影响。
+- `release.yml`：把原 "Enable signed updater artifacts" 的内联 `node -e` 换成
+  "Configure updater signing" step，注入两个 secret 并调用上述脚本；`id: updater`
+  与 `enabled` 输出不变，Linux 追加 `appimage` 的逻辑不受影响。构建步骤仍单独把
+  `TAURI_SIGNING_PRIVATE_KEY` / `_PASSWORD` 传给 `tauri build`。
+- 文档同步：`AGENTS.md`（注入流程与硬约定）、`README.md` / `README_cn.md`
+  （`gh secret set UPDATER_PUBKEY` 操作步骤）、`requirements.md` §7.3/§7.4、
+  M23 的待外部配置条目、三份 `releasenotes`。
+- 验证：`release.yml` 经 YAML 解析校验；注入脚本离线自测 6 个场景全绿——双 secret、
+  幂等重注入、仅公钥、仅私钥、两者皆无、非法 `.pub` 文本必须失败且不动文件、
+  带空白的合法公钥。
