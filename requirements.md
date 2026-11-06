@@ -486,8 +486,10 @@ manifest_invalid | signature_failed | busy | unavailable`。界面不得解析�
 - 两份清单分别写 GitHub / Gitee 自己的资产 URL；Gitee 镜像上传时把 `latest-gitee.json`
   重命名为 `latest.json`，并附完全相同的签名压缩包与 `.sig`。同一公钥、同一签名字节。
 - 验签公钥来自仓库 secret `UPDATER_PUBKEY`：release 构建前由
-  `desktop/scripts/inject-updater-pubkey.mjs` 写入 `src/upgrade/mod.rs` 的 `UPDATER_PUBKEY`
-  后编译进二进制；源码与 `tauri.conf.json` 都不保存公钥，secret 缺失时常量为空。
+  `desktop/scripts/inject-updater-pubkey.mjs` 同时写入 `src/upgrade/mod.rs` 的
+  `UPDATER_PUBKEY`（运行时验签）与 `tauri.conf.json` 的 `plugins.updater.pubkey`
+  （`tauri build` 打包时校验签名私钥配对）；两处在源码里都留空、公钥不进仓库。
+  只写常量而漏掉 config 会让打包报 `Missing comment in public key`。
 - 本轮不扩充发布矩阵：仅 `linux-x86_64` / `darwin-aarch64` / `windows-x86_64`；
   其他平台走 `unsupported_platform` 降级。
 

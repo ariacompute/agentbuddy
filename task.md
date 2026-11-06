@@ -903,8 +903,10 @@ M21 只覆盖了本轮改过状态码的两个端点，但 `DELETE /api/computer
 
 - `Cargo.toml` 加 `tauri-plugin-updater = "2"`（默认 rustls，与代理一致）与 `semver = "1"`；
   `lib.rs` 注册模块并以 `Builder::new().pubkey(upgrade::UPDATER_PUBKEY).build()` 挂插件，
-  **公钥常量是唯一真相**，`tauri.conf.json` 的 `plugins.updater.pubkey` 留空（只满足插件配置
-  反序列化）；`capabilities/default.json` 不动——网页视图拿不到任何 updater 命令。
+  **公钥常量是运行时唯一真相**，`tauri.conf.json` 的 `plugins.updater.pubkey` 留空（M28 更正：
+  仅源码里留空，release 构建时必须一并注入，否则 `tauri build` 报
+  `Missing comment in public key`）；`capabilities/default.json` 不动——网页视图拿不到任何
+  updater 命令。
 - `config.rs` 三个 `#[serde(default)]` 字段；`proxy/mod.rs` 的 `ProxyState` 加
   `Option<Arc<Upgrader>>`，仅真实窗口才构造并启动定时器（无窗口路由器保持静默）；
   `proxy/shell.rs` 加三条 `/__shell/upgrade*` 路由、config 读写两个升级偏好，
@@ -1071,3 +1073,50 @@ Windows 编译期都被检查（CI 报的恰是非 Windows 分支）。
 截断值；明文分支同样要求 secret key 头。README 中英、AGENTS.md、release.yml 头注释
 全部改为「直接用文件内容，不要再 base64」。离线自测覆盖单行 base64 私钥、明文两行、
 公钥误填、二次编码、路径、无密钥、尾随空白与口令 CRLF。
+
+## M28 — 公钥只注入常量、漏掉 tauri.conf.json（2026-11-06）
+
+M27 修好私钥格式后，bundle 阶段又报
+`failed to decode pubkey: failed to convert updater pubkey: Missing comment in public key`。
+
+### 1. 根因
+
+本机 `@tauri-apps/cli-win32-x64-msvc` 二进制里可提取到
+`failed to decode base64 pubkey` / `failed to load updater pubkey` /
+`failed to convert updater pubkey` / `Remember to set plugins > updater > pubkey` /
+`The updater secret key … does not match the public key from plugins > updater > pubkey`。
+tauri-cli `crates/tauri-cli/src/helpers/updater_signature.rs` 的 `pub_key()`：
+
+```rust
+let decoded_publick = decode_key(public_key).context("failed to decode base64 pubkey")?;
+let pk_box = PublicKeyBox::from_string(&decoded_publick).context("failed to load updater pubkey")?;
+let pk = pk_box.into_public_key().context("failed to convert updater pubkey")?;
+```
+
+`createUpdaterArtifacts = true` 时 CLI 读的是 **`tauri.conf.json` 的
+`plugins.updater.pubkey`**：先 base64 解码成两行 minisign public key box 再解析，并与签名
+私钥配对校验；它完全看不到运行时 `Builder::pubkey()` 注入的 Rust 常量。M25/M27 只把 secret
+写进 `src/upgrade/mod.rs`，config 一直是 `""`：解码得空文本 →
+`PublicKeyBox::from_string("")` → `Missing comment in public key`。所以即使私钥与公钥 secret
+都填对，构建仍必挂。`tauri-plugin-updater::verify_signature()` 同样先 `base64_to_string()`
+再 `PublicKey::decode()`，两个消费者要的正好是同一个值，无需转换。
+
+### 2. 修正
+
+- `inject-updater-pubkey.mjs` 把同一个 `UPDATER_PUBKEY` **同时**写入 `mod.rs` 常量与
+  `tauri.conf.json` 的 `plugins.updater.pubkey`（两处在源码里仍恒为空）；有签名私钥却无
+  公钥时直接 `::error::` fail，不再拖到打包阶段；`createUpdaterArtifacts` 仍只在签名时打开。
+- 公钥格式前置校验：单行 base64，解码后必须是两行 public key box（首行
+  `untrusted comment: … public key`、不含 `secret key`，第二行解码为 42 字节），据此拒绝
+  裸 `RW…` 公钥行、明文两行文本、私钥、路径、二次编码值。
+- 文档同步：`release.yml` 头注释、`mod.rs` / `lib.rs` 常量注释、README 中英、两份
+  releasenotes、`requirements.md`；`AGENTS.md` 删掉「`plugins.updater.pubkey` 留空」
+  这条错误约定、补上两处注入与格式约束；M23 历史条目加 M28 纠错指引。
+
+### 3. 验证
+
+- 离线自测在临时目录复刻 `desktop/src-tauri` 结构，40 条断言全绿：双 secret（两处注入、
+  版本号/endpoints 保留、`createUpdaterArtifacts` 打开）、尾随空白、仅公钥、仅私钥失败且
+  不改文件、裸公钥行 / 明文两行 / 二次编码 / 私钥 / 路径 / 乱码均失败、缺
+  `plugins.updater` 失败、无 secret 时两处保持源码空值。
+- `release.yml` 经 YAML 解析；`cargo check --all-targets` 通过、无 warning。

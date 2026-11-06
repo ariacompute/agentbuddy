@@ -46,8 +46,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         // The updater's commands are never exposed to the WebView: it is used
-        // from Rust only, through /__shell/upgrade. The public key is injected
-        // here so there is exactly one place to configure it.
+        // from Rust only, through /__shell/upgrade. The release workflow injects
+        // the same key here (runtime verification) and into tauri.conf.json's
+        // plugins.updater.pubkey (tauri build's signing check).
         .plugin(
             tauri_plugin_updater::Builder::new()
                 .pubkey(upgrade::UPDATER_PUBKEY)

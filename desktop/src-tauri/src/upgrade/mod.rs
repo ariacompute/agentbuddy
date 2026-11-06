@@ -29,12 +29,13 @@ use crate::config::{AppConfig, ConfigStore, SharedConfig};
 
 /// The minisign public key used to verify downloaded update packages.
 ///
-/// It is a *public* key, safe to commit. Generate a pair with
-/// `tauri signer generate -w ~/.tauri/agentbuddy.key`, paste the public half
-/// here, and put the private half in the `TAURI_SIGNING_PRIVATE_KEY` release
-/// secret. While this is empty, checks and manual downloads still work but
-/// "Upgrade now" refuses with `not_configured` rather than installing an
-/// unverified package.
+/// Kept empty in the source tree: the release workflow injects the
+/// `UPDATER_PUBKEY` secret here (and into `tauri.conf.json`'s
+/// `plugins.updater.pubkey`, which `tauri build` uses to check the signing
+/// key) before compiling, so the key never enters git. Generate a pair with
+/// `bunx tauri signer generate -w ~/.tauri/agentbuddy.key`. While this is
+/// empty, checks and manual downloads still work but "Upgrade now" refuses
+/// with `not_configured` rather than installing an unverified package.
 pub const UPDATER_PUBKEY: &str = "";
 
 pub const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);

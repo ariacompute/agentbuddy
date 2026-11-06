@@ -73,9 +73,6 @@ make smoke                          # 两条跨进程冒烟（见下）
 
 ### 签名更新（一次性配置）
 
-`tauri` 是 `desktop/` 的本地 devDependency（`desktop/node_modules/.bin`），**没有全局命令**。
-在仓库根执行：
-
 ```bash
 cd desktop
 bun install
@@ -87,8 +84,7 @@ bunx tauri signer generate -w ~/.tauri/agentbuddy.key
 `~/.tauri/agentbuddy.key.pub`。只有 Rust 工具链时也可 `cargo install tauri-cli --version '^2' --locked`
 后用 `cargo tauri signer generate -w ~/.tauri/agentbuddy.key`。
 
-三个值都放仓库 secrets。两个密钥文件本身就是**单行 base64**，直接取文件内容即可，
-**不要再 `base64 -w0` 二次编码**：
+三个值都放仓库 secrets。两个密钥文件本身就是**单行 base64**，直接取文件内容即可：
 
 ```bash
 gh secret set UPDATER_PUBKEY < ~/.tauri/agentbuddy.key.pub
@@ -96,13 +92,17 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
 
-`tauri-cli` 把该值解码一次后解析 minisign 文本，所以在网页里手工粘贴时带入的尾随空格
-或换行就足以造成 `Invalid padding`；用文件重定向最稳。release 流程也兼容明文两行
-minisign 文件、去掉口令尾部换行，并在值其实是路径 / 公钥 / 二次编码字符串时构建前报错。
+`UPDATER_PUBKEY` 必须是整个 `.key.pub` 文件：解码后是两行 minisign public key box
+（`untrusted comment: … public key` 头 + 公钥行）。只填裸 `RW…` 公钥行、明文两行文本或
+二次编码值，都会在打包前被脚本拦下。`tauri-cli` 对每个值只解码一次，所以在网页里手工
+粘贴时带入的尾随空格或换行就足以造成 `Invalid padding`；用文件重定向最稳。release 流程
+也兼容明文两行 minisign 私钥、去掉口令尾部换行，并在值其实是路径 / 错填的密钥 /
+二次编码字符串时构建前报错。
 
-release 流程在 `tauri build` 前把 `UPDATER_PUBKEY` 注入
-`desktop/src-tauri/src/upgrade/mod.rs`，公钥编译进二进制但**不进仓库**：源码里常量恒为空，
-本地构建仍返回 `not_configured`。配置后，release 会额外发布签名更新包、
+release 流程在 `tauri build` 前把 `UPDATER_PUBKEY` 注入**两处**：
+`desktop/src-tauri/src/upgrade/mod.rs`（编译进二进制，运行时验签）与 `tauri.conf.json` 的
+`plugins.updater.pubkey`（`tauri build` 解码后校验签名私钥是否配对）。两处在源码里都恒为空、
+公钥**不进仓库**，本地构建仍返回 `not_configured`。配置后，release 会额外发布签名更新包、
 `latest.json`（GitHub 资产 URL）与 `latest-gitee.json`（Gitee 资产 URL）。
 Gitee 镜像把后者重命名为 `latest.json`，并上传完全相同的更新包与 `.sig`。未配置密钥时，
 上述 6 个安装包照常发布，应用只提供手动下载入口，绝不安装未验签的包。
@@ -130,12 +130,13 @@ Gitee 镜像把后者重命名为 `latest.json`，并上传完全相同的更新
 | 形态 | Tauri v2 桌面 + Vue 3 工作台 | Web+移动模板 | RN/Expo/Web 应用 | Electron 桌面 | 自托管单进程 | Agent 协作 OS | 云端 AI Office（SaaS） |
 | 后端 | agenthub（可自托管）| CopilotKit runtime | CopilotKit runtime | 本地 Agent CLI | Octop Harness | Network SDK（可自托管） | 闭源云端 |
 | 多 Agent | 角色经 `persona`（F10） | 专用 Dots | 单一个人 Agent | 多个持久 Agent | 专家团队 + AgentTeams | 任意 Agent 同一工作区 | 用户自建 AI 劳动力 |
-| 计算机使用 | mock 适配器 `TODO(real)`（F11） | OpenBot 容器 | Playwright 浏览器 | Computer Use（cua） | Browser AI+ / 远程桌面 | 共享浏览器 | 未公开 |
+| 计算机使用 | 租约沙盒：docker（默认）、gVisor、Kata、bubblewrap、托管运行时或登记的节点（F17） | OpenBot 容器 | Playwright 浏览器 | Computer Use（cua） | Browser AI+ / 远程桌面 | 共享浏览器 | 未公开 |
 | 人机协同 | HITL 挂起/恢复（F4） | Approve & save/run | 发送前审查 | 全权限（预览期） | 工具审批 + PII 脱敏 | @提及 / 自主认领 | 人类 + Agent 协作 |
 | 调度 | 触发路由器：cron / 会话 / 渠道 / 手动 → 规则 → 批量语义判定 → 工单 → 执行者（F13） | 后台回合 | 目标与监控 | Webhook 例程 | 自然语言 Cron | 频道认领 | 智能排程 |
 | 技能 / 知识库 | `kind=skill` + mock RAG（F14） | 自动学习 | — | 本地技能 | Company Brain | — | Company Brain |
 | 通道 | Slack / Teams / Telegram / SMS（F6） | Slack | Gmail / Calendar | 桌面 / 移动 | IM 全渠道 | 工作区线程 | 聊天 + 语音舱 |
 | 语音 | 录音 → 转写 → 委派（F8） | WebRTC 通话 | — | 移动端 WebRTC | — | — | 语音 / 视频舱 |
+| 执行隔离 | 服务端租约；本桌面也可作为节点（BYOM） | — | — | — | — | — | — |
 | 自托管 | 是（桌面 + agenthub） | Docker | Docker / Render | 本地 / 服务器 | 单进程 | 自托管网络 | 否（SaaS） |
 
 ## 许可证

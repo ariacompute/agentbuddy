@@ -174,21 +174,25 @@ desktop/
   版本用 `semver::Version` 比 `crate::VERSION`；`platform_key(OS, ARCH)` 映射到 Tauri 平台键。
   发布矩阵当前只有 `linux-x86_64` / `darwin-aarch64` / `windows-x86_64`，其余平台返回
   `unsupported_platform` 并给手动下载入口，不反复重试。
-- **安装**：`tauri-plugin-updater` 只负责验签、下载、平台化安装与重启。验签公钥落在
-  `src/upgrade/mod.rs` 的 `upgrade::UPDATER_PUBKEY`（经 `Builder::pubkey()` 注入），
-  `tauri.conf.json` 的 `plugins.updater.pubkey` 留空。**源码里该常量恒为空、公钥不进仓库**：
-  release 构建前 `desktop/scripts/inject-updater-pubkey.mjs` 读 secret `UPDATER_PUBKEY`
-  写入该常量，编译期进二进制；本地构建无 secret 时不改文件。**未配置公钥时「立即升级」
-  返回 `not_configured`，绝不安装未验签的包**。生成：在 `desktop/` 下先 `bun install`，再
+- **安装**：`tauri-plugin-updater` 只负责验签、下载、平台化安装与重启。**同一个公钥必须到两处**：
+  `src/upgrade/mod.rs` 的 `upgrade::UPDATER_PUBKEY`（运行时经 `Builder::pubkey()` 验签），以及
+  `tauri.conf.json` 的 `plugins.updater.pubkey`（`tauri build` 打包时用它校验签名私钥是否配对）。
+  CLI 的 `pub_key()` 对该值 `base64 解码 → UTF-8 → PublicKeyBox::from_string`，留空或只填裸
+  `RW…` 公钥行会报 `failed to convert updater pubkey: Missing comment in public key`；即便运行时
+  常量已注入也照样失败。**两处在源码里都恒为空、公钥不进仓库**：release 构建前
+  `desktop/scripts/inject-updater-pubkey.mjs` 读 secret `UPDATER_PUBKEY` 同时写入两处，本地构建
+  无 secret 时不改文件。**未配置公钥时「立即升级」返回 `not_configured`，绝不安装未验签的包**。
+  生成：在 `desktop/` 下先 `bun install`，再
   `bunx tauri signer generate -w ~/.tauri/agentbuddy.key`（`tauri` 只是本地 devDependency，
-  没有全局命令；Rust 侧可用 `cargo tauri signer generate`）；把终端打印的单行 base64 公钥
-  写 secret `UPDATER_PUBKEY`，私钥/口令写 secrets `TAURI_SIGNING_PRIVATE_KEY` /
-  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
+  没有全局命令；Rust 侧可用 `cargo tauri signer generate`）；两个密钥 secret 与口令必须一起配，
+  缺 `UPDATER_PUBKEY` 时脚本直接 fail，不再让打包拖到几分钟后才报错。
 - **密钥格式**：`~/.tauri/agentbuddy.key`（私钥）与 `.key.pub`（公钥）本身就是
   **单行 base64**（解码后才是两行 minisign 文本），secret 直接取文件内容：
   `gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key`、
   `gh secret set UPDATER_PUBKEY < ~/.tauri/agentbuddy.key.pub`；**不要再 `base64 -w0`
-  二次编码**。tauri-cli 把该值解码一次后交给 `SecretKeyBox::from_string`，网页粘贴带入的
+  二次编码**。公钥解码后必须是完整的两行 public key box（首行
+  `untrusted comment: … public key`，第二行解码为 42 字节），`inject-updater-pubkey.mjs` 会在
+  写文件前这样校验；私钥由 tauri-cli 解码一次后交给 `SecretKeyBox::from_string`，网页粘贴带入的
   尾随空格/换行足以造成 `Invalid padding`。`prepare-updater-secrets.mjs` 兼容明文两行文件、
   拒绝路径 / 公钥 / 二次编码值、去掉口令 CR/LF，规范化后经 `GITHUB_ENV` 交给构建步骤
   （故 build step 不再设同名 step env）。

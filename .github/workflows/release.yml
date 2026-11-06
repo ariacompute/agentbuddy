@@ -20,12 +20,16 @@
 # the latter renamed to `latest.json`, together with the exact same archives
 # and signatures — one manifest per mirror, never a cross-mirror download.
 # The matching public key comes from the UPDATER_PUBKEY secret and is written
-# into desktop/src-tauri/src/upgrade/mod.rs before `tauri build`, so rustc bakes
-# it into the binary without the key ever being committed.
+# into BOTH desktop/src-tauri/src/upgrade/mod.rs (runtime verification) and
+# tauri.conf.json's plugins.updater.pubkey (tauri build's signing check) before
+# `tauri build`; neither file holds a key in git. tauri-cli base64-decodes the
+# config value into a two-line minisign public key box and matches it against
+# the signing key, so leaving that field empty fails with
+# "Missing comment in public key".
 # TAURI_SIGNING_PRIVATE_KEY / UPDATER_PUBKEY hold the single-line base64 key
-# contents verbatim (do NOT base64 them again). The signing step normalises
-# stray whitespace, accepts a plain minisign file, and fails early with a hint
-# instead of surfacing "Invalid padding" four minutes into bundling.
+# contents verbatim (do NOT base64 them again). The configure step validates
+# both formats and fails early with a hint instead of surfacing "Invalid
+# padding" or "Missing comment in public key" minutes into bundling.
 
 name: release
 

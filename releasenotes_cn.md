@@ -140,8 +140,9 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
 - `deb` + 便携 tarball（Linux）、`dmg` + 便携 tarball（macOS aarch64）、`msi` + 便携 zip
   （Windows），并附 `SHA256SUMS`。
 - 配置仓库 secrets `UPDATER_PUBKEY` 与 `TAURI_SIGNING_PRIVATE_KEY` 后，release 会在
-  `tauri build` 前把公钥注入 `desktop/src-tauri/src/upgrade/mod.rs` 并编译进二进制
-  （公钥不进仓库），同时额外附带签名更新包、`latest.json`（GitHub 资产 URL）与
+  `tauri build` 前把公钥注入两处：`desktop/src-tauri/src/upgrade/mod.rs`（编译进二进制，
+  运行时验签）与 `tauri.conf.json` 的 `plugins.updater.pubkey`（打包时校验签名私钥），
+  公钥不进仓库；同时额外附带签名更新包、`latest.json`（GitHub 资产 URL）与
   `latest-gitee.json`（Gitee 资产 URL）。Gitee 镜像把后者重命名为 `latest.json`，并上传
   完全相同的更新包与 `.sig`；每份清单只指向自己那一源。未配置密钥时仍按原样发布 6 个资产，
   客户端自动降级为手动下载。

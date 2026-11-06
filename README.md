@@ -82,9 +82,6 @@ Publishes installers through [`.github/workflows/release.yml`](.github/workflows
 
 ### Signed updates (one-time setup)
 
-`tauri` is a local devDependency (`desktop/node_modules/.bin`), not a global
-command. From the repository root:
-
 ```bash
 cd desktop
 bun install
@@ -98,8 +95,7 @@ Rust-only toolchain, `cargo install tauri-cli --version '^2' --locked` plus
 `cargo tauri signer generate -w ~/.tauri/agentbuddy.key` works as well.
 
 All three values live in repository secrets. Both key files are already
-single-line base64 — use their contents verbatim; **do not** run `base64 -w0`
-on them, that would double-encode the value:
+single-line base64 — use their contents verbatim:
 
 ```bash
 gh secret set UPDATER_PUBKEY < ~/.tauri/agentbuddy.key.pub
@@ -107,20 +103,24 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
 
-`tauri-cli` decodes the value once and parses the resulting minisign text, so a
+`UPDATER_PUBKEY` must be the whole `.key.pub` file: decoding it yields a
+two-line minisign public key box (`untrusted comment: … public key` plus the
+key line). A bare `RW…` key line, the plain two-line text or a double-encoded
+value is rejected before bundling. `tauri-cli` decodes each value once, so a
 trailing space or newline introduced by pasting into the web UI is enough to
-cause `Invalid padding`; redirecting the file avoids that. The workflow also
-accepts a plain two-line minisign file, strips trailing newlines from the
-password, and fails early if the value is a path, a public key or a
-double-encoded string.
+cause `Invalid padding`; redirecting the file avoids that. The workflow accepts
+a plain two-line minisign private key, strips trailing newlines from the
+password, and fails early if a value is a path, the wrong key or double-encoded.
 
-The release workflow injects `UPDATER_PUBKEY` into
-`desktop/src-tauri/src/upgrade/mod.rs` before `tauri build`, so the key is
-compiled into the binary but never committed — the constant stays empty in the
-source tree, and local builds keep answering `not_configured`. With the signing
-secrets set, a release also publishes signed updater archives, `latest.json` (GitHub
-asset URLs) and `latest-gitee.json` (Gitee asset URLs). Gitee mirrors rename the
-latter to `latest.json` and upload the same archives and `.sig` files. Without
+The release workflow injects `UPDATER_PUBKEY` into **two** places before
+`tauri build`: `desktop/src-tauri/src/upgrade/mod.rs` (compiled into the binary
+for runtime verification) and `tauri.conf.json`'s `plugins.updater.pubkey`
+(which `tauri build` decodes and matches against the signing key). Both stay
+empty in git — the key is never committed, and local builds keep answering
+`not_configured`. With the signing secrets set, a release also publishes signed updater archives,
+`latest.json` (GitHub asset URLs) and `latest-gitee.json` (Gitee asset URLs).
+Gitee mirrors rename the latter to `latest.json` and upload the same archives
+and `.sig` files. Without
 the key, the six installers above are published exactly as before and the app
 falls back to a manual download link instead of installing an unverified package.
 

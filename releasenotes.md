@@ -187,9 +187,11 @@ The node lives in the Rust process. The web view only reads its state through
 - `deb` + portable tarball (Linux), `dmg` + portable tarball (macOS aarch64),
   `msi` + portable zip (Windows), plus `SHA256SUMS`.
 - With `UPDATER_PUBKEY` and `TAURI_SIGNING_PRIVATE_KEY` set as repository secrets,
-  the public key is injected into `desktop/src-tauri/src/upgrade/mod.rs` before
-  `tauri build` and compiled into the binary (never committed), and the release
-  carries signed updater archives, `latest.json` (GitHub asset URLs) and
+  the public key is injected before `tauri build` into both
+  `desktop/src-tauri/src/upgrade/mod.rs` (compiled into the binary, never
+  committed) and `tauri.conf.json`'s `plugins.updater.pubkey` (build-time
+  signing check), and the release carries signed updater archives,
+  `latest.json` (GitHub asset URLs) and
   `latest-gitee.json` (Gitee asset URLs). Gitee mirrors rename the latter to
   `latest.json` and upload the very same archives and `.sig` files; each manifest
   only ever points at its own mirror. Without the signing key, the six original
