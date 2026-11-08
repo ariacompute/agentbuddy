@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=agentbuddy
-Comment=Unified agent workbench desktop client
-Exec=/usr/bin/agentbuddy
-Icon=agentbuddy
-Terminal=false
-Categories=Development;Utility;

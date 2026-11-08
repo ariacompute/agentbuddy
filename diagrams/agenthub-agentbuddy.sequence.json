@@ -9,8 +9,8 @@
   },
   "participants": [
     { "id": "user", "type": "external", "label": "用户", "sublabel": "桌面工作台" },
-    { "id": "workbench", "type": "frontend", "label": "Avalonia 工作台", "sublabel": "HttpClient" },
-    { "id": "proxy", "type": "security", "label": "环回网关", "sublabel": "四前缀转发" },
+    { "id": "workbench", "type": "frontend", "label": "Vue 3 工作台", "sublabel": "同源 fetch" },
+    { "id": "proxy", "type": "security", "label": "环回代理", "sublabel": "四前缀转发" },
     { "id": "a2a", "type": "backend", "label": "POST /a2a", "sublabel": "JSON-RPC 2.0" },
     { "id": "hub", "type": "backend", "label": "Hub 状态机", "sublabel": "任务推进" },
     { "id": "broker", "type": "messagebus", "label": "SSE Broker", "sublabel": "events 表回放" },
@@ -24,7 +24,7 @@
   ],
   "messages": [
     { "id": "delegate", "from": "user", "to": "workbench", "y": 160, "label": "发起委派", "variant": "emphasis" },
-    { "id": "same-origin", "from": "workbench", "to": "proxy", "y": 195, "label": "HttpClient 请求" },
+    { "id": "same-origin", "from": "workbench", "to": "proxy", "y": 195, "label": "同源 fetch" },
     { "id": "send", "from": "proxy", "to": "a2a", "y": 230, "label": "message/send", "variant": "emphasis" },
     { "id": "accept", "from": "a2a", "to": "hub", "y": 265, "label": "submitted" },
     { "id": "working", "from": "hub", "to": "broker", "y": 300, "label": "working + artifact 帧", "variant": "dashed" },
@@ -66,9 +66,9 @@
     },
     {
       "dot": "slate",
-      "title": "本机通信",
+      "title": "同源通信",
       "items": [
-        "工作台用 HttpClient 只与 127.0.0.1 上的环回网关通信",
+        "工作台只与 127.0.0.1 上的环回代理同源通信",
         "会话保存在 HttpOnly Cookie 中，由代理复用",
         "任务主体、artifact、span 与事件帧同步或尽力而为地落库"
       ]

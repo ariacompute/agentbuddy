@@ -1,10 +1,6 @@
 # task.md — agentbuddy 实施记录
 
 > 每完成一项打 `[x]` 并记录落点文件。与 `requirements.md`（契约）、`README.md`（手册）同步维护。
->
-> **当前实现见文末 M30（.NET 10 / Avalonia 全量迁移）。M0–M29 是历史记录，其中出现的
-> Tauri / Rust / bun / Vue / Vite / Vitest、`web/`、`src-tauri/` 与 `make web-*` 等路径和命令
-> 均已失效，仅用于回溯决策，不代表现况。**
 
 ## M0 — 仓库骨架与工程规范
 
@@ -1181,75 +1177,3 @@ v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的
   `STATUS_ENTRYPOINT_NOT_FOUND` 无法启动，纯逻辑用例留 CI/Linux 实跑）；
   web 全量 32 spec / 785 用例通过，`test:coverage` 语句/行/分支/函数四项均 **100%**
   （新 spec 不 import `web/src`，不影响基线）。
-
-## M30 — Avalonia 全量迁移：网页前端与 Rust 外壳整体替换（2026-11-08）
-
-> 本里程碑把 M0–M29 的实现整体换栈；以下旧里程碑保留为历史记录，其路径与命令**不再适用**。
-
-### 1. 目标与决策
-
-- 用户要求：桌面外壳整体换成全新原生实现，15 屏工作台全部重写，原网页前端及其测试资产删除；
-  连接鉴权、实时事件、文件与语音、托盘与通知、可选执行节点、自动更新等价保留；
-  三平台安装包/便携包、更新签名、CI、构建命令与全部工程文档同步迁移；agenthub 零改动。
-- 技术栈：.NET 10 LTS + C# + Avalonia 11（XAML / Skia）、CommunityToolkit.Mvvm、
-  进程内 ASP.NET Core / Kestrel 最小 API 环回网关、xUnit + Avalonia.Headless。
-- 关键取舍：**保留环回网关但以 C# 重写**。「直连」指 UI 用原生 `HttpClient` 打请求、
-  不再有 WebView / JS 注入；网关仍承载一次性 nonce 换 `ab_proxy` HttpOnly Cookie、
-  Origin 先于鉴权拒绝、`Set-Cookie`/`Location` 改写、上游会话凭据回种、SSE 真流式，
-  以及「服务端新增 `/api/*` 无需改桌面端」的前缀白名单契约。代价仅一次 loopback 跳转。
-- 随 WebView 消失且不算回退：逐响应 CSP nonce、SPA 回退 `index.html`、主题预绘制脚本、
-  版本戳 / `window.__SHELL__` 注入、`shell.html` 连接页与关于页（改由原生窗口承担）、
-  `web/dist` 内嵌。
-- 发布契约不重造：`latest.json` 双源格式、`signatures` 覆盖 6 个下载、
-  Gitee 把 `latest-gitee.json` 改名 `latest.json`、`SHA256SUMS`、恰好 9 个 assets。
-  客户端自行实现 minisign 兼容 Ed25519 验签与平台化安装重启。
-
-### 2. 实施阶段
-
-1. **契约冻结**：`Core/Contracts/Endpoints.cs`（约 80 端点 + 12 条 `/__shell/*` + 8 个 SSE 事件名）、
-   `Codes.cs`（74 错误码 + 13 升级码 + Limits）、`ReleaseContract.cs`（9 assets + MSI UpgradeCode）、
-   `ShellConfig.cs`（config.json 唯一 schema）。`I18n/copy.json` 13 语 61 键，en 浅合并兜底。
-2. **骨架与领域层**：`desktop/agentbuddy.sln` + `global.json` + 中央包版本；
-   `AgentHubClient`（普通请求 / SSE / 上传进度 / 流式下载 / 语音 multipart）、`SseParser`、
-   `ConfigService`、`LocalizationService`、`MonitorService`、`NotificationDecider`。
-3. **网关**：`LoopbackGateway` 绑 `127.0.0.1:0`；`BootstrapAuth`（256 位 token + 一次性 nonce、
-   Cookie / Bearer、Origin 先于鉴权）；`ForwardHandler`（逐跳头过滤、Cookie/Location 改写、
-   SSE 不缓冲、仅 10s 连接超时、32MiB 上限）；`ShellRoutes`（全部 `/__shell/*`）。
-4. **外壳服务**：`Credentials`（Win Credential Manager / macOS Keychain / Linux Secret Service /
-   0600 文件回退）、`Executor`（默认关闭、精确白名单、argv 直 exec、Unix 负 pgid 收尸、
-   Windows 诚实降级）、`Notifications + DeepLinkQueue`、`TrayService`、
-   `Upgrade`（SourceRace / SemverComparer / MinisignVerifier / PlatformUpgradeInstaller）。
-5. **界面层**：17 个 `.axaml`（15 屏 + Connect + About）、17 个 ViewModel、
-   `NavigationService`（17 路由 + 登录守卫 + 数字 id 传给详情屏）、`ShellViewModel`、
-   显式 `ViewLocator`、6 个共享控件（页头 / 顶栏 / 侧栏 / 文件传输 / 语音 / 任务动作）、
-   Dark 基准 + Light 覆盖主题字典、RTL 与 `ReducedMotionService`。
-   新增 `RealtimeService` 订阅四路 SSE，按事件名分类、记录 `since` 游标、有界环形缓冲，
-   以 1s 节流触发增量刷新，避免事件突发造成 N+1 请求。
-6. **构建发布**：`tools/AgentBuddy.Build`（ab-tool）子命令
-   `icons / stamp / inject-pubkey / sign / wix / manifest / verify`，替换 5 个 mjs 脚本；
-   WiX v4 作者文件由 `ab-tool wix` 从 publish 输出确定性生成。
-   `release.yml` 三平台 `dotnet publish -r <rid> --self-contained true` +
-   WiX v4 / `dpkg-deb` / `hdiutil` + 便携包；`ci.yml` 合并为单 dotnet job
-   （setup-dotnet / build -warnaserror / test + Cobertura / 覆盖率与日志 artifact）；
-   `Makefile` 全量改 dotnet-*；`.gitignore` 换为 .NET 产物。
-7. **清理**：删除 `web/`、`desktop/src-tauri/`、`desktop/frontend-stub/`、`desktop/scripts/`、
-   `desktop/package.json`、`desktop/bun.lock` 与两个 `node_modules` 缓存。
-   同步 `AGENTS.md`（重写）、`README.md` / `README_cn.md`、`requirements.md`、
-   `releasenotes*.md`、`docs/index.html`、`docs/diagrams/*.html`、`diagrams/*.json`。
-
-### 3. 验证
-
-- `dotnet build agentbuddy.sln -warnaserror`：**0 警告 0 错误**
-  （并把 Avalonia 传递依赖 `Tmds.DBus.Protocol` 从 0.21.2 覆盖到 0.21.3，消掉 NU1903）。
-- `dotnet test agentbuddy.sln`：**91 条全绿**，四个项目各自包含正常 + 异常双路径；
-  `GatewaySmokeTests` 用真实 Kestrel + 上游 socket 跑真流式 SSE。
-- `dotnet test --collect:"XPlat Code Coverage"` 产出 Cobertura；静态守卫覆盖
-  13 语键集与英文兜底、单色 XAML、模板无硬编码自然语言、冻结端点常量全部可达
-  （白名单为空）、共享控件复用、主题字典成对、构建/发布只用 .NET、恰好 9 个 assets。
-- `dotnet publish -c Release -r win-x64 --self-contained true` 本机成功；
-  用真实 369 文件 publish 输出 `ab-tool wix` 生成作者文件，安装 WiX 4.0.6 后
-  `wix build` 真实产出 54MB MSI。
-- 端到端冒烟：一次性 minisign 密钥 → `ab-tool sign` 签 6 个下载 → `ab-tool manifest`
-  出 `latest.json` / `latest-gitee.json`（各 6 项签名）→ `sha256sum` →
-  `ab-tool verify` 断言恰好 9 个文件并全绿。
-- agenthub 零改动。

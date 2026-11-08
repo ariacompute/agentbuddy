@@ -5267,11 +5267,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         </g>
 
-        <g data-edge-from="workbench" data-edge-to="proxy" data-edge-label="HttpClient" data-edge-key="1" data-edge-id="same-origin">
+        <g data-edge-from="workbench" data-edge-to="proxy" data-edge-label="同源 fetch" data-edge-key="1" data-edge-id="same-origin">
           <path data-composition-edge-from="workbench" data-composition-edge-to="proxy" data-composition-edge-id="same-origin" data-composition-points="235.33333333333331,195;342.66666666666663,195" d="M 235.33333333333331 195 L 342.66666666666663 195" class="a-default" data-animate="edge" style="--step:1" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
           <rect x="250" y="175" width="78" height="18" rx="3" class="c-mask"/>
-          <text x="289" y="185" class="t-muted" font-size="11" text-anchor="middle">HttpClient</text>
+          <text x="289" y="185" class="t-muted" font-size="11" text-anchor="middle">同源 fetch</text>
         </g>
         </g>
 
@@ -5402,8 +5402,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="107" y="122" class="t-muted" font-size="7" text-anchor="middle">桌面工作台</text>
         </g>
 
-        <g id="node-workbench" data-node-id="workbench" data-node-label="Avalonia 工作台" tabindex="0" role="button" aria-label="聚焦Avalonia 工作台，HttpClient, 时序参与者" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="HttpClient" data-node-context="时序参与者">
-          <title>Avalonia 工作台 · HttpClient · 时序参与者</title>
+        <g id="node-workbench" data-node-id="workbench" data-node-label="Vue 3 工作台" tabindex="0" role="button" aria-label="聚焦Vue 3 工作台，同源 fetch, 时序参与者" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="同源 fetch" data-node-context="时序参与者">
+          <title>Vue 3 工作台 · 同源 fetch · 时序参与者</title>
           <rect x="183.33333333333331" y="72" width="90" height="60" rx="6" class="c-mask"/>
           <rect x="183.33333333333331" y="72" width="90" height="60" rx="6" class="c-frontend" data-animate="node" style="--step:1" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(189.33333333333331 78) scale(0.6875)">
@@ -5412,19 +5412,19 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="228.33333333333331" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Avalonia 工作台</text>
-          <text data-detail="context" x="228.33333333333331" y="122" class="t-muted" font-size="7" text-anchor="middle">HttpClient</text>
+          <text data-node-label="" data-detail-anchor="" x="228.33333333333331" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Vue 3 工作台</text>
+          <text data-detail="context" x="228.33333333333331" y="122" class="t-muted" font-size="7" text-anchor="middle">同源 fetch</text>
         </g>
 
-        <g id="node-proxy" data-node-id="proxy" data-node-label="环回网关" tabindex="0" role="button" aria-label="聚焦环回网关，四前缀转发, 时序参与者" aria-pressed="false" data-node-kind="security" data-node-sublabel="四前缀转发" data-node-context="时序参与者">
-          <title>环回网关 · 四前缀转发 · 时序参与者</title>
+        <g id="node-proxy" data-node-id="proxy" data-node-label="环回代理" tabindex="0" role="button" aria-label="聚焦环回代理，四前缀转发, 时序参与者" aria-pressed="false" data-node-kind="security" data-node-sublabel="四前缀转发" data-node-context="时序参与者">
+          <title>环回代理 · 四前缀转发 · 时序参与者</title>
           <rect x="304.66666666666663" y="72" width="90" height="60" rx="6" class="c-mask"/>
           <rect x="304.66666666666663" y="72" width="90" height="60" rx="6" class="c-security" data-animate="node" style="--step:2" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(310.66666666666663 78) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="349.66666666666663" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">环回网关</text>
+          <text data-node-label="" data-detail-anchor="" x="349.66666666666663" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">环回代理</text>
           <text data-detail="context" x="349.66666666666663" y="122" class="t-muted" font-size="7" text-anchor="middle">四前缀转发</text>
         </g>
 
@@ -5704,11 +5704,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="card">
         <div class="card-header">
           <div class="card-dot slate"></div>
-          <h3>本机通信</h3>
+          <h3>同源通信</h3>
         </div>
         <ul>
-          <li>工作台只与 127.0.0.1 上的环回网关本机通信</li>
-          <li>会话保存在 HttpOnly Cookie 中，由网关复用</li>
+          <li>工作台只与 127.0.0.1 上的环回代理同源通信</li>
+          <li>会话保存在 HttpOnly Cookie 中，由代理复用</li>
           <li>任务主体、artifact、span 与事件帧同步或尽力而为地落库</li>
         </ul>
       </div>

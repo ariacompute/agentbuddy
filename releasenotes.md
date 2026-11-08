@@ -1,48 +1,44 @@
 # agentbuddy Release Notes
 
-agentbuddy is the **.NET 10 / Avalonia native** desktop client for agenthub. It
-opens the agenthub workbench — Workspace, Threads, Tasks, Org, Channels,
-Connectors, Computers, Schedules, Persona, Knowledge, Files and Settings —
-against whichever server the user points it at, over an in-process loopback
-gateway that forwards `/api`, `/a2a`, `/healthz` and `/.well-known`.
+agentbuddy is the Tauri v2 desktop client for agenthub. It opens the agenthub
+workbench — Workspace, Threads, Tasks, Org, Channels, Connectors, Computers,
+Schedules, Persona and Settings — against whichever server the user points it at,
+over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known`.
 
 ## 1. Platform Overview
 
-- **Native client, not a server**: agentbuddy owns no backend, no database and no
-  WebView. The XAML UI talks to an in-process Kestrel loopback gateway with
-  `HttpClient`, reusing agenthub's authentication, A2A orchestration, registry
-  and task state machine.
-- **Loopback gateway**: bound to `127.0.0.1:0`, it forwards only the prefixes
-  `/api`, `/a2a`, `/healthz` and `/.well-known` to the configured agenthub server.
-  Other paths are the `/__shell/*` local control plane (or a plain 404) — there
-  is no SPA fallback and no embedded `index.html`. Adding a new `/api/*` endpoint
-  on the server needs no desktop code change.
+- **Desktop client, not a server**: agentbuddy owns no backend and no database.
+  It is a Tauri v2 shell (Rust) around the agenthub web workbench, reusing
+  agenthub's authentication, A2A orchestration, registry and task state machine.
+- **Loopback proxy**: a Rust axum proxy bound to `127.0.0.1:0` forwards only the
+  prefixes `/api`, `/a2a`, `/healthz` and `/.well-known` to the user-configured
+  agenthub server; every other path falls back to the embedded SPA `index.html`.
+  Adding a new `/api/*` endpoint on the server needs no desktop code change.
 - **13 languages**: en / zh / zh-TW / es / fr / de / it / ru / ja / ko / pt / ar /
-  hi; one `copy.json` resource with English shallow-merge fallback, shared by
-  the views and the tray menu. Arabic sets `FlowDirection=RightToLeft`.
-- **Pure monochrome UI**: every surface is pure greyscale, enforced by the
-  `AgentBuddy.Guards` static XAML scan; control templates only reference
-  `DynamicResource Brush.*` keys.
+  hi; the shell's own copy is kept in sync with the workbench language set.
+- **Pure monochrome UI**: every surface is pure greyscale (hex channels equal, no
+  hue words), enforced by a Vitest style guard.
 
 ## 2. Desktop Shell
 
 - **Tray & quit**: a tray icon with Open / Settings / About / Quit; Quit really
   exits the process.
-- **System notifications**: delivered through the platform's native channel
-  (Windows toast / macOS notification centre / Linux D-Bus), enabled by default.
-  The workbench sends an in-app path with each one (`{"title","body","link"}`);
-  the shell parks it in `DeepLinkQueue`, and a toast click restores the window and
-  hands the path to `NavigationService`. Only a single leading slash is accepted
-  (`//host`, `javascript:`, backslashes and control characters are refused),
-  and a click consumes the entry exactly once.
+- **System notifications**: delivered via `tauri-plugin-notification`; enabled by
+  default on first run. The workbench sends an in-app path with each one
+  (`{"title","body","link"}`), and clicking the toast actually navigates there: the
+  shell parks the path, and on a body click (`tap`) restores the window and assigns
+  `window.location.hash`, which is a real route change for the hash-based workbench.
+  Only same-origin paths are accepted (`//host`, `javascript:` and control
+  characters are refused), the value is JSON-encoded before it reaches `eval`, and
+  a click consumes it once.
 - **Auto-update**: at startup and then once every 24 hours the shell probes both
   `github.com/ariacompute/agentbuddy` and `gitee.com/ariacompute/agentbuddy` in
   parallel, using whichever mirror answers fastest — no IP or location lookup, and
   a failed mirror falls back to the other. Semver comparison plus OS/architecture
   matching pick the signed package for this machine. A newer release raises a
   system notification (clicking it opens Settings) and shows a settings card, a
-  sidebar banner and an About-page status. "Upgrade now" lets `UpgradeService`
-  verify the minisign-compatible Ed25519 signature, install and restart;
+  sidebar banner and an About-page status. "Upgrade now" lets
+  `tauri-plugin-updater` verify the minisign signature, install and restart;
   automatic checks can be switched off and a version skipped. Platforms without a
   published package get a manual-download link instead of a retry loop.
 - **Session persistence**: the agenthub session cookie is persisted across app
@@ -59,17 +55,18 @@ gateway that forwards `/api`, `/a2a`, `/healthz` and `/.well-known`.
   the machine, so the port is no longer enough on its own. Each launch mints a
   256-bit token and a single-use bootstrap nonce; the window opens
   `/__shell/bootstrap?nonce=…`, receives
-  `ab_proxy=<token>; HttpOnly; SameSite=Strict` and is redirected to `/`.   Every
-  other route — `/api`, `/a2a`, `/__shell/*` — requires that
+  `ab_proxy=<token>; HttpOnly; SameSite=Strict` and is redirected to `/`. Every
+  other route — `/api`, `/a2a`, `/__shell/*`, the static bundle — requires that
   cookie, or `Authorization: Bearer` for a native client, and a request whose
   `Origin` names another site is refused before the cookie is inspected. The
-  token never enters UI code and is stripped from anything forwarded upstream.
-  A wrong guess at the nonce does not spend it: guessing 256 bits is hopeless,
-  while clearing it would let any local process deny the window its one startup.
-- **No HTML is served**: with no WebView there is no per-response CSP nonce, no
-  first-paint theme script and no version-stamp injection. The connection and
-  About pages are native Avalonia windows; the theme is set via
-  `RequestedThemeVariant` and the version stamp is a ViewModel binding.
+  token never enters JavaScript (so an injected script cannot read it) and is
+  stripped from anything forwarded upstream. A wrong guess at the nonce does not
+  spend it: guessing 256 bits is hopeless, while clearing it would let any local
+  process deny the window its one startup.
+- **Content security policy**: the window opens a plain loopback origin, so the
+  CSP in `tauri.conf.json` never reaches those responses — the proxy sends its
+  own, `script-src 'self'` plus a fresh nonce per response, which is why the
+  first-paint theme script lives in `web/public/theme-init.js` instead of inline.
   Policies the server chose are forwarded untouched: only hop-by-hop headers are
   dropped, so upstream `Content-Security-Policy`, `Strict-Transport-Security` and
   `X-Frame-Options` survive.
@@ -82,9 +79,8 @@ gateway that forwards `/api`, `/a2a`, `/healthz` and `/.well-known`.
 
 ## 3. Workbench
 
-- **Avalonia XAML + MVVM** native workbench, with a shared top bar, a left
-  sidebar and a content region. Six shared controls (page header, top bar,
-  sidebar, file transfer, voice, task actions) are reused across 17 views.
+- **Vue 3 + Vite (bun)** workbench hosted by the shell, with a left sidebar +
+  right content layout.
 - **Screens**: the original eight — Login, Workspace, Threads, TaskTrace, Org,
   Channels, Connectors and Settings — plus the agent-capability screens, with
   Threads and Tasks each gaining a dedicated list view alongside their detail
@@ -92,11 +88,11 @@ gateway that forwards `/api`, `/a2a`, `/healthz` and `/.well-known`.
   and Knowledge now have sidebar entries: both had a route and a screen, but only
   `/persona` was reachable by typing the URL and the knowledge screen did not
   exist at all.
-- **No orphan endpoints**: every frozen constant in `Core/Contracts/Endpoints.cs`
-  must be referenced outside its own definition, enforced by `AgentBuddy.Guards`
-  with an empty allow-list. Each screen declares `EndpointsUsed`, and the App
-  tests pin the normal and failure paths, so "the constant exists but nothing
-  calls it" fails the build instead of hiding.
+- **No orphan wrappers**: every named export of `lib/api.js` must be referenced by
+  at least one screen, enforced by `tests/api-usage.spec.js` with an empty
+  allow-list. `tests/round4.spec.js` pins each screen→endpoint pairing with both a
+  success and a failure case, so "the wrapper exists but nothing calls it" fails
+  the build instead of hiding.
 - **Screen wiring**: the Org catalogue can register a resource from the UI
   (`POST /api/resources`), the Connectors screen lists a connector's declared
   actions on demand (`GET /api/connectors/{id}/actions`), the Computers screen
@@ -173,10 +169,8 @@ user's identity. What it does *not* do is as important as what it does:
 - **visible** — node id, last heartbeat and the last refusal reason are shown in the block,
   localised from the machine code the shell returns.
 
-The node lives in the .NET host process. The Avalonia view only reads its state
-through `/__shell/executor`, and even the window-only capabilities (file pickers,
-audio capture) are injected as delegates into headless-testable ViewModels —
-the UI gains no filesystem or command-execution permission.
+The node lives in the Rust process. The web view only reads its state through
+`/__shell/executor`, so a compromised console page gains no filesystem or command access.
 
 ## 7. Auth & Offline Resilience
 
@@ -193,49 +187,58 @@ the UI gains no filesystem or command-execution permission.
 - Six downloads: `deb` + portable tarball (Linux), `dmg` + portable tarball
   (macOS aarch64), `msi` + portable zip (Windows). Together with `latest.json`,
   `latest-gitee.json` and `SHA256SUMS` that is exactly nine assets per release.
-- Each of the three matrix legs runs `dotnet publish -r <rid> --self-contained
-  true`; WiX v4 (its authoring generated deterministically by `ab-tool wix`),
-  `dpkg-deb` and `hdiutil` produce the installers, plus one portable archive each.
-- With `UPDATER_PUBKEY` and `UPDATER_PRIVATE_KEY` set as repository secrets,
-  `ab-tool inject-pubkey` writes the public key into `Shell/Upgrade/Pubkey.g.cs`
-  and `ab-tool sign` signs each of the six downloads with a minisign-compatible
-  Ed25519 box. The base64 signatures live inside `latest.json` (GitHub asset URLs)
-  and `latest-gitee.json` (Gitee asset URLs): `platforms` points at the
-  installable asset for each OS, `signatures` covers all six. No extra updater
-  archive, `.sig` file or `updater-*.json` is published, and no AppImage or
-  duplicate MSI is built. Gitee mirrors upload the same six downloads plus
-  `latest-gitee.json` renamed to `latest.json`; each manifest only ever points at
-  its own mirror. `ab-tool verify` refuses to publish unless the set is exactly
-  these nine files. Without the signing key the same nine files ship with empty
-  `platforms`/`signatures` and clients fall back to manual download.
-- Building from source needs only the .NET 10 SDK pinned by `desktop/global.json`.
-  On Linux the credential fallback uses the Secret Service over D-Bus; Windows
-  Credential Manager and macOS Keychain are part of the OS.
+- With `UPDATER_PUBKEY` and `TAURI_SIGNING_PRIVATE_KEY` set as repository secrets,
+  the public key is injected into `desktop/src-tauri/src/upgrade/mod.rs` (runtime
+  verification) and `tauri.conf.json`'s `plugins.updater.pubkey`, and each of the
+  six downloads is signed directly with `tauri signer sign --app-version V`.
+  The base64 signatures live inside `latest.json` (GitHub asset URLs) and
+  `latest-gitee.json` (Gitee asset URLs): `platforms` points at the installable
+  asset for each OS, `signatures` covers all six. No extra updater archive,
+  `.sig` file or `updater-*.json` is published, and `bundle.createUpdaterArtifacts`
+  is never enabled — so no AppImage or duplicate MSI is built. Gitee mirrors
+  upload the same six downloads plus `latest-gitee.json` renamed to
+  `latest.json`; each manifest only ever points at its own mirror. A `verify`
+  step refuses to publish unless the set is exactly these nine files. Without
+  the signing key the same nine files ship with empty `platforms`/`signatures`
+  and clients fall back to manual download.
+- Building from source on Linux also needs `libdbus-1-dev` and `pkg-config`: the
+  session lives in the Secret Service, which is reached over D-Bus. Windows and
+  macOS need nothing extra — Credential Manager and Keychain are part of the OS.
 
 ## 9. Tests
 
-- Four xUnit projects replace the old frontend/desktop split; **91 cases**, all
-  offline, with a normal and a failure path for every new capability.
-  `AgentBuddy.Core.Tests` covers 13-language fallback, endpoint contracts,
-  config, SSE framing, `MonitorService` and `RealtimeService` (classification,
-  `since` replay, reconnect backoff and bounded ring).
-  `AgentBuddy.Shell.Tests` covers bootstrap admission (including wrong-guess
-  nonce preservation), Cookie/Location rewriting, streaming forward, credential
-  fallback, executor policy, upgrade source race / signature failure, deep links
-  and tray badge; `GatewaySmokeTests` runs a real Kestrel loopback gateway and
-  an upstream HTTP stub over real sockets, with SSE arriving incrementally.
-  `AgentBuddy.App.Tests` covers Avalonia.Headless ViewModels, the route guard,
-  numbered detail routes, file transfer, voice and notification deep links.
-- `AgentBuddy.Guards` is the hard gate: 13-language key parity with real
-  translations, monochrome `.axaml` scan, no hardcoded template text, every
-  frozen endpoint constant referenced (empty allow-list), all 17 views mapped by
-  the `ViewLocator`, shared-control reuse, paired theme dictionaries, .NET-only
-  build/release wiring and the exactly-nine-assets release contract.
-- `dotnet build agentbuddy.sln -warnaserror` is **0 warnings / 0 errors**;
-  `dotnet test --collect:"XPlat Code Coverage"` produces a Cobertura report and
-  CI uploads both coverage and the test log. Static guards — not line coverage —
-  are the gate, so a chromatic colour or an untranslated key fails the build.
-- Release verification ran locally too: a self-contained `win-x64` publish fed
-  `ab-tool wix`, and WiX 4.0.6 built a real MSI from the generated 369-component
-  authoring; a one-off minisign key signed six downloads, `ab-tool manifest`
-  emitted both mirrors and `ab-tool verify` asserted exactly nine assets.
+- Vitest covers i18n completeness, the monochrome guard, connector policy,
+  monitor, notifications, voice, the auth guard and shell root, the modal and
+  the recorder, the API client (one case per endpoint wrapper, so a moved route
+  fails here rather than on one screen), plus a suite per view (filters, budget,
+  persona switching, goal create/toggle/delete plus every failure path, schedule
+  water level and countdown, channel create/delete/retry and the SMS-only
+  destination field, the execution-environment console and its lease actions,
+  sign-in and sign-up, one screen→endpoint suite with both the success and the
+  failure path, an export-usage guard over `lib/api.js`, and a suite for the
+  branches the happy paths never took, plus the shared-files screen and the
+  connector approval queue, and a follow-up pass over the arms a happy path never
+  takes: a failure with no machine code, a row missing its MIME type or name, an
+  approval without arguments, and the upgrade card with all three shell routes,
+  every status machine code and the no-shell path). A final pass calls the
+  handlers behind disabled controls directly (early returns, empty bodies,
+  unknown machine codes) and server-renders the no-`window` setup branch.
+  **32 spec files, 785 cases**, all offline.
+- `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements,
+  lines, branches and functions (10989 statements, 1804 branches, 433 functions).
+  No defensive arm is left untested and no file is excluded from the report.
+- `cargo test` covers the proxy (admission control, the nonce handshake, cookie
+  rewriting, streaming, the origin gate), config (language fallback, per-server
+  session storage, the plaintext migration), i18n (every locale carries every key
+  in English order, codes pinned to `web/src/lib/languages.js`) and the tray
+  mapping — 180 cases, including this round's tray badge (`badge_text` /
+  `title_for`: zero, `99+`, one assertion per language) and five for static
+  file serving (the real `app_version_stamp()` shape instead of a copy of its
+  format string; a client route answered with the shell and a **per-response**
+  CSP nonce; a missing asset as a 404 rather than the SPA fallback; immutable
+  caching for `assets/` against `no-cache` everywhere else; the about page's
+  boot `page`). They run on
+  Linux (WSL2) and in CI; the Windows test binary cannot start in this environment,
+  so there they are compile-verified only. CI now writes the Linux run into
+  `GITHUB_STEP_SUMMARY` and uploads `desktop-test.log`, and
+  `make desktop-test-report` produces the same summary locally.

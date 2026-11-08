@@ -1,22 +1,24 @@
-# .NET build artefacts
-**/bin/
-**/obj/
-desktop/publish/
-desktop/src/AgentBuddy.App/Assets/Icons/app.ico
-desktop/src/AgentBuddy.App/Assets/Icons/app.icns
+# Dependencies
+node_modules/
+bun.lockb
 
-# Test / coverage output
+# Build artefacts
+web/dist/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+backend/static/
+
+# Tauri icons are generated from desktop/assets/app-icon.png via `make icons`
+desktop/src-tauri/icons/
+
+# Rust
+*.rs.bk
+*.pdb
+
+# Coverage / test output
+coverage.out
 coverage/
-TestResults/
 *.log
-*.trx
-
-# Release staging (never published; ab-tool verify guards the nine real assets)
-out/
-meta/
-release-assets/
-release-meta/
-*.sig
 
 # Generated diagram evidence (archify): local receipts and visual-check sidecars
 docs/diagrams/*.delivery.json
@@ -25,8 +27,6 @@ diagrams/evidence/
 # Editors / OS
 .vscode/
 .idea/
-*.user
-*.suo
 .DS_Store
 Thumbs.db
 

@@ -1,0 +1,69 @@
+[package]
+# The package name is what the produced binary is called (Tauri v2 has no
+# separate mainBinaryName), so it is the plain product name: agentbuddy.exe in the
+# Windows portable archive, agentbuddy in the Linux one.
+name = "agentbuddy"
+version = "0.1.0"
+description = "Desktop shell for the agentbuddy workbench: connects to an agenthub server, opens the console"
+authors = ["ariacompute"]
+edition = "2021"
+rust-version = "1.77"
+
+# The desktop app is its own crate, deliberately outside any workspace: the rest
+# of agentbuddy is Go / Vue, and the shell must stay buildable on its own.
+[lib]
+name = "agentbuddy_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2.7"
+# Signature verification and the platform-specific installer live in the plugin;
+# this crate only decides which release to offer. Its default features use
+# rustls, matching the proxy's TLS stack.
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Release tags are semver, not strings: "0.10.0" must beat "0.9.0".
+semver = "1"
+tokio = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "net", "sync", "time", "process"] }
+axum = { version = "0.8", features = ["macros"] }
+# rustls rather than the platform TLS stack: one implementation to reason about
+# on all three platforms, and no system OpenSSL to ship.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "json", "stream"] }
+# webpki-roots 1.0.10+ removes the compromised eMudhra/emSign roots from the
+# TLS trust store used by reqwest's rustls-tls (eMudhra CA key compromise, 2026-10).
+webpki-roots = "1.0.10"
+rust-embed = { version = "8", features = ["mime-guess"] }
+sys-locale = "0.3"
+url = "2"
+# The loopback proxy token and its bootstrap nonce are the one place this crate
+# needs unpredictable bytes; std has no CSPRNG.
+rand = "0.8"
+
+# The agenthub session cookie is a bearer token, so it belongs in the operating
+# system's credential store rather than in a file (see src/session.rs). One
+# feature per platform store:
+#   * Windows — Credential Manager (DPAPI-protected, per user);
+#   * macOS   — Keychain;
+#   * Linux   — Secret Service (GNOME Keyring / KWallet) over D-Bus. Deliberately
+#     not `linux-native` (kernel keyutils): a keyutils entry does not survive a
+#     reboot, which would sign the user out on every restart.
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["apple-native"] }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

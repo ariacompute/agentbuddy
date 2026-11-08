@@ -9,8 +9,8 @@
   },
   "participants": [
     { "id": "user", "type": "external", "label": "User", "sublabel": "Desktop workbench" },
-    { "id": "workbench", "type": "frontend", "label": "Avalonia Workbench", "sublabel": "HttpClient" },
-    { "id": "proxy", "type": "security", "label": "Loopback Gateway", "sublabel": "4 prefix routes" },
+    { "id": "workbench", "type": "frontend", "label": "Vue 3 Workbench", "sublabel": "Same-origin fetch" },
+    { "id": "proxy", "type": "security", "label": "Loopback Proxy", "sublabel": "4 prefix routes" },
     { "id": "a2a", "type": "backend", "label": "POST /a2a", "sublabel": "JSON-RPC 2.0" },
     { "id": "hub", "type": "backend", "label": "Hub State Machine", "sublabel": "Task progress" },
     { "id": "broker", "type": "messagebus", "label": "SSE Broker", "sublabel": "events table replay" },
@@ -24,7 +24,7 @@
   ],
   "messages": [
     { "id": "delegate", "from": "user", "to": "workbench", "y": 160, "label": "Delegate", "variant": "emphasis" },
-    { "id": "same-origin", "from": "workbench", "to": "proxy", "y": 195, "label": "HttpClient request" },
+    { "id": "same-origin", "from": "workbench", "to": "proxy", "y": 195, "label": "Same-origin fetch" },
     { "id": "send", "from": "proxy", "to": "a2a", "y": 230, "label": "message/send", "variant": "emphasis" },
     { "id": "accept", "from": "a2a", "to": "hub", "y": 265, "label": "submitted" },
     { "id": "working", "from": "hub", "to": "broker", "y": 300, "label": "working + artifact frames", "variant": "dashed" },
@@ -66,10 +66,10 @@
     },
     {
       "dot": "slate",
-      "title": "Loopback communication",
+      "title": "Same-origin communication",
       "items": [
-        "The workbench uses HttpClient to talk only to the loopback gateway on 127.0.0.1",
-        "The session lives in an HttpOnly cookie that the gateway reuses",
+        "The workbench talks only to the loopback proxy on 127.0.0.1, same origin",
+        "The session lives in an HttpOnly cookie that the proxy reuses",
         "Task bodies, artifacts, spans and event frames are persisted synchronously or best-effort"
       ]
     }

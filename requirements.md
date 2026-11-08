@@ -5,10 +5,8 @@
 
 ## 1. 定位与边界
 
-`agentbuddy` 是 **原生桌面客户端**（.NET 10 + Avalonia 11 XAML 界面 + 进程内 Kestrel 环回网关），
-**自身无后端、无 WebView、无内嵌网页包**：原生 ViewModel 用 `HttpClient` 访问环回网关，
-网关把 `/api`、`/a2a`、`/healthz`、`/.well-known` 转发到 `agenthub`。所有状态、执行、
-编排、通道接入与语音处理都在服务端，客户端负责触达与 UI。
+`agentbuddy` 是 **桌面客户端**（Tauri v2 外壳 + Vue 3 工作台），**自身无后端**：所有状态、执行、
+编排、通道接入与语音处理都在 `agenthub` 服务端。客户端负责触达与 UI。
 
 - ✅ 做：统一 Agent 工作台、多智能体协作会话、任务与产物追踪、HITL 审批、后台常驻与系统通知、
   多通道触达、外部应用连接器（动作审批网关）、语音交互、13 语与单色视觉。
@@ -78,14 +76,14 @@
 
 | 编号 | 需求 |
 |---|---|
-| F5.1 | 关闭窗口 = 最小化到托盘（保留环回网关、轮询与 SSE 订阅）；**仅托盘「退出」** 终止进程 |
-| F5.2 | 事件聚合：`MonitorService` 轮询 `/api/workspace` + `/api/tasks`（窗口可见 5s / 隐藏 20s / 失败指数退避 5s→30s）；`RealtimeService` 常开订阅线程 / 任务 / 沙盒 / 路由四路 SSE，按事件名分类、记录 `since` 游标，事件突发时以 1s 节流触发一次聚合刷新，避免 N+1 请求 |
-| F5.3 | 通知去重纯函数 `NotificationDecider`：幂等键 `taskID:state`（1h 窗口）、同键 30s 静默、每分钟 >8 条合并为摘要、静默期内只入站内通知中心 |
-| F5.4 | 系统通知**真实投递**：`NotificationDecider` 判定需要打扰后，工作台经 `POST /__shell/notify` 发一条本地化标题 + 摘要 + 深链（`title` 在发送时用当前语言解析，不是 copy key）。外壳的 `notify_enabled` 与 `notify_quiet_minutes` 由 `ShellControlClient` 读 `/__shell/config` 后喂给决策函数，因此设置页的「通知开关」与「静默期」真的生效。投递为 fire-and-forget：`ok:false`（`disabled` / `quiet` / `no_app` / `denied` / `missing_fields`）是正常回应，降级为应用内红点，不报错、不重试、不阻塞轮询；任何异常都被捕获，绝不产生未观察异常 |
-| F5.5 | **托盘角标**：工作台在未读数变化时经 `ShellControlClient.SetBadgeAsync` → `POST /__shell/badge` 推送，fire-and-forget 且吞掉异常。外壳把计数 clamp 到 `999`；tooltip 全平台可见，托盘标题在不支持该能力的平台静默失败，>99 显示 `99+`。**计数留在进程里**，语言切换重建菜单后重新套用，角标不丢；文案是 `TrayService.BadgeText(lang, count)` 纯函数（13 语 `trayUnread`） |
-| F5.6 | **toast 深链**：`link` 是站内路径，`DeepLinkQueue` 入队后于用户点击通知时取用，恢复窗口并交给 `NavigationService.NavigateAsync` 完成一次真实路由跳转。只接受单斜杠开头且拒绝 `//host` / `javascript:` / 反斜杠 / 控制字符；路径不经任何 `eval` 或字符串求值；一次点击只消费一次 |
-| F5.7 | 静默期以**调用时刻**为锚：`quietUntil = now + minutes*60`，读取与保存都一样；不得以「首次读取设置的时间」为锚（否则长时间开着的窗口算出已过去的窗口，静默形同虚设） |
-| F5.8 | 断线重放：`?since=<seq>`；SSE 无 `[DONE]` 哨兵，终态由状态判定；常开连接无整体超时，仅 10s 连接超时 |
+| F5.1 | 关闭窗口 = 最小化到托盘（保留环回代理与事件循环）；**仅托盘「退出」** 终止进程 |
+| F5.2 | 事件聚合：轮询 `/api/workspace` + `/api/tasks`（可见 5s / 隐藏 20s / 失败指数退避 5s→30s）+ 对非终态任务按需开 per-task SSE（**并发上限 6**，LRU 淘汰） |
+| F5.3 | 通知去重纯函数 `decide()`：幂等键 `taskID:state`（1h 窗口，与 `HTTPNotifier` 对齐）、同键 30s 静默、每分钟 >8 条合并为摘要、静默期内只入站内中心 |
+| F5.4 | 系统通知**真实投递**：`decide()` 判定需要打扰后，工作台经环回端点 `POST /__shell/notify` 发一条本地化标题 + 摘要 + 深链（`title` 在发送时用当前语言解析，不是 copy key）。外壳的 `notify_enabled` 与 `notify_quiet_minutes` 由工作台读 `/__shell/config` 后喂给 `decide({settings:{enabled, quietUntil}})`，因此设置页的「通知开关」与「静默期」真的生效，而不只是写进配置文件。投递为 fire-and-forget：`ok:false`（`disabled` / `quiet` / `no_app` / `denied` / `missing_fields`）是正常回应，降级为应用内红点，不报错、不重试、不阻塞轮询；纯 Web 构建没有 `/__shell`，请求失败被静默吞掉 |
+| F5.5 | **托盘角标（已实现）**：工作台在未读数变化时经 `setTrayBadge(count)` → `POST /__shell/badge` 推送，fire-and-forget（纯 Web 构建没有该端点，失败静默）。外壳把计数存在 `ProxyState.unread` 并 clamp 到 `999`；tooltip 全平台可见，`set_title` 在不支持标题的平台静默失败，>99 显示 `99+`。**计数留在进程里**，语言切换重建菜单后重新套用，角标不丢；文案是 `badge_text(lang, count)` 纯函数（13 语 `trayUnread`） |
+| F5.6 | **toast 深链（已实现）**：`link` 是站内路径，外壳入队后于 `ActionPerformed::action_id() == "tap"` 时取用，`unminimize` + `show` + `set_focus` 并 `window.location.hash = '#/…'`（工作台是 `createWebHashHistory`，即一次真实路由跳转）。只接受单斜杠开头且拒绝 `//host` / `javascript:` / 反斜杠 / 控制字符；路径经 JSON 编码后才进 `eval`；一次点击只消费一次 |
+| F5.7 | 静默期以**调用时刻**为锚：`quietUntil = now + minutes*60*1000`，读取与保存都一样；不得以「首次读取设置的时间」为锚（否则长时间开着的页面算出已过去的窗口，静默形同虚设） |
+| F5.8 | 断线重放：`?since=<seq>`；SSE 无 `[DONE]` 哨兵，终态由状态判定 |
 
 ### F6 多通道触达
 
@@ -214,7 +212,7 @@
 | F17.4 | **审计抽屉**：右侧滑出，顶部租约 id，表格列命令摘要 / 退出码 / 耗时 / 时间 / `dry_run` 标记，失败行左缘 2px 实心竖条；抽屉内可直接试跑一条命令并就地看回执 | — |
 | F17.5 | **未接线语义**：服务端无控制面时整屏显示「沙盒已关闭」+ 一句如何开启，不渲染零值水位条、不显示错误横幅 | `feature_unavailable` |
 | F17.6 | **执行节点**（可选，**默认关闭**）：设置页开关 + 风险说明 + 确认；工作根目录（绝对路径）、命令白名单（逐行、精确匹配、禁 shell）、并发上限、节点 id（只读）、可选 API key、在线状态与最近拒绝原因 | BYOM |
-| F17.7 | 节点只在**本地 .NET 进程**执行：不经 shell、只跑白名单精确命令、只允许根目录内路径、超时**终止整棵进程组**、输出截断；Avalonia 视图**不获得**任何文件系统或命令执行能力（窗口能力以委托注入，ViewModel 保持 Headless 可测）。进程组语义仅 unix 具备（负 pgid TERM → 250ms 宽限 → KILL → `wait()` 收尸）；Windows 没有等价原语，如实退回直接子进程终止并在代码与文档中明确标注，而不是假装已清场 | — |
+| F17.7 | 节点只在**本地 Rust 进程**执行：不经 shell、只跑白名单精确命令、只允许根目录内路径、超时**终止整棵进程组**、输出截断；网页视图**不获得**任何文件系统或命令执行能力。进程组语义仅 unix 具备（`process_group(0)` + `kill(-pgid)`，TERM → 250ms 宽限 → KILL → `wait()` 收尸）；Windows 没有等价原语，退回 `kill_on_drop` + 直接子进程 `start_kill`，并在代码中明确标注不支持，而不是假装已清场 | — |
 | F17.8 | 节点生命周期：开启后注册 → 心跳 → 长轮询领任务 → 执行 → 回传；退出即停止，重启自动重新上线；间歇在线不算故障，服务端据此显示离线 | — |
 | F17.9 | 客户端不自建沙盒、不做类型探测：目录、可用性与原因全部来自服务端，客户端只渲染 | 单一事实来源 |
 
@@ -226,11 +224,11 @@
 
 | 编号 | 需求 |
 |---|---|
-| F18.1 | 每次启动生成 256 位 token 与一个**一次性** nonce（TTL 60s）；窗口打开 `/__shell/bootstrap?nonce=…` 兑换 `ab_proxy` Cookie（`HttpOnly; SameSite=Strict; Path=/`）后 `303` 落到 `/`。token 只存在于网关内存与 Cookie，绝不进入 UI 代码、绝不转发上游 |
-| F18.2 | 除 bootstrap 外的所有路由（`/api`、`/a2a`、`/__shell/*`）都要求该 Cookie，原生客户端可用 `Authorization: Bearer`；外来 `Origin` 在任何鉴权之前以 `403 proxy_origin_refused` 拒绝，无 token 为 `401 proxy_unauthorized` |
+| F18.1 | 每次启动生成 256 位 token 与一个**一次性** nonce（TTL 60s）；窗口打开 `/__shell/bootstrap?nonce=…` 兑换 `ab_proxy` Cookie（`HttpOnly; SameSite=Strict; Path=/`）后 `303` 落到 `/`。token 只存在于代理内存与 Cookie，绝不进入 JS、绝不转发上游 |
+| F18.2 | 除 bootstrap 外的所有路由（`/api`、`/a2a`、静态资源、`/__shell/*`）都要求该 Cookie，原生客户端可用 `Authorization: Bearer`；外来 `Origin` 在任何鉴权之前以 `403 proxy_origin_refused` 拒绝，无 token 为 `401 proxy_unauthorized` |
 | F18.3 | nonce 只在**匹配时**消费：错猜不消耗有效 nonce（否则本机一次错误请求就能让窗口永久打不开），重发 nonce 使旧 URL 失效，过期 nonce 一律丢弃 |
-| F18.4 | 网关**不输出 HTML**，因此不再需要逐响应 CSP nonce、SPA 回退 `index.html`、主题预绘制脚本或版本戳注入；连接页与关于页是 Avalonia 原生窗口，主题由 `RequestedThemeVariant` 在启动时设定，语言与版本由 ViewModel 绑定 |
-| F18.5 | 转发上游时只丢逐跳头，上游的 `Content-Security-Policy` / `Strict-Transport-Security` / `X-Frame-Options` 原样透传；`Set-Cookie` 与 `Location` 按 F1.7 / F2 规则改写 |
+| F18.4 | 代理为自己输出的 HTML 发 `Content-Security-Policy`，`script-src 'self' 'nonce-<每响应随机>'`（不含 `unsafe-inline`）；首屏主题解析外置为 `web/public/theme-init.js`；外壳注入的版本戳脚本声明该 nonce；`style-src` 保留 `'unsafe-inline'`（Vue 的逐元素样式无法用 nonce 覆盖，且内联样式不能执行） |
+| F18.5 | 转发上游时只丢逐跳头，上游的 `Content-Security-Policy` / `Strict-Transport-Security` / `X-Frame-Options` 原样透传 |
 | F18.6 | 会话凭据存系统凭据库（F1.7）；设置页显示 `sessionBackend`，回退到文件时给出可读告警 |
 | F18.7 | 无窗口的测试路由器（`auth: None`）保持原转发行为；关闭准入时 `/__shell/bootstrap` 返回 404 |
 
@@ -254,12 +252,12 @@
 
 | 编号 | 需求 |
 |---|---|
-| N1 | **单色**：UI 只落在 `#000000 ↔ #FFFFFF` 明度轴，零色相；`AgentBuddy.Guards` 扫描全部 `.axaml`（hex 三通道相等 / 色相词黑名单），控件模板只引用 `DynamicResource Brush.*` |
-| N2 | **13 语**：`en zh zh-TW es fr de it ru ja ko pt ar hi`；`Core/I18n/copy.json` 与外壳菜单共用同一语言集，`AgentBuddy.Guards` 强制每语言每 key 已译且不等于英文 |
-| N3 | **RTL**：仅 `ar`；`window.FlowDirection = RightToLeft`，布局使用逻辑属性，禁止绝对左右定位 |
-| N4 | **错误只传机器码**：ViewModel 只存 `ErrorCode`（`error.code`），`ErrorText` 按 code 查 copy |
-| N5 | **无障碍**：触控目标 ≥44px；焦点环 2px + 2px offset；不声明过渡动画，`ReducedMotionService` 打 `reduce-motion` 标记 |
-| N6 | **SSE 真流式**：`ResponseHeadersRead` + 字节流拷贝，强制 `accept-encoding: identity`，禁整体超时（仅 10s 连接超时） |
+| N1 | **单色**：UI 只落在 `#000000 ↔ #FFFFFF` 明度轴，零色相；`web/tests/style.spec.js` 强制（hex 三通道相等 / hsl 中性 / 色相词黑名单） |
+| N2 | **13 语**：`en zh zh-TW es fr de it ru ja ko pt ar hi`；前端 copy 表 + Rust 外壳 `copy.rs` 双向齐全；`copy-fallback.spec.js` 强制每语言每 key 已译且不等于英文 |
+| N3 | **RTL**：仅 `ar`；布局一律逻辑属性（`margin-inline` / `inset-inline`） |
+| N4 | **错误只传机器码**：store 只存 `error.code`，文案全部本地化 |
+| N5 | **无障碍**：触控目标 ≥44px；焦点环 2px + 2px offset；`prefers-reduced-motion: reduce` 下禁全部动效 |
+| N6 | **SSE 真流式**：环回代理 `Body::from_stream`，强制 `accept-encoding: identity`，禁整体超时 |
 | N7 | 三平台：Linux（deb + 便携 tar.gz）、macOS（dmg + app 便携 tar.gz，aarch64）、Windows（msi + 便携 zip）；不产出 appimage，每次 release 恰好 9 个 assets |
 
 ## 4. 服务端契约（本轮新增）
@@ -345,9 +343,9 @@
 `file_not_found`。通道、计算机、调度与文件四屏把该码读作「已经没了」：关掉确认框、重拉列表、不弹拒绝；
 其余失败仍就地显示本地化文案且行不消失。
 
-登记两处：`agenthub/internal/httputil/json.go` 的 `Code*` 常量，以及 agentbuddy
-`desktop/src/AgentBuddy.Core/Contracts/Codes.cs` 的 `ErrorCodes` + `I18n/copy.json`
-里 13 语的 `errors.*` 文案（`Codes.cs` 的 `All` 数组由静态守卫钉住完整键集）。
+登记三处：`internal/httputil/json.go` 的 `Code*` 常量、agentbuddy `web/src/lib/errors.js` 的
+`CODE_KEYS`、`web/src/lib/copy/errors-copy.js` 的 13 语（调度器文案集中在
+`copy/scheduler-copy.js`，由这两张表合并进来）。
 
 ### 4.3 迁移（agenthub，幂等，编号接 `016` 之后）
 
@@ -377,7 +375,7 @@
 | 场景 | 行为 |
 |---|---|
 | 服务端不可达 | 轮询指数退避 5s→30s，UI 置 offline chip，保留上次成功数据 |
-| 会话过期（服务端可达但 401/403） | 记 `authExpired` 而非 `offline`：保留数据，显示「会话已过期，请重新登录」横幅 + 重登按钮；`NavigationService` 守卫复核后转登录页。只有网络错误或网关 502/503 才置 offline |
+| 会话过期（服务端可达但 401/403） | 记 `authExpired` 而非 `offline`：保留数据，显示「会话已过期，请重新登录」横幅 + 重登按钮；`App.vue` 复核后转登录页。只有网络错误或代理 502/503 才置 offline |
 | 资源不可见（`visibility` 默认 `restricted` 且不回填） | 越权读取/调用一律 404（不泄露存在性）：列表收敛到可见项，不弹错误、不提示「权限不足」 |
 | SSE 断连 | 以最后一次 `seq` 重连 `?since=`，回放后接实时 |
 | 系统通知未授权 | `ok:false` → 降级为应用内红点，不重复弹权限 |
@@ -386,7 +384,7 @@
 | 重试未送达回执（F6） | 成功 → 200，回执原地翻 `delivered`、不新增行；回执不存在 404 `delivery_not_found`；已送达 / 入站 / 无原文 409 `delivery_not_retryable`；提供方失败 502 `delivery_failed` 且回执保持可重试 |
 | 语音超限/格式不支持 | 413 `audio_too_large` / 415 `audio_unsupported` |
 | 连接器策略 `off` | 403 `connector_policy_off`，动作不执行 |
-| 网关未就绪 / 服务端未配置 | 连接页显示 `shell_unavailable` 并保留服务端地址表单，不白屏、不吞掉已保存配置 |
+| 控制台 bundle 缺失 | 外壳显示 `consoleMissing`（不白屏） |
 | 计算机会话不存在 / 能力未接线 | 404 `computer_not_found` / 503 `feature_unavailable`，视图回退到只读占位 |
 | 调度不存在/表达式非法 | 404 `schedule_not_found` / 400 `schedule_invalid`，前端内联提示 |
 | 调度器开关关闭（F13） | `/api/router/*` 与 `/api/schedules/{id}/run` 返回 503 `feature_unavailable`；目标页显示「调度器已关闭」灰字，不隐藏目标列表本身 |
@@ -407,10 +405,9 @@
 
 ## 6. 验收标准
 
-1. `cd desktop && dotnet build agentbuddy.sln -warnaserror` 全绿且 **0 警告 0 错误**。
-2. `cd desktop && dotnet test agentbuddy.sln` 全绿（四个 xUnit 项目；`AgentBuddy.Guards` 含单色
-   XAML、13 语键集与英文兜底、模板无硬编码文案、冻结端点常量可达性、共享控件复用守卫）。
-3. `make dotnet-smoke` 全绿（真 Kestrel 环回网关 + 真上游 socket）。
+1. `cd web && bun run test` 全绿（含 `style.spec.js` 单色守卫、`copy-fallback.spec.js` 13 语完整性）。
+2. `cd web && bun run build` 产出 `web/dist/index.html`。
+3. `cd desktop/src-tauri && cargo test` 全绿；`cargo check --all-targets` 通过。
 4. agenthub：`go build ./... && go vet ./... && go test -race ./...` 全绿，其中
    `TestEmbeddedMigrationsAreOrderedAndIdempotent` 与 `TestListenersCoverRoutes` 通过。
 5. 关闭窗口 → 最小化到托盘，SSE 可重连；托盘「退出」→ 进程终止。
@@ -429,8 +426,8 @@
 18. 执行环境控制台（F17）：水位条五项与 `/api/sandboxes/stats` 一致；目录按层分组且不可用项写出原因；租约卡片显示到期倒计时（≤3 分钟加粗）；点击卡片打开审计抽屉，试跑一条命令后回执就地可见且刷新后仍在；终止需二次确认且确认后列表刷新。
 19. 未接线语义（F17）：服务端关闭沙盒时整屏显示「沙盒已关闭」与开启命令，**不**出现错误横幅、**不**出现零值水位条。
 20. 执行节点（F17）：默认关闭；开启需确认风险；根目录非绝对路径 / 白名单含 shell / 未选服务端时保存被拒并显示对应 13 语原因；节点 id 只读可见；关闭开关后节点立即停止心跳。
-21. 环回网关准入（F18）：每次启动生成 256 位 token 与一次性 nonce；窗口经 `/__shell/bootstrap?nonce=…` 兑换 `HttpOnly; SameSite=Strict; Path=/` 的 Cookie 后 303 落到 `/`；`/api`、`/a2a`、`/__shell/*` 一律要求该 Cookie（原生客户端可用 Bearer）；外来 `Origin` 在任何鉴权之前以 `403 proxy_origin_refused` 拒绝；token 只存在于网关内存与 Cookie，绝不进入 UI 代码，也绝不被转发上游；错猜 nonce 不消耗有效 nonce（本机一次错误请求不能让窗口永久打不开），重发 nonce 使旧 URL 失效。
-22. 无 HTML 输出（F18）：网关不再发 CSP、不再做 SPA 回退、不再注入主题预绘制脚本或版本戳；连接页与关于页是原生窗口。转发上游时只丢逐跳头，上游 `Content-Security-Policy` / `Strict-Transport-Security` / `X-Frame-Options` 原样透传。
+21. 环回代理准入（F18）：每次启动生成 256 位 token 与一次性 nonce；窗口经 `/__shell/bootstrap?nonce=…` 兑换 `HttpOnly; SameSite=Strict; Path=/` 的 Cookie 后 303 落到 `/`；`/api`、`/a2a`、`/__shell/*` 与静态资源一律要求该 Cookie（原生客户端可用 Bearer）；外来 `Origin` 在任何鉴权之前以 `403 proxy_origin_refused` 拒绝；token 只存在于代理内存与 Cookie，绝不进入 JS，也绝不被转发上游；无窗口的测试路由器（`auth: None`）保持原转发行为；错猜 nonce 不消耗有效 nonce（本机一次错误请求不能让窗口永久打不开），重发 nonce 使旧 URL 失效。
+22. 内容安全策略（F18）：代理为自己输出的 HTML 发 `Content-Security-Policy`，`script-src 'self' 'nonce-<每响应随机>'`（不含 `unsafe-inline`）；首屏主题解析外置为 `web/public/theme-init.js`；外壳注入的版本戳脚本声明该 nonce；转发上游时只丢逐跳头，上游 `Content-Security-Policy` / `Strict-Transport-Security` / `X-Frame-Options` 原样透传。
 23. 会话存储（F18）：会话 Cookie 写入系统凭据库（Windows 凭据管理器 / macOS 钥匙串 / Linux Secret Service）；无可用凭据库时回退为仅属主可读的 `session.json` 并在日志告警；旧的明文会话在首次读取时迁入凭据库并删除明文；`/__shell/config` 暴露 `sessionBackend`（`keyring` / `file` / `memory`）。
 24. 登录表单校验（F1）：邮箱与密码为空、注册模式下两次密码不一致或未填显示名时，提交按钮保持 disabled，且**在输入框内回车同样被拦截**（`submit()` 自查 `canSubmit`），不发请求、不回显错误码。
 25. 通道重试（F6）：出站失败落 `failed` 回执并保留原文；点重试 → 200 且该回执原地变 `delivered`（不新增行）；已送达 / 入站 / 无原文 → 409 `delivery_not_retryable`；提供方仍失败 → 502 `delivery_failed` 且回执保持可重试。
@@ -438,20 +435,21 @@
 27. 通知投递（F5.4）：任务 `completed` / `input-required` / `failed` 时工作台向 `/__shell/notify` 发送**已本地化的标题**（不是 `notifyResult` 这类 copy key）与深链；外壳 `notify_enabled=false` 或处于静默期时不发；`ok:false` 不报错、不重试、不影响站内通知中心。
 28. 桌面密钥与文件权限（F18）：执行节点 API key 在凭据库可用时写入凭据库，`config.json` 中该字段为空，重启后 `load()` 回填且节点仍能认证；无凭据库时保留在 owner-only `config.json`；会话文件与配置文件均**创建即 `0600`**（unix），Windows 用 `icacls /inheritance:r /grant:r <user>:F` 显式收紧，失败只记一次日志。
 29. 超时清场（F17.7）：unix 下超时后先对整棵进程组 TERM、250ms 宽限后 KILL，孙进程不残留；`pid <= 1` 或 `kill` 失败时降级为直接子进程 `start_kill`，绝不向自身组发信号。Windows 无组语义，明确退回直接子进程终止。
-30. 跨进程冒烟：`make dotnet-smoke` 用真实 socket 跑通「真实上游 → Kestrel 环回网关 → bootstrap nonce → Cookie → `/api` 转发 → SSE 真流式 → `/__shell/notify` → 外来 Origin 403」；`AgentBuddy.Core.Tests` 另覆盖 401 透传与断连不被误判为会话过期；全部只走 `127.0.0.1`，不触外网。
-31. 登录与人格（F1.3 / F10.2）：选择 OAuth 提供方后打开系统默认浏览器跳转，不抛异常；Agent 人格表单可编辑 `role` 并在保存后再次打开仍在（不再被覆盖为空）。
+30. 跨进程冒烟：`make smoke` 用真实 socket 跑通两条链路——「工作台 store → 真实 `node:http` 桩」（含 401 透传与断连不被误判为会话过期）与「真实上游 → 外壳代理 → bootstrap nonce → Cookie → `/api` 转发 → `/__shell/notify` → 外来 Origin 403」；全部只走 `127.0.0.1`，不触外网。
+31. 登录与人格（F1.3 / F10.2）：点击 OAuth 提供方按钮即 `window.open` 跳转，不抛异常；Agent 人格表单可编辑 `role` 并在保存后再次打开仍在（不再被覆盖为空）。
 32. 自动更新（F19）：两源并发探测择优与单源失败回落有纯函数用例；semver 比较、OS/arch →
     平台键映射、无匹配降级、24h 到期与跳过版本均有用例；`GET /__shell/upgrade` 与两条 POST
     在无窗口路由器下有正常 + 异常用例。
-33. 更新卡片、侧栏横幅、关于页均按机器码渲染 13 语本地文案；`AgentBuddy.Guards` 的
-    「冻结端点常量全部可达」守卫白名单仍为空，13 语键集与英文兜底守卫全绿。
+33. 更新卡片、侧栏横幅、关于页均按机器码渲染 13 语本地文案；`api-usage.spec.js` 白名单仍为空；
+    `copy-fallback.spec.js` 与桌面 `i18n/upgrade.rs` 的 13 语键集守卫全绿。
 34. 发布流程生成 `latest.json`（GitHub URL）与 `latest-gitee.json`（Gitee URL），
-    `ab-tool manifest|verify` 有离线正常 + 异常用例；6 个下载全部签名、签名内嵌清单，
-    发布集合钉住 9 个 assets；未配置签名密钥时同样发布 9 个文件，仅 `platforms`/`signatures` 为空。
-35. 未配置公钥时「立即升级」返回 `not_configured` 且不下载任何包；Avalonia 视图未获得
-    文件系统、命令执行或更新安装权限，一切经 `/__shell/*` 控制面。
-36. `dotnet test --collect:"XPlat Code Coverage"` 出 Cobertura 报告；静态守卫是硬门槛，
-    新增功能必须补正常 + 异常双路径用例，**不得**用 exclude / ignore 绕过。
+    `latest-json.mjs collect|manifest|verify` 有离线正常 + 异常用例；6 个下载全部签名、
+    签名内嵌清单，发布集合钉住 9 个 assets；未配置签名密钥时同样发布 9 个文件，
+    仅 `platforms`/`signatures` 为空。
+35. 未配置公钥时「立即升级」返回 `not_configured` 且不下载任何包；WebView 未获得 updater 权限。
+36. v8 覆盖率四项（语句 / 行 / 分支 / 函数）均 **100%**。界面上按钮 disabled 因而点不到的
+    守卫分支须通过直接调用处理函数、服务端渲染等手段真实覆盖，**不得**用 `exclude` / ignore
+    注释绕过；`api-usage.spec.js` 白名单仍为空。
 
 ## 7. 自动更新（F19）
 
@@ -460,14 +458,12 @@
 - 桌面外壳自行检查 `github.com/ariacompute/agentbuddy` 与 `gitee.com/ariacompute/agentbuddy`
   的 release；**并发探测**两源更新清单的可达性与响应延迟，取可用且最快者，单源失败自动回落到
   另一源。不采集用户位置、不读出口 IP、不依赖第三方定位服务。
-- 启动时检查一次（窗口就绪后延时 8s），之后每 24 小时一次；设置页提供手动检查。自动检查可关闭、
-  特定版本可跳过，偏好持久化在 `config.json`。时钟回拨视为到期，`AtomicBool` 等价的单飞挡住并发检查/安装。
+- 启动时检查一次（窗口就绪后延时），之后每 24 小时一次；设置页提供手动检查。自动检查可关闭、
+  特定版本可跳过，偏好持久化在 `config.json`。
 - 本地版本较老时给出系统通知（点击到 `/settings`）与设置页卡片、侧栏横幅、关于页状态；
-  用户确认「立即升级」后由 `UpgradeService` 自行验签、下载、按平台安装并重启；始终保留「手动下载」。
-- 验签是 **minisign 兼容的 Ed25519**：`MinisignVerifier` 解析 key box 与签名盒，
-  `ab-tool sign` 用同一格式签发；公钥为空时一律 `not_configured`，绝不安装未验签包。
-- 按本地 OS + CPU 架构匹配 `platform_key(OS, ARCH)` 到平台键；无匹配包时明确提示并给手动下载入口。
-- 界面不直接访问文件系统或更新源：一切更新状态与动作经 `/__shell/upgrade*` 控制面。
+  用户确认「立即升级」后由 `tauri-plugin-updater` 验签、下载、安装并重启；始终保留「手动下载」。
+- 按本地 OS + CPU 架构匹配 `latest.json` 的 Tauri 平台键；无匹配包时明确提示并给手动下载入口。
+- 纯 Web 构建没有 `/__shell`，所有更新请求静默失败，卡片显示「此构建未配置自动更新」。
 
 ### 7.2 接口契约
 
@@ -482,31 +478,31 @@
 unsupported_platform | downloading | installing | not_configured | network_failed |
 manifest_invalid | signature_failed | busy | unavailable`。界面不得解析自然语言，只按机器码查
 本地文案；`source` 为 `github` / `gitee`；`downloadUrl` 与清单资产 URL 均须经主机白名单校验
-（HTTPS、GitHub/Gitee 及其下载 CDN，且与清单来源一致）。三条路由继承 `ab_proxy` Cookie 与
-`Origin` 准入；Avalonia 视图只发 HTTP，不获得任何 updater 权限。
+（HTTPS、GitHub/Gitee 及其下载 CDN，且与清单来源一致）。三条新路由继承 `ab_proxy` Cookie 与
+`Origin` 准入，不新增 IPC 面、不给 WebView 任何 updater 权限。
 
 ### 7.3 发布形态
 
 - 每次 release 恰好 9 个 assets：6 个下载（Linux deb + 便携 tar.gz、macOS dmg + app
   便携 tar.gz、Windows msi + 便携 zip）、`latest.json`、`latest-gitee.json`、`SHA256SUMS`。
-  **不发布**独立签名更新包、`.sig`、`updater-*.json` 或 AppImage。
-  三条构建 leg 各跑 `dotnet publish -r <rid> --self-contained true`，再分别用
-  WiX v4（msi，作者文件由 `ab-tool wix` 生成）、`dpkg-deb`（deb）、`hdiutil`（dmg）封装。
+  **不发布**独立签名更新包、`.sig`、`updater-*.json` 或 AppImage；`bundle.createUpdaterArtifacts`
+  恒为关闭。
 - `latest.json`：`version`（纯 semver，无 `v`）、`notes`、`pub_date`、
-  `platforms[平台键].{url,signature}`、可选 `signatures[文件名]`（6 项）。
-  `platforms` 只指向客户端能安装的资产：`linux-x86_64 → deb`、
+  `platforms[平台键].{url,signature}`、新增可选 `signatures[文件名]`（6 项）。
+  `platforms` 只能指向插件能安装的已有资产：`linux-x86_64 → deb`、
   `darwin-aarch64 → macos-aarch64.tar.gz`、`windows-x86_64 → msi`；dmg、Linux tar.gz、
-  Windows zip 仅供手动下载。客户端忽略未知字段，清单格式向前兼容。
-- 6 个下载由各构建 leg 用 `ab-tool sign` 签名（minisign 兼容 Ed25519，trusted comment
-  绑定版本），base64 签名内嵌两份清单；`.sig` 只走独立元数据 artifact，绝不进入发布目录。
-  两份清单分别写 GitHub / Gitee 自己的资产 URL；Gitee 镜像上传同样 6 个下载，
-  并把 `latest-gitee.json` 重命名为 `latest.json`，**不再上传 `.sig`**。
-- 发布前 `ab-tool verify` 断言目录恰好是这 9 个文件、两份清单同源且版本一致、
-  `SHA256SUMS` 只覆盖 6 个下载；发布步骤再用显式白名单 + `fail_on_unmatched_files` 兜底。
-  未配置签名密钥时 `platforms`/`signatures` 为空，客户端走手动下载。
-- 验签公钥来自仓库 secret `UPDATER_PUBKEY`：release 构建前由 `ab-tool inject-pubkey`
-  写入 `Shell/Upgrade/Pubkey.g.cs` 的 `PublicKey` 常量（仓库里保持空）。
-  私钥 secret `UPDATER_PRIVATE_KEY` 只在 CI 内由 `ab-tool sign` 读取，绝不进仓库或日志。
+  Windows zip 仅供手动下载。旧客户端没有 `deny_unknown_fields`，忽略 `signatures` 即可兼容。
+- 6 个下载由各构建 leg 用 `tauri signer sign --app-version V` 直接签名（trusted comment
+  绑定版本），base64 签名内嵌两份清单；`collect` 消费临时 `.sig` 后删除，元数据走独立
+  artifact，绝不进入发布目录。两份清单分别写 GitHub / Gitee 自己的资产 URL；Gitee 镜像
+  上传同样 6 个下载，并把 `latest-gitee.json` 重命名为 `latest.json`，**不再上传 `.sig`**。
+- 发布前 `latest-json.mjs verify` 断言目录恰好是这 9 个文件、两份清单同源且版本一致、
+  `SHA256SUMS` 只覆盖 6 个下载；发布步骤再用显式白名单兜底。未配置签名密钥时
+  `platforms`/`signatures` 为空，客户端走手动下载。
+- 验签公钥来自仓库 secret `UPDATER_PUBKEY`：release 构建前由
+  `desktop/scripts/inject-updater-pubkey.mjs` 同时写入 `src/upgrade/mod.rs` 的
+  `UPDATER_PUBKEY`（运行时验签）与 `tauri.conf.json` 的 `plugins.updater.pubkey`
+  （插件默认配置，与运行时常量保持一致）；两处在源码里都留空、公钥不进仓库。
 - 本轮不扩充发布矩阵：仅 `linux-x86_64` / `darwin-aarch64` / `windows-x86_64`；
   其他平台走 `unsupported_platform` 降级。
 

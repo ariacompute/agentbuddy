@@ -1,14 +1,16 @@
 # agentbuddy — continuous integration.
 #
-# One .NET 10 solution replaces the old two-job web/desktop split. Every job runs
-# the full suite: Core, Shell (including the real-socket loopback gateway smoke),
-# App (Avalonia.Headless ViewModel + navigation guards) and the static guards
-# (13-language parity, monochrome XAML, frozen endpoint reachability, release
-# contract). Icons are derived first because the app embeds them as AvaloniaResource.
+# Two jobs, mirroring the offline `make test` targets:
+#   • web      → Vitest suite (bun) under web/  (tests/style.spec.js monochrome
+#                guard, copy-fallback 13-language completeness, smoke.e2e.spec.js)
+#   • desktop  → `cargo test` under desktop/src-tauri
 #
-# Coverage is collected with coverlet (Cobertura) and summarized into the job log;
-# the static guards are the hard gate, so an untranslated key or a chromatic
-# colour fails the build even when line coverage happens to stay high.
+# The desktop crate embeds the console via rust-embed and calls
+# `tauri::generate_context!`, which reads desktop/src-tauri/icons/ at compile
+# time. That directory is git-ignored, so icons must be re-derived (bun run
+# icons) before cargo can compile — otherwise even `cargo check` fails.
+# On Windows the Tauri native test entry cannot launch, so the matrix drops to
+# `cargo test --no-run` (compile-only), matching the AGENTS.md guidance.
 
 name: ci
 
@@ -18,68 +20,128 @@ on:
   pull_request:
     branches: [main, master]
 
+# One CI run per ref; a newer push cancels an in-progress one so results are
+# never a mix of two commits.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  DOTNET_NOLOGO: true
-  DOTNET_CLI_TELEMETRY_OPTOUT: true
-  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  CARGO_TERM_COLOR: always
 
 jobs:
-  dotnet:
-    name: dotnet — ${{ matrix.os }}
+  # ----------------------------------------------------------------- web (Vitest)
+  web:
+    name: web — vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Vitest (unit + style/monochrome + copy-fallback guards)
+        run: bun run test
+
+      - name: Vitest coverage (v8 text report)
+        run: bun run test:coverage
+
+  # -------------------------------------------------------------- desktop (cargo)
+  desktop:
+    name: desktop — cargo test
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-22.04
+            command: cargo test
+          - os: windows-latest
+            # Tauri native test entry cannot launch on Windows CI; compile only.
+            command: cargo test --no-run
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install .NET 10 SDK
-        uses: actions/setup-dotnet@v4
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
         with:
-          global-json-file: desktop/global.json
+          bun-version: "1.4.4"
 
-      - name: Restore
-        run: dotnet restore desktop/agentbuddy.sln
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Derive icons from the single source
-        run: dotnet run --project desktop/tools/AgentBuddy.Build -- icons
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
 
-      - name: Build (warnings are errors)
-        run: dotnet build desktop/agentbuddy.sln --no-restore -warnaserror
+      - name: Linux build dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev build-essential curl wget file
 
-      - name: Test
+      - name: Derive icons (git-ignored; required to compile)
+        working-directory: desktop
+        shell: bash
+        run: |
+          bun install
+          bun run icons
+
+      # The console is embedded at compile time (rust-embed over ../../web/dist).
+      # Without it, the two static-file cases in the proxy suites take their
+      # "bundle not built" skip branch — they pass, but they prove nothing.
+      - name: Build the workbench bundle
+        working-directory: web
+        shell: bash
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      # Linux really runs the suite; the log is kept so the summary below (and a
+      # failed job) can be read without scrolling through the step output.
+      - name: Cargo test (Linux, with log)
+        if: matrix.os == 'ubuntu-22.04'
+        working-directory: desktop/src-tauri
         shell: bash
         run: |
           set -o pipefail
-          dotnet test desktop/agentbuddy.sln --no-build \
-            --collect:"XPlat Code Coverage" \
-            --results-directory coverage \
-            --logger "console;verbosity=normal" 2>&1 | tee dotnet-test.log
+          cargo test 2>&1 | tee desktop-test.log
 
-      - name: Publish the test summary
-        if: always()
+      # Windows CI cannot start the Tauri native test binary, so it compiles only.
+      - name: Cargo test (Windows, compile only)
+        if: matrix.os != 'ubuntu-22.04'
+        working-directory: desktop/src-tauri
+        run: ${{ matrix.command }}
+
+      - name: Publish the desktop test summary
+        if: matrix.os == 'ubuntu-22.04'
+        working-directory: desktop/src-tauri
         shell: bash
         run: |
           {
-            echo "### dotnet test (${{ matrix.os }})"
+            echo '### cargo test (Linux)'
             echo '```'
-            grep -E '^(Passed!|Failed!|已通过!|失败!)' dotnet-test.log || true
+            grep -E '^(running [0-9]+ tests|test result:)' desktop-test.log || true
             echo '```'
-            echo 'Coverage (Cobertura):'
-            find coverage -name 'coverage.cobertura.xml' -print | sort || true
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload coverage and test log
-        if: always()
+      - name: Upload the desktop test log
+        if: matrix.os == 'ubuntu-22.04'
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-${{ matrix.os }}
-          path: |
-            coverage/**/coverage.cobertura.xml
-            dotnet-test.log
-          if-no-files-found: warn
+          name: desktop-test-log
+          path: desktop/src-tauri/desktop-test.log
+          if-no-files-found: error

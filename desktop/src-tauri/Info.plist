@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- macOS asks before the first getUserMedia(microphone) call; this string is
+       what the system shows. It is the only macOS-specific bit of the shell. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>agentbuddy uses your microphone for voice messages sent to agents.</string>
+</dict>
+</plist>
