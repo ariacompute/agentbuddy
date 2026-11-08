@@ -7,19 +7,6 @@
     "frontendDist": "../frontend-stub"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "agentbuddy",
-        "width": 1280,
-        "height": 820,
-        "minWidth": 960,
-        "minHeight": 600,
-        "resizable": true,
-        "center": true,
-        "visible": false
-      }
-    ],
     "trayIcon": {
       "id": "main",
       "iconPath": "icons/32x32.png",

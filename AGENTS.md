@@ -160,6 +160,12 @@ desktop/
   与代理自造的每个 JSON 机器码（`upstream_json`）都带 `Cache-Control: no-store` 与
   `X-Content-Type-Options: nosniff`；代理输出的 HTML 与内嵌资源同样带 `nosniff`
   （`static_files.rs`）。上游响应的缓存头与安全头一律原样透传，不由外壳代改。
+- **窗口在 Rust 里建**（`lib.rs` 的 `main_window`），`tauri.conf.json` 的 `app.windows` 故意为空：
+  只有 `WebviewWindowBuilder::on_new_window` 能接管新窗口请求，而 Tauri 默认 `Deny`——
+  工作台与外壳页里的 `window.open` / `<a target="_blank">`（「手动下载」就是它）点下去
+  **毫无反应**。现在 handler 把 `http(s)` 交给系统默认浏览器（`external.rs`：Windows 走
+  `ShellExecuteW`，macOS `open`，Linux `xdg-open`），其余 scheme 与 authority 里带凭据的地址
+  一律不出去，WebView 仍然拿不到新窗口；尺寸 / 最小尺寸 / 居中 / `visible(false)` 与原配置一致。
 - **关闭行为**：`CloseRequested` 时读取 `config.background`——为 `true`（默认）则
   `api.prevent_close()` + `window.hide()`（保留在托盘运行）；为 `false` 则放行关闭，
   应用随之退出（外壳无其他窗口）。**仅托盘「退出」恒走 `app.exit(0)`**。

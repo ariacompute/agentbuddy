@@ -14,6 +14,7 @@ use tauri::Manager;
 pub mod config;
 pub mod console;
 pub mod executor;
+pub mod external;
 pub mod i18n;
 pub mod notify;
 pub mod proxy;
@@ -106,6 +107,11 @@ pub fn run() {
                 }
             }
 
+            // Before anything that looks the window up. It is built in code
+            // rather than in tauri.conf.json because it carries the new-window
+            // handler, and a config-declared window cannot be given one.
+            main_window(app)?;
+
             // The session cookie is a bearer token, so it goes to the OS
             // credential store — the file next to config.json is only the
             // fallback for machines that have none.
@@ -173,4 +179,34 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("agentbuddy desktop: cannot start the app");
+}
+
+/// The one window the shell owns.
+///
+/// It is built here while everything else about it matches the `app.windows`
+/// entry it replaced (size, minimums, hidden until the proxy answers).
+///
+/// `on_new_window` is the reason it is not declared in `tauri.conf.json`: Tauri
+/// denies a new-window request by default, so `window.open` and
+/// `<a target="_blank">` in the workbench and in the shell's own pages were dead
+/// clicks — "Manual download" among them. The handler hands a web page to the OS
+/// browser and still denies the WebView a window it could not manage.
+fn main_window(app: &tauri::App) -> tauri::Result<()> {
+    tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+        .title("agentbuddy")
+        .inner_size(1280.0, 820.0)
+        .min_inner_size(960.0, 600.0)
+        .resizable(true)
+        .center()
+        // The startup below shows the window once there is a URL to show, so the
+        // first frame it paints is the workbench, never the stub.
+        .visible(false)
+        .on_new_window(|url, _features| {
+            if external::is_external(&url) {
+                external::open(&url);
+            }
+            tauri::webview::NewWindowResponse::Deny
+        })
+        .build()?;
+    Ok(())
 }
