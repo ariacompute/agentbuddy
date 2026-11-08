@@ -61,7 +61,7 @@
 |---|---|
 | F3.1 | 会话列表 / 新建 / 详情（消息 + 参与者） |
 | F3.2 | 输入框支持 `@mention` 委派；`@` 触发候选 agent 列表 |
-| F3.3 | 实时：打开会话时保持 `GET /api/threads/{id}/events` 长连接，增量追加；离开会话立即关闭该实体流，模板路径 `/api/threads/{id}/events` 本身永不订阅 |
+| F3.3 | 实时：打开会话时保持 `GET /api/threads/{id}/events` 长连接，增量追加 |
 | F3.4 | 消息来源标记：`origin` ∈ 空（文本）/ `voice` / 通道类型，以文本标签呈现 |
 | F3.5 | 右侧任务面板：本会话关联的 A2A 任务，可展开状态 / 产物 / 追踪 |
 
@@ -73,14 +73,13 @@
 | F4.2 | spans 分层列表（名称、耗时、状态）；artifacts 卡片（文本直展、文件显示大小、音频内联播放） |
 | F4.3 | `input-required` 时提供审批输入与 `POST /api/tasks/{id}/resume`；取消走 `POST /api/tasks/{id}/cancel` |
 | F4.4 | 危险操作二次确认 |
-| F4.5 | 实时：打开任务详情时按需订阅 `GET /api/tasks/{id}/events`，返回列表或切到别的详情即关闭；路由 id 非数字时不发请求、也不退化成订阅模板（模板路径在服务端不存在，订上就是永久 404）。同一实体并发进入只开**一条**流 |
 
 ### F5 后台常驻与通知（Muse/dots 对齐项）
 
 | 编号 | 需求 |
 |---|---|
 | F5.1 | 关闭窗口 = 最小化到托盘（保留环回网关、轮询与 SSE 订阅）；**仅托盘「退出」** 终止进程 |
-| F5.2 | 事件聚合：`MonitorService` 轮询 `/api/workspace` + `/api/tasks`（窗口可见 5s / 隐藏 20s / 失败指数退避 5s→30s）；`RealtimeService` **常开的只有沙盒与路由两路全局 SSE**（`Endpoints.GlobalStreams`），线程与任务是按需实体流（F3.3 / F4.5），随导航开关；按事件名分类、记录 `since` 游标，事件突发时以 1s 节流触发一次聚合刷新，避免 N+1 请求 |
+| F5.2 | 事件聚合：`MonitorService` 轮询 `/api/workspace` + `/api/tasks`（窗口可见 5s / 隐藏 20s / 失败指数退避 5s→30s）；`RealtimeService` 常开订阅线程 / 任务 / 沙盒 / 路由四路 SSE，按事件名分类、记录 `since` 游标，事件突发时以 1s 节流触发一次聚合刷新，避免 N+1 请求 |
 | F5.3 | 通知去重纯函数 `NotificationDecider`：幂等键 `taskID:state`（1h 窗口）、同键 30s 静默、每分钟 >8 条合并为摘要、静默期内只入站内通知中心 |
 | F5.4 | 系统通知**真实投递**：`NotificationDecider` 判定需要打扰后，工作台经 `POST /__shell/notify` 发一条本地化标题 + 摘要 + 深链（`title` 在发送时用当前语言解析，不是 copy key）。外壳的 `notify_enabled` 与 `notify_quiet_minutes` 由 `ShellControlClient` 读 `/__shell/config` 后喂给决策函数，因此设置页的「通知开关」与「静默期」真的生效。投递为 fire-and-forget：`ok:false`（`disabled` / `quiet` / `no_app` / `denied` / `missing_fields`）是正常回应，降级为应用内红点，不报错、不重试、不阻塞轮询；任何异常都被捕获，绝不产生未观察异常 |
 | F5.5 | **托盘角标**：工作台在未读数变化时经 `ShellControlClient.SetBadgeAsync` → `POST /__shell/badge` 推送，fire-and-forget 且吞掉异常。外壳把计数 clamp 到 `999`；tooltip 全平台可见，托盘标题在不支持该能力的平台静默失败，>99 显示 `99+`。**计数留在进程里**，语言切换重建菜单后重新套用，角标不丢；文案是 `TrayService.BadgeText(lang, count)` 纯函数（13 语 `trayUnread`） |
@@ -458,8 +457,6 @@
     文件系统、命令执行或更新安装权限，一切经 `/__shell/*` 控制面。
 36. `dotnet test --collect:"XPlat Code Coverage"` 出 Cobertura 报告；静态守卫是硬门槛，
     新增功能必须补正常 + 异常双路径用例，**不得**用 exclude / ignore 绕过。
-    当前基线：34 个源文件，行 **98.97%**、分支 **90.21%**；余下未命中均为平台独占或防御分支
-    （`UnixCreateMode`、钥匙串助手、`IsWindows` 三元、两处 `while` 回边、`Program` 入口）。
 37. 执行节点命令准入（F17.6/F17.7）：`node` 这类裸名可执行；`../evil/node`、`/bin/node`、
     `C:\x\node.exe`、`node --flag`、`sh`、`sh.exe`、`env`、`sudo`、`xargs`、`docker`、`ssh`
     一律 `command_not_allowed`；白名单条目同规则校验；工作目录的兄弟前缀（`root-evil`）与
@@ -477,13 +474,6 @@
     行为完全一致，且两条路径都不可能把 API key 写进 `config.json`。
 42. 更新验签（F19）：公钥盒 42 字节、签名盒 74 字节、`Ed` 标记与 8 字节 key id 必须两侧一致；
     `ED`（预哈希）、篡改负载、截断盒、空负载、空公钥一律拒绝；安装包文件名必须是纯文件名。
-43. 实体流跟随导航（F3.3 / F4.5）：进入 `/threads/{id}` 或 `/tasks/{id}` 只产生**恰好一条**
-    对应实体流，切屏或返回列表后归零；模板路径与非法 id 都不发请求；同一实体并发 `Track`
-    只开一条且每次调用都返回成功（`EntityStreams` 始终只有一项）；`StopAsync` 与关闭窗口后
-    实体流与全局流一并清空，不留 pump。
-44. 平台接缝（可移植性）：安装器命令、通知 argv、凭据助手、录音设备、减弱动效判定都能显式
-    传入目标 OS，因此三平台契约在任一宿主上都有正常 + 异常用例；公开 API 不因测试放宽，
-    只经 `InternalsVisibleTo` 暴露内部接缝。
 
 ## 7. 自动更新（F19）
 

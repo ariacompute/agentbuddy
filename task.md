@@ -1223,8 +1223,8 @@ v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的
    `NavigationService`（17 路由 + 登录守卫 + 数字 id 传给详情屏）、`ShellViewModel`、
    显式 `ViewLocator`、6 个共享控件（页头 / 顶栏 / 侧栏 / 文件传输 / 语音 / 任务动作）、
    Dark 基准 + Light 覆盖主题字典、RTL 与 `ReducedMotionService`。
-   新增 `RealtimeService` 订阅四路 SSE（M32 起改为 2 路全局 + 按需实体流），按事件名分类、
-  记录 `since` 游标、有界环形缓冲，以 1s 节流触发增量刷新，避免事件突发造成 N+1 请求。
+   新增 `RealtimeService` 订阅四路 SSE，按事件名分类、记录 `since` 游标、有界环形缓冲，
+   以 1s 节流触发增量刷新，避免事件突发造成 N+1 请求。
 6. **构建发布**：`tools/AgentBuddy.Build`（ab-tool）子命令
    `icons / stamp / inject-pubkey / sign / wix / manifest / verify`，替换 5 个 mjs 脚本；
    WiX v4 作者文件由 `ab-tool wix` 从 publish 输出确定性生成。
@@ -1308,67 +1308,3 @@ v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的
   与伪造的 `ab_proxy`，断言会话被持久化、`oauth_state` 只转发、`ab_proxy` 被丢弃。
 - 文档同步：`AGENTS.md`（网关准入与安全一节重写）、`requirements.md`（F17.6/F17.7、F18.2/F18.5
   与新增 F18.8–F18.12、验收 37–42）、三份 releasenotes。
-
-## M32 — 实体流按需订阅 + 覆盖率收口（2026-11-08）
-
-> 取代 M30 第 5 步的「四路 SSE 常开订阅」：线程与任务改按需，M30 记录的 91 条用例也已由 M31/M32 覆盖。
-
-### 1. 实体流改为按需订阅
-
-- 契约：`Endpoints.GlobalStreams`（只剩沙盒 / 路由两路 id-less 流）、`IsEntityStream`（唯一的
-  「id 填了吗」判断）、`TemplateFor`（把具体路径折回冻结模板）；`StreamEventNames` 仍按模板查事件名。
-- `RealtimeService` 增 `Track` / `UntrackAsync` / `SwitchEntityStreamAsync` / `EntityStreams`：
-  同一实体并发 `Track` 只开一条（`_entityStops.TryAdd` 单飞，落败者释放自己的 linked CTS
-  并如实返回 true），切屏关旧开新；`StopAsync` 连实体 pump 一起收，不留后台任务。
-- `NavigationService.EntityStreamChanged` + `IEntityScreen`（`EntityId` / `StreamTemplate`）：
-  详情路由解析出数字 id 才发请求；**模板路径永不订阅**（服务端没有该路由，订上就是永久 404），
-  非法 id 只关闭既有流。`Composition` 把该事件接到 `Realtime.SwitchEntityStreamAsync`。
-- 顺带：`TrayHost` 在无托盘区域的桌面（裸 X11 / headless）不再因 `TrayIcon.SetIcons` 失败而中断启动。
-
-### 2. 平台与生产专属依赖留内部接缝
-
-公开 API 不放宽，只经三处 `InternalsVisibleTo` 给测试项目：
-
-- App：`Composition.InitializeAsync(IAppPaths)` / `OnRealtimeEvent`、`TrayHost.Handle`、
-  `ReducedMotionService.Detect(value, isWindows)`（`ReduceMotion` 可写）、
-  `FfmpegAudioService.StartProcess` / `InputDevice(os)`。
-- Core：`ProgressStream` / `OwnedStream` 直接驱动（本就是 internal 设计）。
-- Shell：`CredentialStore(primary, fallback)` / `CreatePrimary(os, exists)` / `Exists` / `RunAsync`、
-  执行节点超时预算参数、`SystemNotifier.DescribeNative(os)` / `CurrentOs` / `StartProcess`、
-  `PlatformUpgradeInstaller.DescribeInstall(os)` / `StartProcess`。
-
-### 3. 用例与覆盖
-
-- `dotnet test agentbuddy.sln`：**394 条**（Core 143 / Shell 207 / App 33 / Guards 11），
-  较 M31 的 174 条（Core 50 / App 14 / Shell 99）增 **220**（Core +93 / Shell +108 / App +19）。
-- 新增套件：`CoverageGapTests` / `CoreCoverageTests` / `GatewayCoverageTests` /
-  `ShellEngineCoverageTests` / `ShellResidualCoverageTests` / `ShellRouteCoverageTests` /
-  `AppViewModelCoverageTests` / `AppShellCoverageTests`（最后一支在独立 UI 线程上用
-  Avalonia.Headless 跑真实窗口、托盘与组合根）。
-- 覆盖率（Cobertura，34 个源文件）：行 **98.97%**、分支 **90.21%**。关键文件：
-  `RealtimeService` 99.2% / 100%、`MonitorService` 98.9% / 100%、`ConfigService` 98.3% / 84.2%、
-  `ShellRoutes` 99.6%、`Executor` 99%、`Composition` 94.2% / 73.8%。
-- 两处为「可确定性」而非凑数而设计：`Track` 的「已认领未发布」窗口用预置 `_entityStops`
-  直接构造，不靠线程调度抽签；SSE 上限用一个用例同时打 ≤1MiB 多行（事件超限）与 >1MiB
-  单行（整行超限）两条丢弃路径，并断言后续事件仍正常分帧。
-
-### 4. 验证
-
-- `dotnet build agentbuddy.sln -warnaserror`：**0 警告 0 错误**。
-- `dotnet test agentbuddy.sln`：**394 条全绿**；Core 套件连跑 3 轮稳定。
-- `dotnet test --collect:"XPlat Code Coverage"` 产出 Cobertura；Guards 11 条全绿
-  （13 语键集与英文兜底、单色 XAML、模板无硬编码、冻结端点常量全部可达且白名单为空、共享控件复用）。
-- 残余未覆盖均为平台独占或防御分支：`ConfigService` 的 `UnixCreateMode`、`Credentials` 的
-  `CredentialBlobSize < 2` 与 mac/linux 助手、`LoopbackGateway` 的「未报告绑定地址」、
-  `PlatformKeys.Current` 的 `IsWindows` 三元、`Program` 入口；`MonitorService` / `RealtimeService`
-  各剩一处 `while` 回边序列点（命中需等满 5s 轮询，不为它加慢测试）。
-- 已知噪声：带覆盖率插桩且四项目并行时，App headless fixture 曾掉 1 例（未采集、单独运行
-  与之后两次全量均 33/33），属 60s/5s 预算下的时序敏感，未观察到与被测代码相关。
-
-### 5. 文档同步
-
-- `AGENTS.md`：目录条目（2 路全局 + 按需实体流）、新增「实体流按需订阅」硬约定，
-  以及「平台接缝」「覆盖率基线」两条测试约定。
-- `requirements.md`：F3.3 补「离开即关、模板不订阅」、新增 F4.5、**纠正 F5.2 的「四路常开」**，
-  验收 36 补基线并新增 43（实体流跟随导航）/ 44（平台接缝）。
-- `releasenotes_emoji.md`：实时与测试两节同步，用例数 91 → 394。

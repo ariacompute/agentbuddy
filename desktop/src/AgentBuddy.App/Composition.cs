@@ -30,15 +30,10 @@ public static class Composition
     private static int _windowVisible = 1;
     private static bool IsWindowVisible => Volatile.Read(ref _windowVisible) != 0;
 
-    public static Task InitializeAsync(CancellationToken ct = default) => InitializeAsync(new AppPaths(), ct);
-
-    /// <summary>
-    /// Test entry point: the paths are injected so a test run never reads or writes the
-    /// real user profile. The public overload uses <see cref="AppPaths"/> defaults.
-    /// </summary>
-    internal static async Task InitializeAsync(IAppPaths paths, CancellationToken ct = default)
+    public static async Task InitializeAsync(CancellationToken ct = default)
     {
         if (Initialized) return;
+        var paths = new AppPaths();
         var config = new ConfigService(paths);
         await config.LoadAsync(ct).ConfigureAwait(false);
 
@@ -119,8 +114,6 @@ public static class Composition
 
         Realtime = new RealtimeService(Hub, () => IsWindowVisible);
         Realtime.EventReceived += OnRealtimeEvent;
-        Navigation.EntityStreamChanged += path =>
-            FireAndForget(Realtime?.SwitchEntityStreamAsync(path) ?? Task.CompletedTask);
         await Realtime.StartAsync(ct).ConfigureAwait(false);
         Initialized = true;
     }
@@ -130,8 +123,7 @@ public static class Composition
     /// events cannot turn into N+1 requests. Badge and notification work stays in the
     /// poller; nothing here blocks the SSE pump.
     /// </summary>
-    /// <summary>Internal so the once-per-second aggregation can be asserted directly.</summary>
-    internal static void OnRealtimeEvent(HubEvent item)
+    private static void OnRealtimeEvent(HubEvent item)
     {
         var now = Environment.TickCount64;
         var last = Interlocked.Read(ref _lastRefreshMs);

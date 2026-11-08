@@ -33,16 +33,15 @@ public static class RealtimeEvents
 
     /// <summary>Rejects keepalives and events that do not belong to the subscribed stream.</summary>
     public static bool BelongsTo(string streamPath, string eventName) =>
-        Endpoints.StreamEventNames.TryGetValue(Endpoints.TemplateFor(streamPath), out var names) &&
+        Endpoints.StreamEventNames.TryGetValue(streamPath, out var names) &&
         names.Contains(eventName, StringComparer.Ordinal);
 }
 
 /// <summary>
-/// Owns the long-lived subscriptions: the two global streams started up front and the
-/// per-entity thread/task stream of whichever detail screen is open. Each stream tracks
-/// its last event id so a reconnect replays with since=&lt;seq&gt;; a bounded ring keeps
-/// recent events for the views. Failures back off using the same 5s/20s/30s ladder as
-/// the poller. There is no overall timeout: the streams stay open indefinitely.
+/// Owns the four long-lived subscriptions. Each stream tracks its last event id so a
+/// reconnect replays with since=&lt;seq&gt;; a bounded ring keeps recent events for the
+/// views. Failures back off using the same 5s/20s/30s ladder as the poller. There is
+/// no overall timeout: the streams are expected to stay open indefinitely.
 /// </summary>
 public sealed class RealtimeService : IAsyncDisposable
 {
@@ -51,8 +50,6 @@ public sealed class RealtimeService : IAsyncDisposable
     private readonly IAgentHubClient _client;
     private readonly ConcurrentDictionary<string, long> _cursors = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, List<HubEvent>> _recent = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, CancellationTokenSource> _entityStops = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, Task> _entityPumps = new(StringComparer.Ordinal);
     private readonly object _gate = new();
     private readonly Func<bool> _isVisible;
     private CancellationTokenSource? _stop;
@@ -79,73 +76,14 @@ public sealed class RealtimeService : IAsyncDisposable
             return _recent.TryGetValue(path, out var items) ? items.ToArray() : [];
     }
 
-    /// <summary>
-    /// Starts the two id-less streams only. Thread and task streams are per entity, so
-    /// subscribing to their template ("/api/tasks/{id}/events") would 404 forever; the
-    /// UI opens those with <see cref="SwitchEntityStreamAsync"/> instead.
-    /// </summary>
     public Task StartAsync(CancellationToken ct = default)
     {
         if (_stop is not null) return Task.CompletedTask;
         _stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _pumps = Endpoints.GlobalStreams
+        _pumps = Endpoints.StreamEventNames.Keys
             .Select(path => Task.Run(() => PumpAsync(path, _stop.Token), CancellationToken.None))
             .ToArray();
         return Task.CompletedTask;
-    }
-
-    /// <summary>The per-entity streams currently open, keyed by their concrete path.</summary>
-    public IReadOnlyCollection<string> EntityStreams => _entityPumps.Keys.ToArray();
-
-    /// <summary>
-    /// Opens one per-entity stream ("/api/threads/42/events") and keeps it pumping.
-    /// Templates and unknown paths are refused, so an unfilled route cannot turn into a
-    /// permanent 404 subscription. Returns true when the path is now tracked.
-    /// </summary>
-    public bool Track(string path, CancellationToken ct = default)
-    {
-        if (!Endpoints.IsEntityStream(path)) return false;
-        if (_entityPumps.ContainsKey(path)) return true;
-
-        var owner = _stop;
-        var linked = owner is null
-            ? CancellationTokenSource.CreateLinkedTokenSource(ct)
-            : CancellationTokenSource.CreateLinkedTokenSource(owner.Token, ct);
-        if (!_entityStops.TryAdd(path, linked))
-        {
-            linked.Dispose();
-            return true;
-        }
-        _entityPumps[path] = Task.Run(() => PumpAsync(path, linked.Token), CancellationToken.None);
-        return true;
-    }
-
-    /// <summary>Closes one per-entity stream and waits for its pump to unwind.</summary>
-    public async Task UntrackAsync(string path)
-    {
-        if (!_entityStops.TryRemove(path, out var stop)) return;
-        stop.Cancel();
-        if (_entityPumps.TryRemove(path, out var pump))
-        {
-            try { await pump.ConfigureAwait(false); }
-            catch (OperationCanceledException) { }
-        }
-        stop.Dispose();
-    }
-
-    /// <summary>
-    /// Navigation hook: closes every entity stream and opens the one the new screen
-    /// needs (null closes them all). Entity streams are mutually exclusive because only
-    /// one detail screen is visible at a time.
-    /// </summary>
-    public async Task SwitchEntityStreamAsync(string? path)
-    {
-        foreach (var open in _entityPumps.Keys.ToArray())
-        {
-            if (!string.Equals(open, path, StringComparison.Ordinal))
-                await UntrackAsync(open).ConfigureAwait(false);
-        }
-        if (path is not null) Track(path);
     }
 
     /// <summary>
@@ -211,8 +149,6 @@ public sealed class RealtimeService : IAsyncDisposable
             catch (OperationCanceledException) { }
         }
         _pumps = [];
-        foreach (var entity in _entityPumps.Keys.ToArray())
-            await UntrackAsync(entity).ConfigureAwait(false);
         _stop.Dispose();
         _stop = null;
     }

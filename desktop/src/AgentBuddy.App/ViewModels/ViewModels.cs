@@ -45,14 +45,10 @@ public abstract class ViewModelBase(ILocalizationService copy) : ObservableObjec
 /// One per screen. Every screen declares the exact endpoint constants it uses;
 /// tests/AgentBuddy.Guards asserts no frozen constant is left unwired.
 /// </summary>
-/// <summary>
-/// Detail screens receive the numeric id parsed from the route and declare the stream
-/// template that id belongs to; navigation formats it and opens it on demand.
-/// </summary>
+/// <summary>Detail screens receive the numeric id parsed from the route.</summary>
 public interface IEntityScreen
 {
     long EntityId { get; set; }
-    string StreamTemplate { get; }
 }
 
 public abstract class ScreenViewModel : ViewModelBase
@@ -197,7 +193,6 @@ public sealed class ThreadViewModel : ScreenViewModel, IEntityScreen
 
     public override string TitleKey => "nav.threads";
     public long EntityId { get; set; }
-    public string StreamTemplate => Endpoints.ThreadEvents;
     public IAudioService? Audio { get; set; }
     public string RecordLabel => Copy.Get("voice.record");
     public string PlayLabel => Copy.Get("voice.play");
@@ -205,9 +200,7 @@ public sealed class ThreadViewModel : ScreenViewModel, IEntityScreen
     public IAsyncRelayCommand PlayCommand { get; }
 
     protected override Task<JsonElement?> LoadAsync(CancellationToken ct) =>
-        EntityId <= 0
-            ? Task.FromResult<JsonElement?>(null)
-            : Hub.SendAsync(Endpoints.Format(Endpoints.ThreadMessages, ("id", EntityId)), HttpMethod.Get, null, ct);
+        Hub.SendAsync(Endpoints.ThreadMessages, HttpMethod.Get, null, ct);
 
     public Task<JsonElement?> SendAudioAsync(long threadId, Stream audio, CancellationToken ct = default) =>
         Hub.PostAudioAsync(threadId, audio, ct);
@@ -255,7 +248,7 @@ public sealed class TaskTraceViewModel : ScreenViewModel, IEntityScreen
 {
     public TaskTraceViewModel(IAgentHubClient hub, IShellControl control, ILocalizationService copy)
         : base(hub, control, copy, "/tasks/:id",
-            [Endpoints.TaskById, Endpoints.TaskCancel, Endpoints.TaskResume, Endpoints.TaskEvents])
+            [Endpoints.TaskCancel, Endpoints.TaskResume, Endpoints.TaskEvents])
     {
         CancelCommand = new AsyncRelayCommand(() => ActAsync(Endpoints.TaskCancel));
         ResumeCommand = new AsyncRelayCommand(() => ActAsync(Endpoints.TaskResume));
@@ -263,16 +256,13 @@ public sealed class TaskTraceViewModel : ScreenViewModel, IEntityScreen
 
     public override string TitleKey => "nav.tasks";
     public long EntityId { get; set; }
-    public string StreamTemplate => Endpoints.TaskEvents;
     public string CancelLabel => Copy.Get("action.cancel");
     public string RetryLabel => Copy.Get("action.retry");
     public IAsyncRelayCommand CancelCommand { get; }
     public IAsyncRelayCommand ResumeCommand { get; }
 
     protected override Task<JsonElement?> LoadAsync(CancellationToken ct) =>
-        EntityId <= 0
-            ? Task.FromResult<JsonElement?>(null)
-            : Hub.SendAsync(Endpoints.Format(Endpoints.TaskById, ("id", EntityId)), HttpMethod.Get, null, ct);
+        Hub.SendAsync(Endpoints.TaskEvents, HttpMethod.Get, null, ct);
 
     private async Task ActAsync(string template)
     {

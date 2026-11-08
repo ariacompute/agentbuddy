@@ -184,16 +184,7 @@ public sealed class ExecutorService(ICredentialStore credentials)
         Enabled = enabled;
     }
 
-    public Task<ExecResult> ExecuteAsync(ShellConfig config, ExecRequest request, CancellationToken ct = default) =>
-        ExecuteAsync(config, request,
-            TimeSpan.FromSeconds(global::AgentBuddy.Core.Contracts.Limits.ExecutorTimeoutSeconds), ct);
-
-    /// <summary>
-    /// The budget is a parameter so the timeout/kill path can be driven in a test
-    /// instead of waiting the production minute out.
-    /// </summary>
-    internal async Task<ExecResult> ExecuteAsync(ShellConfig config, ExecRequest request, TimeSpan timeout,
-        CancellationToken ct = default)
+    public async Task<ExecResult> ExecuteAsync(ShellConfig config, ExecRequest request, CancellationToken ct = default)
     {
         if (!Enabled) throw new ExecutorRejectException(ExecutorReject.CommandNotAllowed);
         var rootError = ExecutorPolicy.ValidateRoot(config.ExecutorRoot);
@@ -209,7 +200,7 @@ public sealed class ExecutorService(ICredentialStore credentials)
 
         EnsureSlots(config.ExecutorMaxConcurrency);
         await _slots.WaitAsync(ct).ConfigureAwait(false);
-        try { return await SpawnAsync(request.Command, request.Args, dir, environment, timeout, ct).ConfigureAwait(false); }
+        try { return await SpawnAsync(request.Command, request.Args, dir, environment, ct).ConfigureAwait(false); }
         finally { _slots.Release(); }
     }
 
@@ -228,7 +219,7 @@ public sealed class ExecutorService(ICredentialStore credentials)
 
     private static async Task<ExecResult> SpawnAsync(
         string command, string[] args, string directory,
-        IReadOnlyDictionary<string, string> environment, TimeSpan timeout, CancellationToken ct)
+        IReadOnlyDictionary<string, string> environment, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(command)
         {
@@ -257,10 +248,10 @@ public sealed class ExecutorService(ICredentialStore credentials)
         // Bounded reads: output past the cap is drained and discarded, never buffered.
         var stdout = ReadBoundedAsync(process.StandardOutput, ct);
         var stderr = ReadBoundedAsync(process.StandardError, ct);
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        deadline.CancelAfter(timeout);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(global::AgentBuddy.Core.Contracts.Limits.ExecutorTimeoutSeconds));
         var timedOut = false;
-        try { await process.WaitForExitAsync(deadline.Token).ConfigureAwait(false); }
+        try { await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false); }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             timedOut = true;

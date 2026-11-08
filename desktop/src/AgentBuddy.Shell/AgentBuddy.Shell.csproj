@@ -8,11 +8,4 @@
   <ItemGroup>
     <ProjectReference Include="..\AgentBuddy.Core\AgentBuddy.Core.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <!-- Platform seams (installer command, notification argv, credential-helper
-         runner) are internal so the test suite can assert all three OS contracts
-         on whichever host runs it, without widening the public surface. -->
-    <InternalsVisibleTo Include="AgentBuddy.Shell.Tests" />
-    <InternalsVisibleTo Include="AgentBuddy.App.Tests" />
-  </ItemGroup>
 </Project>

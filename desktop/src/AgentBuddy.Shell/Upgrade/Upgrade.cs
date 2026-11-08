@@ -290,38 +290,6 @@ public sealed class UpgradeService
 /// <summary>Platform-specific install. The plugin-free implementation is deliberately explicit.</summary>
 public sealed class PlatformUpgradeInstaller : IUpgradeInstaller
 {
-    /// <summary>Test seam: the one place the installer process is started.</summary>
-    internal static Func<ProcessStartInfo, Process?> StartProcess { get; set; } = static psi => Process.Start(psi);
-
-    /// <summary>
-    /// The installer command for a package, or null when the platform has no installer
-    /// for it. <paramref name="os"/> defaults to the running platform and is only passed
-    /// explicitly by tests, so all three branches can be asserted on one host.
-    /// </summary>
-    internal static (ProcessStartInfo Start, bool CleanUp)? DescribeInstall(string file, string fileName, string? os = null)
-    {
-        os ??= OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux";
-        var psi = new ProcessStartInfo { UseShellExecute = false, CreateNoWindow = true };
-        if (os == "windows" && fileName.EndsWith(".msi", StringComparison.OrdinalIgnoreCase))
-        {
-            psi.FileName = "msiexec";
-            psi.ArgumentList.Add("/i"); psi.ArgumentList.Add(file); psi.ArgumentList.Add("/passive");
-            return (psi, true);
-        }
-        if (os == "macos" && fileName.EndsWith(".dmg", StringComparison.OrdinalIgnoreCase))
-        {
-            // open returns as soon as the mount starts, so the image must survive.
-            psi.FileName = "open"; psi.ArgumentList.Add(file);
-            return (psi, false);
-        }
-        if (os == "linux" && fileName.EndsWith(".deb", StringComparison.OrdinalIgnoreCase))
-        {
-            psi.FileName = "dpkg"; psi.ArgumentList.Add("-i"); psi.ArgumentList.Add(file);
-            return (psi, true);
-        }
-        return null;
-    }
-
     public async Task<bool> InstallAsync(byte[] package, string fileName, CancellationToken ct)
     {
         // The name comes from a manifest URL: keep it a plain file name so the write
@@ -335,9 +303,24 @@ public sealed class PlatformUpgradeInstaller : IUpgradeInstaller
         try
         {
             await File.WriteAllBytesAsync(file, package, ct).ConfigureAwait(false);
-            if (DescribeInstall(file, fileName) is not { } plan) return false;
-            cleanUp = plan.CleanUp;
-            using var process = StartProcess(plan.Start);
+            var psi = new ProcessStartInfo { UseShellExecute = false, CreateNoWindow = true };
+            if (OperatingSystem.IsWindows() && fileName.EndsWith(".msi", StringComparison.OrdinalIgnoreCase))
+            {
+                psi.FileName = "msiexec";
+                psi.ArgumentList.Add("/i"); psi.ArgumentList.Add(file); psi.ArgumentList.Add("/passive");
+            }
+            else if (OperatingSystem.IsMacOS() && fileName.EndsWith(".dmg", StringComparison.OrdinalIgnoreCase))
+            {
+                // open returns as soon as the mount starts, so the image must survive.
+                psi.FileName = "open"; psi.ArgumentList.Add(file);
+                cleanUp = false;
+            }
+            else if (OperatingSystem.IsLinux() && fileName.EndsWith(".deb", StringComparison.OrdinalIgnoreCase))
+            {
+                psi.FileName = "dpkg"; psi.ArgumentList.Add("-i"); psi.ArgumentList.Add(file);
+            }
+            else return false;
+            using var process = Process.Start(psi);
             if (process is null) return false;
             await process.WaitForExitAsync(ct).ConfigureAwait(false);
             return process.ExitCode == 0;

@@ -6,9 +6,4 @@
   <ItemGroup>
     <EmbeddedResource Include="I18n\copy.json" />
   </ItemGroup>
-  <ItemGroup>
-    <!-- The bounded streams and the progress wrapper are internal by design; the
-         coverage suite drives their members directly instead of leaking a public API. -->
-    <InternalsVisibleTo Include="AgentBuddy.Core.Tests" />
-  </ItemGroup>
 </Project>

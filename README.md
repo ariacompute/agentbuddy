@@ -4,6 +4,9 @@
 
 A **native .NET 10 / Avalonia** desktop client for the
 [agenthub](https://github.com/ariacompute/agenthub) A2A interconnection platform.
+There is no WebView, no embedded web bundle and no local backend: the XAML UI talks
+to an in-process loopback gateway that forwards `/api`, `/a2a`, `/healthz` and
+`/.well-known` to the configured server.
 
 ## Features
 
@@ -45,10 +48,10 @@ Prerequisites: the **.NET 10 SDK** (pinned by `desktop/global.json`). No Node,
 no Rust toolchain and no frontend build is needed.
 
 ```bash
-make dotnet-install              # verify the SDK and restore desktop/agentbuddy.sln
-make dotnet-icons                # derive png/ico/icns from desktop/assets/app-icon.png
-make dotnet-build                # build the whole solution, warnings are errors
-make dotnet-publish RID=win-x64  # self-contained publish (linux-x64 / osx-arm64 / win-x64)
+make dotnet-install   # verify the SDK and restore desktop/agentbuddy.sln
+make dotnet-icons     # derive png/ico/icns from desktop/assets/app-icon.png
+make dotnet-build     # build the whole solution, warnings are errors
+make dotnet-publish RID=win-x64   # self-contained publish (linux-x64 / osx-arm64 / win-x64)
 ```
 
 Or directly, without `make`:
@@ -68,9 +71,9 @@ dotnet run --project src/AgentBuddy.App/AgentBuddy.App.csproj   # launch the nat
 ## Test
 
 ```bash
-make test             # dotnet test agentbuddy.sln — fully offline
-make dotnet-coverage  # Cobertura coverage for all four test projects
-make dotnet-smoke     # real-socket loopback gateway smoke, loopback only
+make test              # dotnet test agentbuddy.sln — fully offline
+make dotnet-coverage   # Cobertura coverage for all four test projects
+make dotnet-smoke      # real-socket loopback gateway smoke, loopback only
 ```
 
 Four xUnit projects replace the old frontend/desktop split:
