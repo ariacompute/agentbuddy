@@ -1241,3 +1241,35 @@ v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的
   `command_not_allowed` / `root_unusable`），13 语文案与 `api-usage.spec.js` 白名单不受影响。
 - 桌面端编译校验仍走 `cargo test --no-run`（本机 Windows 测试二进制同样因 Tauri 原生依赖
   无法启动，纯逻辑用例留 CI/Linux 实跑）。
+
+## M31 — 覆盖率闸门收口：入口文件也计入（2026-11-08）
+
+`web/src/main.js` 一直被 `vite.config.js` 的 `test.coverage.exclude` 挡在闸门外，报告里的
+「100%」其实是「除入口之外的 `src` 100%」。这一轮把入口拉回闸门内，并删掉唯一的 exclude。
+
+### 1. 问题
+
+- `main.js` 里两处 `typeof window !== 'undefined' ? … : …` 是**测试便利**留下的守卫：该文件只由
+  `index.html` 以 `<script type="module">` 加载，浏览器里恒有 `window`，两条 else 分支没有任何
+  执行路径，分支覆盖永远到不了 100%——于是干脆被 exclude 掉，闸门因此不再覆盖「应用是否真能起来」。
+- 这与 `AGENTS.md` 里「禁止用 exclude 绕过」的约定直接冲突：数字是绿的，但绿得没有意义。
+
+### 2. 收口
+
+- `src/main.js`：删掉两处 `typeof window` 守卫，直接
+  `setLang(detectLang(window.location.search, window.localStorage))`；文件因此没有分支，
+  可以被真实导入并跑到 100%。
+- `vite.config.js`：移除 `test.coverage.exclude` 整条，`include` 仍是 `src/**/*.{js,vue}`。
+- 新增 `tests/main-bootstrap.spec.js`（`@vitest-environment jsdom`）：`vi.resetModules()` + 再导入
+  跑**真入口**，`fetch` 本地桩只回答 `/__shell/config`、`/api/auth/me`（401 `unauthenticated`）
+  与 `/api/auth/config`。
+
+### 3. 验证
+
+- 3 条用例：`?lang=ar` → `<html lang=ar dir=rtl>`、`agentbuddy.lang` 落盘、语言推给
+  `/__shell/config`、匿名访客被路由守卫送到 `/login`（登录表单真的渲染，不是空 `router-view`
+  占位）；无 query 时用 storage 里的 `ja`；两者都没有时按 `navigator.language`；
+  `?lang=xx` 这类未知码被 `detectLang` 丢弃后回落浏览器语言，不会半本地化启动。
+- `bun run test:coverage`：33 spec / 788 用例全绿，语句/行/分支/函数四项 **100%**
+  （11008 语句、1808 分支、433 函数），`main.js` 单独一行也是 100%，且配置里已无 exclude。
+- `bun run build` 仍通过；`AGENTS.md` 的基线数字同步更新。

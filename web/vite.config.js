@@ -25,12 +25,13 @@ export default defineConfig({
     include: ['tests/**/*.spec.js'],
     setupFiles: ['tests/setup.js'],
     // The report is the map for the next round of tests: it counts what the
-    // specs actually exercise, not what happened to be imported.
+    // specs actually exercise, not what happened to be imported. Nothing is
+    // excluded: `src/main.js` is the browser entry point and is covered by
+    // tests/main-bootstrap.spec.js, so the 100% gate really covers all of `src`.
     coverage: {
       provider: 'v8',
       reporter: ['text-summary', 'text'],
       include: ['src/**/*.{js,vue}'],
-      exclude: ['src/main.js'],
     },
   },
 })
