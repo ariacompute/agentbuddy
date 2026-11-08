@@ -35,19 +35,25 @@ public class ResidualShellTests : IDisposable
     public async Task AVerifiedPackageIsHandedToTheInstallerAndItsExitCodeDecides()
     {
         var original = PlatformUpgradeInstaller.StartProcess;
+        // InstallAsync asks the running platform for a plan, so the package has to
+        // be the one this OS installs. A hard-coded .msi returns false before any
+        // spawn on macOS (.dmg) and Linux (.deb), which is where CI runs this.
+        var package = OperatingSystem.IsWindows() ? "agentbuddy.msi"
+            : OperatingSystem.IsMacOS() ? "agentbuddy.dmg"
+            : "agentbuddy.deb";
         try
         {
             PlatformUpgradeInstaller.StartProcess = _ => TestProbe.Echo();
-            Assert.True(await new PlatformUpgradeInstaller().InstallAsync([1, 2], "agentbuddy.msi", CancellationToken.None));
+            Assert.True(await new PlatformUpgradeInstaller().InstallAsync([1, 2], package, CancellationToken.None));
 
             PlatformUpgradeInstaller.StartProcess = _ => TestProbe.Failer();
-            Assert.False(await new PlatformUpgradeInstaller().InstallAsync([1], "agentbuddy.msi", CancellationToken.None));
+            Assert.False(await new PlatformUpgradeInstaller().InstallAsync([1], package, CancellationToken.None));
 
             PlatformUpgradeInstaller.StartProcess = _ => null;
-            Assert.False(await new PlatformUpgradeInstaller().InstallAsync([1], "agentbuddy.msi", CancellationToken.None));
+            Assert.False(await new PlatformUpgradeInstaller().InstallAsync([1], package, CancellationToken.None));
 
             PlatformUpgradeInstaller.StartProcess = _ => throw new InvalidOperationException("no installer");
-            Assert.False(await new PlatformUpgradeInstaller().InstallAsync([1], "agentbuddy.msi", CancellationToken.None));
+            Assert.False(await new PlatformUpgradeInstaller().InstallAsync([1], package, CancellationToken.None));
         }
         finally { PlatformUpgradeInstaller.StartProcess = original; }
     }
