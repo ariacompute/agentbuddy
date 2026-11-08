@@ -113,6 +113,15 @@ gateway that forwards `/api`, `/a2a`, `/healthz` and `/.well-known`.
   `file_not_found`. All four screens take that as "already done" and reload, instead of
   raising a refusal in front of a row that no longer exists; every other failure still
   surfaces with localized copy and leaves the row in place.
+- **Realtime follows navigation**: only the sandbox and router streams stay open
+  for the whole session. A thread or task stream belongs to one entity, so
+  whichever detail screen is showing opens it and leaving closes it —
+  `/api/tasks/42/events` is formatted from the route id, a path resolved more
+  than once at the same moment still produces exactly one stream, and the
+  template `/api/tasks/{id}/events` itself is never subscribed (the server has no
+  such route, so it would 404 forever). Reconnects replay from the last `seq`,
+  and a burst of frames triggers at most one aggregate refresh per second instead
+  of N+1 requests.
 - **i18n & theme**: a language switcher (13 languages) and light/dark theme,
   persona avatars and a notification center.
 
@@ -214,27 +223,40 @@ the UI gains no filesystem or command-execution permission.
 
 ## 9. Tests
 
-- Four xUnit projects replace the old frontend/desktop split; **91 cases**, all
-  offline, with a normal and a failure path for every new capability.
+- Four xUnit projects replace the old frontend/desktop split; **394 cases**
+  (Core 143 / Shell 207 / App 33 / Guards 11), all offline, with a normal and a
+  failure path for every new capability.
   `AgentBuddy.Core.Tests` covers 13-language fallback, endpoint contracts,
-  config, SSE framing, `MonitorService` and `RealtimeService` (classification,
-  `since` replay, reconnect backoff and bounded ring).
+  config, SSE framing and its byte caps, `MonitorService` and `RealtimeService`
+  (classification, `since` replay, reconnect backoff, bounded ring, and the
+  per-entity lifecycle: the same path claimed concurrently still opens one
+  stream, a claimed-but-unpublished path reports success and opens nothing,
+  and a cancelled pump untracks without throwing).
   `AgentBuddy.Shell.Tests` covers bootstrap admission (including wrong-guess
   nonce preservation), Cookie/Location rewriting, streaming forward, credential
   fallback, executor policy, upgrade source race / signature failure, deep links
   and tray badge; `GatewaySmokeTests` runs a real Kestrel loopback gateway and
   an upstream HTTP stub over real sockets, with SSE arriving incrementally.
   `AgentBuddy.App.Tests` covers Avalonia.Headless ViewModels, the route guard,
-  numbered detail routes, file transfer, voice and notification deep links.
+  numbered detail routes, file transfer, voice, notification deep links, and one
+  full assembly pass that raises the real window, tray and composition root on a
+  dedicated UI thread.
 - `AgentBuddy.Guards` is the hard gate: 13-language key parity with real
   translations, monochrome `.axaml` scan, no hardcoded template text, every
   frozen endpoint constant referenced (empty allow-list), all 17 views mapped by
   the `ViewLocator`, shared-control reuse, paired theme dictionaries, .NET-only
   build/release wiring and the exactly-nine-assets release contract.
+- **Portable seams instead of a wider public API**: the installer command,
+  notification argv, credential helper, capture device, reduced-motion probe and
+  tray dispatch each take an explicit target OS (internal, reached through
+  `InternalsVisibleTo`), so all three platform contracts have normal and failure
+  cases on whichever host runs the suite.
 - `dotnet build agentbuddy.sln -warnaserror` is **0 warnings / 0 errors**;
   `dotnet test --collect:"XPlat Code Coverage"` produces a Cobertura report and
   CI uploads both coverage and the test log. Static guards — not line coverage —
   are the gate, so a chromatic colour or an untranslated key fails the build.
+  Current baseline: 34 source files at **98.97% lines / 90.21% branches**;
+  everything still uncovered is platform-exclusive or defensive.
 - Release verification ran locally too: a self-contained `win-x64` publish fed
   `ab-tool wix`, and WiX 4.0.6 built a real MSI from the generated 369-component
   authoring; a one-off minisign key signed six downloads, `ab-tool manifest`
@@ -293,5 +315,6 @@ the UI gains no filesystem or command-execution permission.
 - 82 new cases pin all of the above (`ProxyHardeningTests`,
   `ExecutorHardeningTests`, `ConfigPatchHardeningTests`, `UpgradeHardeningTests`,
   `NotificationHardeningTests`, `CredentialHardeningTests`, `TrayHardeningTests`,
-  `StreamBoundTests`, `ResponseBoundTests`, `ConfigBoundTests`) — 174 total, all
-  offline, still 0 warnings.
+  `StreamBoundTests`, `ResponseBoundTests`, `ConfigBoundTests`) — 174 total at the
+  time, all offline, still 0 warnings. The suite has since grown to 394 cases
+  (§9), with the per-entity stream lifecycle covered as well.

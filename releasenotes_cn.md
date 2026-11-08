@@ -63,7 +63,8 @@ agentbuddy 是 agenthub 的 **.NET 10 / Avalonia 原生桌面客户端**。它�
 - **Avalonia XAML + MVVM** 原生工作台，共享顶栏、左栏与内容区；6 个共享控件
   （页头、顶栏、侧栏、文件传输、语音、任务动作）在 17 个视图间复用。
 - **各屏**：原有八屏——登录、工作区、线程、任务追踪、组织、通道、连接器、设置——外加
-  agent 能力屏与共享文件屏，共 15 屏 / 16 条路由；线程与任务各自拥有独立的列表视图与详情视图；
+  agent 能力屏与共享文件屏，外加连接页与关于页两个原生窗口，共 15 屏 / 17 条路由；
+  线程与任务各自拥有独立的列表视图与详情视图；
   调度页则从目标列表长成了可观测的调度台。人像与知识库这两屏现在都有侧栏入口：前者有路由有界面、
   却只能手敲 URL 才能到达，后者此前根本没有界面。
 - **共享文件**：`/files` 独立页。原生文件选择器挑文件上传，进度条按 `IProgress<int>`
@@ -85,6 +86,11 @@ agentbuddy 是 agenthub 的 **.NET 10 / Avalonia 原生桌面客户端**。它�
   计算机或文件回来时会带 `schedule_not_found` / `channel_not_found` / `computer_not_found` /
   `file_not_found`；调度、通道、计算机与文件四屏都把它当作「已经没了」并重拉列表，而不是对一行
   已经不存在的记录弹一句拒绝。其余失败仍按本地化文案就地显示，行不消失。
+- **实时跟着导航走**：只有沙盒与路由两路订阅全程常开。线程与任务的流属于单个实体，
+  哪个详情页在前台就由它打开、离开即关闭——`/api/tasks/42/events` 由路由 id 拼出，
+  同一路径并发认领也只会开出一条流，模板 `/api/tasks/{id}/events` 本身永不订阅
+  （服务端没有该路由，订上只会永久 404）。重连用最后一次 `seq` 重放，事件突发时一秒内
+  最多触发一次聚合刷新，不会变成 N+1 请求。
 - **多语言与主题**：语言切换（13 语）与明/暗主题、人像头像及通知中心。
 
 ## 四、通道、连接器与语音
@@ -162,21 +168,28 @@ agentbuddy 是 agenthub 的 **.NET 10 / Avalonia 原生桌面客户端**。它�
 
 ## 九、测试
 
-- 四个 xUnit 项目取代旧的前端/桌面双套测试，**91 条用例**全程离线，每项新能力都有正常与
-  异常双路径。`AgentBuddy.Core.Tests` 覆盖 13 语兜底、端点契约、配置、SSE 分帧、
-  `MonitorService` 与 `RealtimeService`（事件分类、`since` 重放、重连退避、有界环形缓冲）。
+- 四个 xUnit 项目取代旧的前端/桌面双套测试，**394 条用例**（Core 143 / Shell 207 /
+  App 33 / Guards 11）全程离线，每项新能力都有正常与异常双路径。
+  `AgentBuddy.Core.Tests` 覆盖 13 语兜底、端点契约、配置、SSE 分帧与字节上限、
+  `MonitorService` 与 `RealtimeService`（事件分类、`since` 重放、重连退避、有界环形缓冲，
+  以及实体流生命周期：同一路径并发认领仍只开一条、已认领未发布时如实返回成功且不开流、
+  pump 被取消后 untrack 不抛，超限事件与超长行整段丢弃且后续事件照常分帧）。
   `AgentBuddy.Shell.Tests` 覆盖 bootstrap 准入（含错猜 nonce 不消耗）、Cookie/Location
   改写、流式转发、凭据回退、执行节点策略、升级选源与验签失败、通知深链与托盘角标；
   `GatewaySmokeTests` 用真实 Kestrel 环回网关 + 上游 HTTP 桩跑真 socket，SSE 逐块到达。
   `AgentBuddy.App.Tests` 覆盖 Avalonia.Headless ViewModel、路由守卫、数字详情路由、
-  文件传输、语音与通知深链。
+  文件传输、语音、通知深链，以及一遍完整装配：在独立 UI 线程上拉起真实窗口、托盘与组合根。
 - `AgentBuddy.Guards` 是硬门槛：13 语键集与真实翻译、单色 `.axaml` 扫描、
   模板无硬编码自然语言、冻结端点常量全部可达（白名单为空）、17 个视图与
   `ViewLocator` 一一对应、共享控件复用、主题字典成对、构建/发布只用 .NET、
   恰好 9 个发布 assets。
+- **可移植的接缝而非放宽的公开 API**：安装器命令、通知 argv、凭据助手、录音设备、
+  减弱动效探测与托盘分派都能显式指定目标系统（内部可见，经 `InternalsVisibleTo` 暴露），
+  因此三平台契约在任一台机器上都有正常与异常用例，不必等 CI 排到对应系统才发现。
 - `dotnet build agentbuddy.sln -warnaserror` **0 警告 0 错误**；
   `dotnet test --collect:"XPlat Code Coverage"` 产出 Cobertura，CI 同时上传覆盖率与测试日志。
   静态守卫而非行覆盖率是硬门槛，因此出现彩色值或漏译键会直接红。
+  当前基线：34 个源文件，行 **98.97%**、分支 **90.21%**；仍未覆盖的都是平台独占或防御分支。
 - 发布链路也在本机验过：自包含 `win-x64` publish 交给 `ab-tool wix`，WiX 4.0.6 用生成的
   369 个 Component 真实产出 MSI；一次性 minisign 密钥签 6 个下载，
   `ab-tool manifest` 出两份清单，`ab-tool verify` 断言恰好 9 个文件并全绿。
@@ -214,4 +227,5 @@ agentbuddy 是 agenthub 的 **.NET 10 / Avalonia 原生桌面客户端**。它�
 - 上述行为新增 82 条用例（`ProxyHardeningTests`、`ExecutorHardeningTests`、
   `ConfigPatchHardeningTests`、`UpgradeHardeningTests`、`NotificationHardeningTests`、
   `CredentialHardeningTests`、`TrayHardeningTests`、`StreamBoundTests`、`ResponseBoundTests`、
-  `ConfigBoundTests`），总计 174 条，全程离线，仍是 0 警告 0 错误。
+  `ConfigBoundTests`），当时总计 174 条，全程离线，仍是 0 警告 0 错误。此后套件已增至
+  394 条（见第九节），实体流的生命周期也在其中。

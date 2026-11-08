@@ -75,7 +75,13 @@ public class NavigationTests
         client.Payload = JsonDocument.Parse("""[{"id":"t1"},{"id":"t2"}]""").RootElement.Clone();
         foreach (var route in nav.Routes.Keys)
         {
-            await nav.NavigateAsync(route);
+            // Detail screens need their id: without one they deliberately stay off the wire.
+            await nav.NavigateAsync(route switch
+            {
+                "/threads/:id" => "/threads/42",
+                "/tasks/:id" => "/tasks/7",
+                _ => route
+            });
             Assert.NotNull(nav.Current);
             Assert.Equal(2, nav.Current!.Items.Count);
             Assert.Equal("", nav.Current.ErrorCode);
@@ -116,6 +122,24 @@ public class ScreenCapabilityTests
         Assert.Equal(7, ((TaskTraceViewModel)nav.Routes["/tasks/:id"]).EntityId);
         await nav.NavigateAsync("/threads");
         Assert.Equal(42, ((ThreadViewModel)nav.Routes["/threads/:id"]).EntityId);
+    }
+
+    [Fact]
+    public async Task DetailRoutesAnnounceTheConcreteStreamToSubscribe()
+    {
+        var (nav, _, _, _) = Build();
+        nav.SetAuthenticated(true);
+        var streams = new List<string?>();
+        nav.EntityStreamChanged += streams.Add;
+
+        await nav.NavigateAsync("/tasks/7");
+        await nav.NavigateAsync("/threads/42");
+        await nav.NavigateAsync("/threads");
+
+        // Never a template: "/api/tasks/{id}/events" is not a route the server serves.
+        Assert.Equal(
+            new[] { "/api/tasks/7/events", "/api/threads/42/events", null },
+            streams);
     }
 
     [Fact]
@@ -268,22 +292,43 @@ internal sealed class StubClient : IAgentHubClient
 {
     public JsonElement? Payload { get; set; }
     public bool Throw { get; set; }
+    public bool ThrowApi { get; set; }
+    public bool ThrowGeneral { get; set; }
+    public bool UploadThrows { get; set; }
     public string FailCode { get; set; } = ErrorCodes.Unauthenticated;
+    public string? LastPath { get; private set; }
     public long LastAudioThreadId { get; private set; }
 
     public Task<JsonElement?> SendAsync(string path, HttpMethod method, object? body = null, CancellationToken ct = default)
     {
+        LastPath = path;
+        if (ThrowGeneral) throw new InvalidOperationException("boom");
         if (Throw) throw new HubApiException(ErrorCodes.NetworkError);
+        if (ThrowApi) throw new HubApiException(FailCode);
         if (method == HttpMethod.Post && FailCode != ErrorCodes.Unauthenticated && path == Endpoints.Login)
             throw new HubApiException(FailCode);
         return Task.FromResult(Payload);
     }
     public IAsyncEnumerable<HubEvent> SubscribeAsync(string path, long? since = null, CancellationToken ct = default) => Empty();
-    public Task<Stream> DownloadAsync(string path, CancellationToken ct = default) => Task.FromResult<Stream>(new MemoryStream());
-    public Task<JsonElement?> UploadAsync(string path, Stream content, string field, string fileName, IProgress<int>? progress = null, CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
+    public Task<Stream> DownloadAsync(string path, CancellationToken ct = default)
+    {
+        if (ThrowGeneral) throw new InvalidOperationException("boom");
+        if (Throw) throw new HubApiException(ErrorCodes.NetworkError);
+        return Task.FromResult<Stream>(new MemoryStream());
+    }
+    public Task<JsonElement?> UploadAsync(string path, Stream content, string field, string fileName, IProgress<int>? progress = null, CancellationToken ct = default)
+    {
+        if (ThrowGeneral) throw new InvalidOperationException("boom");
+        if (UploadThrows) throw new HubApiException(ErrorCodes.NetworkError);
+        progress?.Report(50);
+        progress?.Report(100);
+        return Task.FromResult<JsonElement?>(null);
+    }
     public Task<JsonElement?> PostAudioAsync(long id, Stream audio, CancellationToken ct = default)
     {
         LastAudioThreadId = id;
+        if (ThrowGeneral) throw new InvalidOperationException("boom");
+        if (Throw) throw new HubApiException(ErrorCodes.NetworkError);
         return Task.FromResult<JsonElement?>(null);
     }
     private static async IAsyncEnumerable<HubEvent> Empty() { await Task.CompletedTask; yield break; }
@@ -293,7 +338,16 @@ internal sealed class StubShell : IShellControl
 {
     public int Badge { get; private set; }
     public object? LastPatch { get; private set; }
-    public Task<ShellConfigView> GetConfigAsync(CancellationToken ct = default) => Task.FromResult(new ShellConfigView());
+    public bool ConfigThrows { get; set; }
+    public bool ConfigThrowsGeneral { get; set; }
+    public bool UpgradeThrows { get; set; }
+    public bool TestThrows { get; set; }
+    public JsonElement? TestResult { get; set; } = JsonDocument.Parse("""{"ok":true}""").RootElement.Clone();
+
+    public Task<ShellConfigView> GetConfigAsync(CancellationToken ct = default) =>
+        ConfigThrowsGeneral ? throw new InvalidOperationException("boom")
+        : ConfigThrows ? throw new HubApiException(ErrorCodes.NetworkError)
+        : Task.FromResult(new ShellConfigView());
     public Task<ShellConfigView> SetConfigAsync(object patch, CancellationToken ct = default)
     {
         LastPatch = patch;
@@ -302,11 +356,14 @@ internal sealed class StubShell : IShellControl
     public Task<JsonElement?> GetExecutorAsync(CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
     public Task<JsonElement?> SetExecutorAsync(object patch, CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
     public Task<JsonElement?> TestConnectionAsync(string url, CancellationToken ct = default) =>
-        Task.FromResult<JsonElement?>(JsonDocument.Parse("""{"ok":true}""").RootElement.Clone());
+        TestThrows ? throw new HubApiException(ErrorCodes.NetworkError) : Task.FromResult(TestResult);
     public Task<JsonElement?> HideAsync(CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
     public Task NotifyAsync(string title, string body, string? link, CancellationToken ct = default) => Task.CompletedTask;
     public Task<int> SetBadgeAsync(int count, CancellationToken ct = default) { Badge = count; return Task.FromResult(count); }
-    public Task<UpgradeState> GetUpgradeAsync(CancellationToken ct = default) => Task.FromResult(new UpgradeState());
-    public Task<UpgradeState> CheckUpgradeAsync(CancellationToken ct = default) => Task.FromResult(new UpgradeState());
-    public Task<UpgradeState> InstallUpgradeAsync(CancellationToken ct = default) => Task.FromResult(new UpgradeState());
+    public Task<UpgradeState> GetUpgradeAsync(CancellationToken ct = default) =>
+        UpgradeThrows ? throw new HubApiException(ErrorCodes.NetworkError) : Task.FromResult(new UpgradeState());
+    public Task<UpgradeState> CheckUpgradeAsync(CancellationToken ct = default) =>
+        UpgradeThrows ? throw new HubApiException(ErrorCodes.NetworkError) : Task.FromResult(new UpgradeState());
+    public Task<UpgradeState> InstallUpgradeAsync(CancellationToken ct = default) =>
+        UpgradeThrows ? throw new HubApiException(ErrorCodes.NetworkError) : Task.FromResult(new UpgradeState());
 }

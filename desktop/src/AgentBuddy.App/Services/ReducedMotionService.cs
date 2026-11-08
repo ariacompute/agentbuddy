@@ -12,19 +12,24 @@ public static class ReducedMotionService
 {
     private const uint SpiGetClientAreaAnimation = 0x1042;
 
-    public static bool ReduceMotion { get; } = Detect();
+    public static bool ReduceMotion { get; internal set; } = Detect();
 
     public static void Apply(Window window)
     {
         if (ReduceMotion) window.Classes.Add("reduce-motion");
     }
 
-    private static bool Detect()
+    /// <summary>
+    /// <paramref name="overrideValue"/> and <paramref name="isWindows"/> default to the
+    /// real environment and platform; tests pass them explicitly so every branch can be
+    /// asserted on one host (the OS query itself is Windows-only).
+    /// </summary>
+    internal static bool Detect(string? overrideValue = null, bool? isWindows = null)
     {
-        var overrideValue = Environment.GetEnvironmentVariable("AGENTBUDDY_REDUCE_MOTION");
+        overrideValue ??= Environment.GetEnvironmentVariable("AGENTBUDDY_REDUCE_MOTION");
         if (overrideValue is "1" or "true" or "TRUE") return true;
         if (overrideValue is "0" or "false" or "FALSE") return false;
-        if (!OperatingSystem.IsWindows()) return false;
+        if (!(isWindows ?? OperatingSystem.IsWindows())) return false;
         try
         {
             var enabled = 1;

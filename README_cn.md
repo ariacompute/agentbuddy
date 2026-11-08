@@ -3,9 +3,7 @@
 [English](README.md) | [中文](README_cn.md)
 
 面向 [agenthub](https://github.com/ariacompute/agenthub)（A2A 互连平台）的
-**.NET 10 / Avalonia 原生桌面客户端**。没有 WebView、没有内嵌网页包、没有本地后端：
-XAML 界面通过进程内环回网关把 `/api`、`/a2a`、`/healthz`、`/.well-known`
-转发到用户配置的服务端。
+**.NET 10 / Avalonia 原生桌面客户端**。
 
 ## 功能
 
@@ -43,10 +41,10 @@ XAML 界面通过进程内环回网关把 `/api`、`/a2a`、`/healthz`、`/.well
 也没有前端构建步骤。
 
 ```bash
-make dotnet-install   # 校验 SDK 并还原 desktop/agentbuddy.sln
-make dotnet-icons     # 从 desktop/assets/app-icon.png 派生 png/ico/icns
-make dotnet-build     # 编译整个解决方案，警告即错误
-make dotnet-publish RID=win-x64   # 自包含发布（linux-x64 / osx-arm64 / win-x64）
+make dotnet-install              # 校验 SDK 并还原 desktop/agentbuddy.sln
+make dotnet-icons                # 从 desktop/assets/app-icon.png 派生 png/ico/icns
+make dotnet-build                # 编译整个解决方案，警告即错误
+make dotnet-publish RID=win-x64  # 自包含发布（linux-x64 / osx-arm64 / win-x64）
 ```
 
 也可以不经过 `make`：
@@ -56,7 +54,7 @@ cd desktop
 dotnet restore agentbuddy.sln
 dotnet run --project tools/AgentBuddy.Build -- icons
 dotnet build agentbuddy.sln -warnaserror
-dotnet run --project src/AgentBuddy.App/AgentBuddy.App.csproj   # 启动原生窗口
+dotnet run --project src/AgentBuddy.App/AgentBuddy.App.csproj  # 启动原生窗口
 ```
 
 `ab-tool`（`desktop/tools/AgentBuddy.Build`）是唯一的构建 CLI：
@@ -66,9 +64,9 @@ dotnet run --project src/AgentBuddy.App/AgentBuddy.App.csproj   # 启动原生�
 ## 测试
 
 ```bash
-make test              # dotnet test agentbuddy.sln，全程离线
-make dotnet-coverage   # 四个测试项目的 Cobertura 覆盖率
-make dotnet-smoke      # 真 socket 环回网关冒烟，只连回环地址
+make test             # dotnet test agentbuddy.sln，全程离线
+make dotnet-coverage  # 四个测试项目的 Cobertura 覆盖率
+make dotnet-smoke     # 真 socket 环回网关冒烟，只连回环地址
 ```
 
 四个 xUnit 项目取代旧的前端/桌面双套测试：

@@ -285,7 +285,10 @@ public static class ShellRoutes
         try
         {
             using var doc = JsonDocument.Parse(text);
-            if (!doc.RootElement.TryGetProperty("count", out var c) || !c.TryGetInt32(out var count) || count < 0)
+            // Kind is checked first: TryGetInt32 throws on a string, which would turn a
+            // malformed body into a 500 instead of the documented invalid_count.
+            if (!doc.RootElement.TryGetProperty("count", out var c) || c.ValueKind != JsonValueKind.Number ||
+                !c.TryGetInt32(out var count) || count < 0)
             {
                 await WriteJson(context, 400, new { ok = false, code = ErrorCodes.InvalidCount });
                 return;

@@ -21,4 +21,9 @@
     <ProjectReference Include="..\AgentBuddy.Core\AgentBuddy.Core.csproj" />
     <ProjectReference Include="..\AgentBuddy.Shell\AgentBuddy.Shell.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The composition root takes injected paths and the tray menu dispatch is internal,
+         so the headless suite can drive them without touching the user profile. -->
+    <InternalsVisibleTo Include="AgentBuddy.App.Tests" />
+  </ItemGroup>
 </Project>

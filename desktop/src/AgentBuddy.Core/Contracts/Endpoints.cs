@@ -102,6 +102,45 @@ public static class Endpoints
             [RouterEvents] = SseEvents.RouterStream,
         };
 
+    /// <summary>
+    /// The two streams that exist without an entity id. Thread and task streams are
+    /// per-entity ("/api/tasks/{id}/events"), so they are opened on demand with
+    /// <see cref="TemplateFor"/>-backed belonging checks — subscribing to the literal
+    /// template would just 404 forever.
+    /// </summary>
+    public static readonly string[] GlobalStreams = [SandboxEvents, RouterEvents];
+
+    /// <summary>
+    /// Maps a concrete stream path back to its frozen template
+    /// ("/api/tasks/42/events" → "/api/tasks/{id}/events"). Unknown paths are returned
+    /// unchanged, so callers can still compare them literally.
+    /// </summary>
+    public static string TemplateFor(string path)
+    {
+        if (path.Length == 0 || StreamEventNames.ContainsKey(path)) return path;
+        var actual = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var template in StreamEventNames.Keys)
+        {
+            var expected = template.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (expected.Length != actual.Length) continue;
+            var matches = true;
+            for (var i = 0; i < expected.Length; i++)
+            {
+                if (expected[i].StartsWith('{') && expected[i].EndsWith('}')) continue;
+                if (!string.Equals(expected[i], actual[i], StringComparison.Ordinal)) { matches = false; break; }
+            }
+            if (matches) return template;
+        }
+        return path;
+    }
+
+    /// <summary>
+    /// True for a concrete per-entity stream ("/api/tasks/42/events"). Templates and
+    /// unknown paths both return false, so "did the caller fill in the id?" is one call.
+    /// </summary>
+    public static bool IsEntityStream(string path) =>
+        !string.Equals(TemplateFor(path), path, StringComparison.Ordinal);
+
     /// <summary>Replace {placeholders} with URL-encoded values.</summary>
     public static string Format(string template, params (string Name, object? Value)[] args)
     {
@@ -241,14 +280,17 @@ public static class PlatformKeys
     public static string Current()
     {
         var os = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux";
-        var arch = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch
-        {
-            System.Runtime.InteropServices.Architecture.X64 => "x86_64",
-            System.Runtime.InteropServices.Architecture.Arm64 => "aarch64",
-            System.Runtime.InteropServices.Architecture.X86 => "x86",
-            System.Runtime.InteropServices.Architecture.Arm => "arm",
-            _ => "unknown"
-        };
+        var arch = ArchName(System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture);
         return Key(os, arch) ?? "unsupported-" + os + "-" + arch;
     }
+
+    /// <summary>Maps a process architecture to the release matrix's spelling.</summary>
+    internal static string ArchName(System.Runtime.InteropServices.Architecture arch) => arch switch
+    {
+        System.Runtime.InteropServices.Architecture.X64 => "x86_64",
+        System.Runtime.InteropServices.Architecture.Arm64 => "aarch64",
+        System.Runtime.InteropServices.Architecture.X86 => "x86",
+        System.Runtime.InteropServices.Architecture.Arm => "arm",
+        _ => "unknown"
+    };
 }

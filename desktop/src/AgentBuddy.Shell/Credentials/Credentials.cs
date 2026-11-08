@@ -21,11 +21,26 @@ public interface ICredentialStore
 /// store. When no store is available we fall back to a file created 0600 from
 /// the very first byte. Secrets are never written to config.json or logs.
 /// </summary>
-public sealed class CredentialStore(IAppPaths paths) : ICredentialStore
+public sealed class CredentialStore : ICredentialStore
 {
     public const string Service = "agentbuddy";
-    private readonly ICredentialStore _primary = CreatePrimary();
-    private readonly FileCredentialStore _fallback = new(paths);
+    private readonly ICredentialStore _primary;
+    private readonly ICredentialStore _fallback;
+
+    public CredentialStore(IAppPaths paths) : this(paths, CreatePrimary()) { }
+
+    /// <summary>
+    /// Test seam: both stores are injected so the "primary → private file → signed
+    /// out" ladder can be driven without a real keychain.
+    /// </summary>
+    internal CredentialStore(IAppPaths paths, ICredentialStore primary)
+        : this(primary, new FileCredentialStore(paths)) { }
+
+    internal CredentialStore(ICredentialStore primary, ICredentialStore fallback)
+    {
+        _primary = primary;
+        _fallback = fallback;
+    }
 
     public string Backend { get; private set; } = "memory";
 
@@ -67,11 +82,18 @@ public sealed class CredentialStore(IAppPaths paths) : ICredentialStore
         catch (Exception) { /* an unreadable store still counts as signed out */ }
     }
 
-    private static ICredentialStore CreatePrimary()
+    /// <summary>
+    /// The best store this platform has. <paramref name="os"/> and
+    /// <paramref name="exists"/> default to the running platform and the real PATH
+    /// probe; tests pass them so every platform's choice is asserted on one host.
+    /// </summary>
+    internal static ICredentialStore CreatePrimary(string? os = null, Func<string, bool>? exists = null)
     {
-        if (OperatingSystem.IsWindows()) return new WindowsCredentialStore();
-        if (OperatingSystem.IsMacOS() && Exists("security")) return new UnixCommandCredentialStore("macos");
-        if (OperatingSystem.IsLinux() && Exists("secret-tool")) return new UnixCommandCredentialStore("linux");
+        os ??= OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux";
+        exists ??= Exists;
+        if (os == "windows") return new WindowsCredentialStore();
+        if (os == "macos" && exists("security")) return new UnixCommandCredentialStore("macos");
+        if (os == "linux" && exists("secret-tool")) return new UnixCommandCredentialStore("linux");
         return new NoopCredentialStore();
     }
 
@@ -79,7 +101,7 @@ public sealed class CredentialStore(IAppPaths paths) : ICredentialStore
     /// Looks the helper up on PATH instead of spawning it: probing by execution would
     /// leave a process behind on every start and could block on a wedged helper.
     /// </summary>
-    private static bool Exists(string executable)
+    internal static bool Exists(string executable)
     {
         var path = Environment.GetEnvironmentVariable("PATH") ?? "";
         foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
@@ -256,7 +278,7 @@ public sealed class UnixCommandCredentialStore(string platform) : ICredentialSto
     /// A locked or prompting keychain answers slowly or not at all; without a budget
     /// the whole gateway request would wait with it. The helper is killed on timeout.
     /// </summary>
-    private static async Task<string?> RunAsync(string file, string[] args, string? stdin, CancellationToken ct)
+    internal static async Task<string?> RunAsync(string file, string[] args, string? stdin, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(file)
         {

@@ -18,6 +18,9 @@ public interface IAudioService
 /// </summary>
 public sealed class FfmpegAudioService : IAudioService
 {
+    /// <summary>Test seam: the one place a player/recorder process is started.</summary>
+    internal static Func<ProcessStartInfo, Process?> StartProcess { get; set; } = static psi => Process.Start(psi);
+
     public async Task<byte[]> RecordAsync(TimeSpan duration, CancellationToken ct = default)
     {
         var (format, device) = InputDevice();
@@ -37,7 +40,7 @@ public sealed class FfmpegAudioService : IAudioService
             psi.ArgumentList.Add(arg);
         try
         {
-            using var process = Process.Start(psi) ?? throw new HubApiException(ErrorCodes.SpeechDisabled);
+            using var process = StartProcess(psi) ?? throw new HubApiException(ErrorCodes.SpeechDisabled);
             using var output = new MemoryStream();
             await process.StandardOutput.BaseStream.CopyToAsync(output, ct).ConfigureAwait(false);
             await process.WaitForExitAsync(ct).ConfigureAwait(false);
@@ -61,7 +64,7 @@ public sealed class FfmpegAudioService : IAudioService
             psi.ArgumentList.Add(arg);
         try
         {
-            using var process = Process.Start(psi) ?? throw new HubApiException(ErrorCodes.SpeechDisabled);
+            using var process = StartProcess(psi) ?? throw new HubApiException(ErrorCodes.SpeechDisabled);
             await audio.CopyToAsync(process.StandardInput.BaseStream, ct).ConfigureAwait(false);
             process.StandardInput.Close();
             await process.WaitForExitAsync(ct).ConfigureAwait(false);
@@ -69,12 +72,17 @@ public sealed class FfmpegAudioService : IAudioService
         catch (Exception) { throw new HubApiException(ErrorCodes.SpeechDisabled); }
     }
 
-    private static (string Format, string Device) InputDevice()
+    /// <summary>
+    /// <paramref name="os"/> defaults to the running platform; tests pass it so all
+    /// three capture defaults can be asserted on one host.
+    /// </summary>
+    internal static (string Format, string Device) InputDevice(string? os = null)
     {
         var configured = Environment.GetEnvironmentVariable("AGENTBUDDY_AUDIO_DEVICE");
         if (!string.IsNullOrEmpty(configured)) return ("pulse", configured);
-        if (OperatingSystem.IsWindows()) return ("dshow", "audio=default");
-        if (OperatingSystem.IsMacOS()) return ("avfoundation", ":default");
+        os ??= OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux";
+        if (os == "windows") return ("dshow", "audio=default");
+        if (os == "macos") return ("avfoundation", ":default");
         return ("pulse", "default");
     }
 }

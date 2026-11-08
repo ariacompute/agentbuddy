@@ -30,7 +30,9 @@ public static class TrayHost
             menu.Items.Add(item);
         }
         tray.Menu = menu;
-        TrayIcon.SetIcons(application, new TrayIcons { tray });
+        // A desktop without a tray area (bare X11, headless) must still start.
+        try { TrayIcon.SetIcons(application, new TrayIcons { tray }); }
+        catch (Exception) { /* the window keeps working without the tray icon */ }
 
         Composition.Services.Tray.BadgeChanged += count =>
             tray.ToolTipText = count == 0
@@ -45,7 +47,8 @@ public static class TrayHost
         };
     }
 
-    private static void Handle(string id, Window window,
+    /// <summary>Menu dispatch. Internal so the four actions can be asserted headlessly.</summary>
+    internal static void Handle(string id, Window window,
         IClassicDesktopStyleApplicationLifetime desktop)
     {
         switch (id)

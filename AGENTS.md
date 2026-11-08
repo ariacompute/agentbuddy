@@ -52,7 +52,7 @@ desktop/
     Gateway/           AgentHubClient.cs（HttpClient 单例、上传进度、流式下载、语音 multipart）、
                        SseParser.cs（逐行增量解析）
     Services/          ConfigService / LocalizationService / MonitorService /
-                       NotificationDecider / RealtimeService（四路 SSE + since 重放）
+                       NotificationDecider / RealtimeService（2 路全局 SSE + 按需实体流 + since 重放）
   src/AgentBuddy.Shell/
     Loopback/          LoopbackGateway / BootstrapAuth / ForwardHandler / ShellRoutes
     Credentials/       ICredentialStore + Win/Mac/Linux/受限文件回退
@@ -66,7 +66,8 @@ desktop/
     Controls/          6 个共享控件（页头、顶栏、侧栏、文件传输、语音、任务动作）
     Styles/            Theme.axaml / Controls.axaml
     Composition.cs     组合根：网关 → 客户端 → VM → 轮询/实时 → 窗口能力注入
-  tests/               Core.Tests / Shell.Tests / App.Tests / Guards（xUnit）
+  tests/               Core.Tests / Shell.Tests / App.Tests / Guards（xUnit）；
+                       Coverage* / *CoverageTests 是逐文件的覆盖套件（含 headless 全链路）
   tools/AgentBuddy.Build/  ab-tool：icons / stamp / inject-pubkey / sign / wix / manifest / verify
   packaging/           linux/control.in、linux/agentbuddy.desktop、macos/Info.plist
   assets/app-icon.png 唯一图标源
@@ -102,6 +103,14 @@ desktop/
 - 传输细节：语音 multipart 字段名 `audio`、文件名 `voice.webm`；文件下载是字节流；
   上传有 `IProgress<int>`；`Set-Cookie` 丢 `Secure`/`Domain`/原 `Path`、
   `SameSite=None` → `Lax`、补 `; Path=/` 并保留 `HttpOnly`；`Location` 只改写服务端本地跳转。
+- **实体流按需订阅**：常开的只有 `Endpoints.GlobalStreams`（沙盒 / 路由）；线程与任务是
+  per-entity 流，由 `NavigationService.EntityStreamChanged` 带着解析出的 id 驱动
+  `RealtimeService.Track` / `UntrackAsync` / `SwitchEntityStreamAsync`。同一实体并发 `Track`
+  只开一条（`_entityStops.TryAdd` 单飞，落败者释放自己的 linked CTS 并如实返回 true），
+  切屏关旧开新，`StopAsync` 连实体 pump 一起收。
+  **模板路径永不订阅**（服务端没有该路由，订上就是永久 404）：`Endpoints.IsEntityStream`
+  是唯一的「id 填了吗」判断，`TemplateFor` 把具体路径折回模板做归属校验，`StreamEventNames`
+  按模板查事件名。非法 id 不发请求也不退化成模板。
 - 日志统一 `Microsoft.Extensions.Logging` 分级，**绝不打印密钥、Cookie、URL userinfo 或请求体**；
   通知与角标投递一律 fire-and-forget 且捕获异常。
 
@@ -176,6 +185,15 @@ desktop/
 - `cd desktop && dotnet test agentbuddy.sln`。四个 xUnit 项目：Core（契约/文案/轮询/SSE）、
   Shell（准入/Cookie/流式/凭据/执行节点/升级/真 socket 冒烟）、App（Headless VM/导航守卫）、
   Guards（静态扫描）。新增功能须补**正常 + 异常**双路径用例。
+- **平台与生产专属依赖只留内部接缝**：用 `InternalsVisibleTo` 给对应测试项目，禁止为测试
+  放宽公开 API。现行接缝：注入 `IAppPaths` / `ICredentialStore`、`CreatePrimary(os, exists)`、
+  执行节点超时预算、音频 / 通知 / 安装器的 `StartProcess`、`DescribeNative(os)` /
+  `DescribeInstall(os)` / `InputDevice(os)`、`ReducedMotionService.Detect(value, isWindows)`、
+  `TrayHost.Handle`、`Composition.InitializeAsync(paths)`、`Composition.OnRealtimeEvent`。
+  三平台契约因此能在任意宿主上断言，而不是只在对应系统上碰运气。
+- **覆盖率基线**（`make dotnet-coverage` 口径，34 个源文件）：行 **98.97%**、分支 **90.21%**。
+  余下未命中都是平台独占或防御分支（`UnixCreateMode`、钥匙串助手、`IsWindows` 三元、
+  两处 `while` 回边、`Program` 入口）；基线只降要写清理由，不能靠过滤器抹平。
 - `dotnet build agentbuddy.sln -warnaserror` 必须 **0 警告 0 错误**；
   `dotnet test --collect:"XPlat Code Coverage"` 出 Cobertura。
   静态守卫是硬门槛（13 语键集、单色 XAML、契约常量可达性、共享控件复用、构建/发布只用 .NET），

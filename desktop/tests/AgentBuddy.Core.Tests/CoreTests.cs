@@ -278,6 +278,52 @@ public class RealtimeTests
         Assert.True(RealtimeEvents.BelongsTo(Endpoints.RouterEvents, SseEvents.Router));
         Assert.False(RealtimeEvents.BelongsTo(Endpoints.ThreadEvents, SseEvents.Router));
         Assert.False(RealtimeEvents.BelongsTo("/api/unknown", SseEvents.Message));
+        // Concrete entity paths classify through their template, not as unknown streams.
+        Assert.True(RealtimeEvents.BelongsTo("/api/tasks/7/events", SseEvents.TaskStatus));
+        Assert.True(RealtimeEvents.BelongsTo("/api/threads/42/events", SseEvents.ThreadAgent));
+        Assert.False(RealtimeEvents.BelongsTo("/api/tasks/7/events", SseEvents.Router));
+    }
+
+    [Fact]
+    public async Task OnlyGlobalStreamsStartUpFrontAndEntityStreamsOpenOnDemand()
+    {
+        Assert.Equal(new[] { Endpoints.SandboxEvents, Endpoints.RouterEvents }, Endpoints.GlobalStreams);
+        Assert.Equal(Endpoints.TaskEvents, Endpoints.TemplateFor("/api/tasks/7/events"));
+        Assert.Equal(Endpoints.ThreadEvents, Endpoints.TemplateFor("/api/threads/42/events"));
+        Assert.Equal(Endpoints.Tasks, Endpoints.TemplateFor("/api/tasks"));
+        Assert.Equal("/api/unknown/events", Endpoints.TemplateFor("/api/unknown/events"));
+        Assert.True(Endpoints.IsEntityStream("/api/threads/42/events"));
+        Assert.False(Endpoints.IsEntityStream(Endpoints.ThreadEvents));
+        Assert.False(Endpoints.IsEntityStream(Endpoints.RouterEvents));
+
+        var client = new StreamClient();
+        await using var realtime = new RealtimeService(client);
+        await realtime.StartAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (client.Calls.Count < Endpoints.GlobalStreams.Length && DateTime.UtcNow < deadline)
+            await Task.Delay(10);
+        await realtime.StopAsync();
+        Assert.Equal(
+            Endpoints.GlobalStreams.OrderBy(p => p, StringComparer.Ordinal),
+            client.Calls.Select(c => c.Path).OrderBy(p => p, StringComparer.Ordinal));
+
+        // Templates, unknown paths and global streams are never tracked as entities.
+        Assert.False(realtime.Track(Endpoints.TaskEvents));
+        Assert.False(realtime.Track("/api/unknown/events"));
+        Assert.False(realtime.Track(Endpoints.RouterEvents));
+        Assert.Empty(realtime.EntityStreams);
+
+        Assert.True(realtime.Track("/api/tasks/7/events"));
+        Assert.True(realtime.Track("/api/tasks/7/events")); // idempotent
+        Assert.Equal(new[] { "/api/tasks/7/events" }, realtime.EntityStreams.ToArray());
+
+        await realtime.SwitchEntityStreamAsync("/api/threads/42/events");
+        Assert.Equal(new[] { "/api/threads/42/events" }, realtime.EntityStreams.ToArray());
+
+        await realtime.SwitchEntityStreamAsync(null);
+        Assert.Empty(realtime.EntityStreams);
+        Assert.Empty(realtime.Recent("/api/threads/42/events"));
+        Assert.Equal(0, realtime.FailureCount); // cancellation is not a failure
     }
 
     [Fact]

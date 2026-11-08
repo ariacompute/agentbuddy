@@ -78,18 +78,21 @@ public sealed class SystemNotifier : ISystemNotifier
     /// never interpolated into script source: Windows reads them from the
     /// environment, macOS receives them as osascript run arguments, and Linux gets
     /// them as argv after a "--" so a leading dash cannot be read as an option.
+    /// <paramref name="os"/> defaults to the running platform and is only passed
+    /// explicitly by tests, so every platform's contract can be asserted on one host.
     /// </summary>
-    private static async Task<string?> NativeAsync(string title, string body, CancellationToken ct)
+    internal static ProcessStartInfo? DescribeNative(string title, string body, string? os = null)
     {
+        os ??= CurrentOs();
         ProcessStartInfo psi;
-        if (OperatingSystem.IsLinux())
+        if (os == "linux")
         {
             psi = new ProcessStartInfo("notify-send") { UseShellExecute = false, CreateNoWindow = true };
             psi.ArgumentList.Add("--");
             psi.ArgumentList.Add(title);
             psi.ArgumentList.Add(body);
         }
-        else if (OperatingSystem.IsMacOS())
+        else if (os == "macos")
         {
             psi = new ProcessStartInfo("osascript") { UseShellExecute = false, CreateNoWindow = true };
             psi.ArgumentList.Add("-e");
@@ -101,7 +104,7 @@ public sealed class SystemNotifier : ISystemNotifier
             psi.ArgumentList.Add(title);
             psi.ArgumentList.Add(body);
         }
-        else if (OperatingSystem.IsWindows())
+        else if (os == "windows")
         {
             psi = new ProcessStartInfo("powershell") { UseShellExecute = false, CreateNoWindow = true };
             psi.ArgumentList.Add("-NoProfile");
@@ -112,11 +115,23 @@ public sealed class SystemNotifier : ISystemNotifier
             psi.Environment["AB_NOTIFY_TITLE"] = title;
             psi.Environment["AB_NOTIFY_BODY"] = body;
         }
-        else return "no_app";
+        else return null;
+        return psi;
+    }
 
+    internal static string CurrentOs() =>
+        OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux";
+
+    /// <summary>Test seam: the one place a notification process is started.</summary>
+    internal static Func<ProcessStartInfo, Process?> StartProcess { get; set; } = static psi => Process.Start(psi);
+
+    private static async Task<string?> NativeAsync(string title, string body, CancellationToken ct)
+    {
+        var psi = DescribeNative(title, body);
+        if (psi is null) return "no_app";
         try
         {
-            using var process = Process.Start(psi);
+            using var process = StartProcess(psi);
             if (process is null) return "no_app";
             await process.WaitForExitAsync(ct).ConfigureAwait(false);
             return process.ExitCode == 0 ? null : "denied";
