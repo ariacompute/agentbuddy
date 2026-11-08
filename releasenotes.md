@@ -61,6 +61,12 @@ over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known
 - **Close behaviour**: on window close the shell reads the `background`
   preference — when on (default) the window is hidden and the app stays resident
   in the tray; when off the app exits. Only the tray Quit ever force-exits.
+- **Single instance**: launching the app again while it is parked in the tray
+  raises *that* window — same page, same proxy port, same session — instead of
+  starting a second copy with a second tray icon and an empty window. The first
+  process publishes `{pid, port, token}` to `instance.json` in the config
+  directory and answers a one-line loopback handshake; a record nobody answers is
+  treated as stale, so a crash behaves exactly like a clean quit.
 - **Proxy admission control**: binding to `127.0.0.1` keeps the network out, not
   the machine, so the port is no longer enough on its own. Each launch mints a
   256-bit token and a single-use bootstrap nonce; the window opens

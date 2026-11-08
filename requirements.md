@@ -84,6 +84,7 @@
 | F5.6 | **toast 深链（已实现）**：`link` 是站内路径，外壳入队后于 `ActionPerformed::action_id() == "tap"` 时取用，`unminimize` + `show` + `set_focus` 并 `window.location.hash = '#/…'`（工作台是 `createWebHashHistory`，即一次真实路由跳转）。只接受单斜杠开头且拒绝 `//host` / `javascript:` / 反斜杠 / 控制字符；路径经 JSON 编码后才进 `eval`；一次点击只消费一次 |
 | F5.7 | 静默期以**调用时刻**为锚：`quietUntil = now + minutes*60*1000`，读取与保存都一样；不得以「首次读取设置的时间」为锚（否则长时间开着的页面算出已过去的窗口，静默形同虚设） |
 | F5.8 | 断线重放：`?since=<seq>`；SSE 无 `[DONE]` 哨兵，终态由状态判定 |
+| F5.9 | **单实例（已实现）**：窗口关闭后驻留托盘时再次启动应用（双击图标 / 快捷方式 / 命令行），必须**唤回已在运行的那一份**——`unminimize` + `show` + `set_focus`，页面、代理端口、SSE 与会话全部保持原样；不得起第二个进程（第二个环回代理、第二个托盘图标、一张空窗口）。判定走 `app_config_dir/instance.json` 的 `{pid, port, token}` 与环回握手（`agentbuddy/1 show <token>` → `ok`），**记录不在退出时删除**：无人应答即视为过期，崩溃与正常退出同一条判定。认领失败（目录不可写 / 连续争用）不阻止启动，只退化为可能开出第二张窗口。`background=false` 时关闭窗口本就退出进程，再次启动自然是新实例，同一套逻辑无需分支 |
 
 ### F6 多通道触达
 
@@ -475,8 +476,12 @@
     的入口判定）；脚本以导入方式被测，入口行为另由 `tests/cli.spec.js` 的真子进程钉住退出码；
     配置里没有 `coverage.exclude`，脚本里没有 `/* v8 ignore */`。
 43. 图标容器（N9）：`make-icon.mjs` 生成的 PNG/ICO/ICNS 的 IDAT 用 `node:zlib` 的 `inflateSync`
-    可解、逐行 filter 字节为 0、块 CRC 与 `crc32(type+data)` 一致；`desktop/assets/app-icon.png`
-    由同一编码器生成（1024×1024，可解码）。
+   可解、逐行 filter 字节为 0、块 CRC 与 `crc32(type+data)` 一致；`desktop/assets/app-icon.png`
+   由同一编码器生成（1024×1024，可解码）。
+44. 单实例（F5.9）：`background` 开启时关窗（驻留托盘）后再次启动，**不出现第二个进程 / 托盘图标**，
+   原窗口被唤回且仍停在关闭前的页面（代理端口、SSE、会话均未重建）；首个进程被 `kill` 后再次启动
+   正常成为新实例（遗留记录被接管，token 换新）；空文件 / 非 JSON / 无 token 的损坏记录同样被接管；
+   只有携带记录中 token 的握手能唤回窗口，其余请求得到非 `ok` 回应且不唤回。
 
 ## 7. 自动更新（F19）
 

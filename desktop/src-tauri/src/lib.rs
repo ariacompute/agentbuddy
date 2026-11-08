@@ -17,6 +17,7 @@ pub mod i18n;
 pub mod notify;
 pub mod proxy;
 pub mod session;
+pub mod single;
 pub mod tray;
 pub mod upgrade;
 
@@ -61,6 +62,49 @@ pub fn run() {
                 .path()
                 .app_config_dir()
                 .unwrap_or_else(|_| std::env::temp_dir().join("agentbuddy-desktop"));
+
+            // One copy per user. With "keep running in the tray" on (the
+            // default) the window is only parked, so launching the app again
+            // must raise that parked window — keeping its page, its proxy and
+            // its session — instead of starting a second everything. Done before
+            // the config, the tray and the proxy: a second launch then costs
+            // nothing and shows nothing.
+            match single::claim(&dir) {
+                single::Claim::AlreadyRunning => {
+                    // The copy that is already running has been asked to come
+                    // forward. This process has nothing left to do.
+                    std::process::exit(0);
+                }
+                single::Claim::Primary(instance) => {
+                    let raise = handle.clone();
+                    instance.serve(move || {
+                        // Until the proxy answers, the window is hidden on
+                        // purpose and the startup below is about to show it:
+                        // raising it now would only flash the blank stub. From
+                        // the moment there is a URL, this is the parked window
+                        // the launch is asking for.
+                        let ready = raise
+                            .try_state::<ShellContext>()
+                            .map(|state| {
+                                state.proxy_url.read().map(|url| !url.is_empty()).unwrap_or(false)
+                            })
+                            .unwrap_or(false);
+                        if !ready {
+                            return;
+                        }
+                        let Some(window) = raise.get_webview_window("main") else {
+                            return;
+                        };
+                        // A parked window is hidden and may also be minimised:
+                        // restore it before showing, so the launch lands on the
+                        // page it left.
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    });
+                }
+            }
+
             // The session cookie is a bearer token, so it goes to the OS
             // credential store — the file next to config.json is only the
             // fallback for machines that have none.

@@ -55,7 +55,7 @@ desktop/
   scripts/                  发布期 Node 脚本（stamp / make-icon / 签名 / latest-json）
   tests/                    Vitest：上述脚本的**进程内**用例 + cli.spec.js 的真子进程入口用例
   vitest.config.js          仅覆盖 scripts/**，与 web 的 src 闸门互不相干
-  src-tauri/src/            Rust：config / session / proxy / executor / tray / notify / i18n
+  src-tauri/src/            Rust：config / session / single / proxy / executor / tray / notify / i18n
   src-tauri/assets/         shell.html（连接页 + 关于页）
   frontend-stub/            启动占位页（tauri.conf.json 的 frontendDist）
 ```
@@ -164,6 +164,17 @@ desktop/
   `api.prevent_close()` + `window.hide()`（保留在托盘运行）；为 `false` 则放行关闭，
   应用随之退出（外壳无其他窗口）。**仅托盘「退出」恒走 `app.exit(0)`**。
   该偏好由 `/__shell/config` 落盘，连接页与工作台「设置」页均可改。
+- **单实例（`src-tauri/src/single.rs`）**：窗口被 `hide()` 之后再次双击图标，必须**唤回那一份**
+  而不是起第二份（第二个环回代理、第二个托盘图标、一张忘了页面的空窗口）。实现零新依赖、零平台 API：
+  首个进程 `TcpListener::bind("127.0.0.1:0")` 后把 `{pid, port, token}` 以 `create_new`（原子，
+  两个同时启动的进程只有一个能建成功）写进 `app_config_dir/instance.json`；再次启动读该文件、
+  带 token 发一句 `agentbuddy/1 show <token>`，收到 `ok` 即 `AlreadyRunning` → `exit(0)`，
+  配置/托盘/代理一概不碰；首个进程的监听线程收到合规请求就 `unminimize` + `show` + `set_focus`。
+  **记录不在退出时删除**：「没人应答的记录就是过期的」，崩溃与正常退出用同一条判定，
+  代价只是下次启动多一次被拒的连接。握手只接受形如三段、协议名与 token 全等的请求
+  （行读取上限 256 字节、超时 1s），本地随便一个程序弹不出窗口。
+  认领失败（配置目录不可写、连续三次争用）**不阻止启动**，只退化为「可能开出第二张窗口」。
+  `single.rs` 的用例只跑真 socket 与临时目录，不依赖 `AppHandle`。
 - **内嵌前端为 `../../web/dist`**：`build.rs` 保证目录存在（`rust-embed` 目录缺失会编译失败）。
 - **外壳文案 13 语**：`src-tauri/src/i18n/copy.rs`，语言代码集必须与 `web/src/lib/languages.js` 一致。
 - **托盘菜单语言跟随应用**：Rust 无法读取浏览器 `localStorage`，故工作台在 `setLang` 时把

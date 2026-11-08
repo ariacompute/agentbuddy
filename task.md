@@ -1343,3 +1343,55 @@ v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的
   `desktop/assets/app-icon.png` 解出 4195328 字节，正好等于 `(1024*4+1)*1024`。
 - `tests/cli.spec.js`：`stamp` / `latest-json` 缺参数 → 退出码 1 + `usage:`；两个签名脚本
   空环境 → `::notice::` + 退出码 0；非法密钥 → `::error::` + 退出码 1。
+
+## M33 — 单实例：驻留托盘时再次启动唤回原窗口（2026-11-08）
+
+`background` 默认开启，关窗只是 `hide()`，进程连同环回代理、SSE、会话一起留在托盘里。
+此时再双击一次图标，Windows / Linux 会起**第二个进程**：第二个代理绑第二个随机端口、第二枚托盘图标、
+一张停在连接页或空白的窗口——用户看到的是「应用被重启了」，而事实上桌面外壳没有单实例保护。
+
+### 1. 问题
+
+1. **重复进程**：`run()` 无条件构建新窗口、新代理、新托盘；`app_config_dir` 里的 `config.json` 被两个进程
+   交替写，会话 Cookie 也被两边抢。
+2. **不可判定的「已经退出了吗」**：靠「退出时删标记文件」判定会漏掉崩溃、任务管理器结束、断电，
+   漏一次就永久多开。必需一条不依赖清理动作的判定。
+3. **新依赖不可用**：`tauri-plugin-single-instance` 不在本机 crate 缓存里，加它要动 `Cargo.lock` 与三平台构建，
+   而这件事实在不需要平台 API。
+
+### 2. 收口
+
+- **新增 `src-tauri/src/single.rs`**（零新依赖，只用 `std::net` / `std::fs` / 已有的 `rand` + `serde`）：
+  - `claim(dir)`：首个进程 `TcpListener::bind("127.0.0.1:0")`（端口由内核挑），把
+    `{pid, port, token}` 以 `OpenOptions::create_new`（**原子**，两个同时启动的进程只有一个能建成功）
+    写进 `app_config_dir/instance.json`（unix 上 `mode(0o600)`）；再次启动读该文件、带 token 发一句
+    `agentbuddy/1 show <token>`，收到 `ok` → `Claim::AlreadyRunning`。
+  - `Instance::serve(raise)`：监听线程逐条处理握手，只有「三段、协议名与 token 全等」的请求才唤回窗口；
+    行读取上限 256 字节、连接/读写超时 1s，本地随便一个程序弹不出窗口。`accept` 出错时歇 `150ms`，
+    不让持续错误变成忙循环。
+  - **记录不在退出时删除**：「没人应答的记录就是过期的」——崩溃、正常退出、任务管理器结束用同一条判定，
+    代价只是下次启动多一次被拒的连接。空文件 / 非 JSON / `token` 为空或 `port` 为 0 的记录同样按过期处理
+    （否则一次写到一半的崩溃会永久关掉单实例保护）。
+  - **认领失败不阻止启动**：配置目录不可写、或连续三次争用失败时，退化为 `Instance::detached()`
+    （无监听），只可能开出第二张窗口，绝不启动失败。
+- **接线 `src/lib.rs`**：`setup()` 的**最前面**（配置、密钥库、托盘、代理之前）调用 `claim`——
+  `AlreadyRunning` 直接 `std::process::exit(0)`，第二份不碰任何东西、不显示任何窗口；
+  `Primary` 则 `serve` 一个只做 `unminimize` + `show` + `set_focus` 的闭包。
+  因为发生在代理启动之前，被唤回的窗口保留原端口、原 Cookie、原页面。
+- **无 UI 改动**：`background=false` 时关窗本来就退出进程，再启动自然是新实例，同一套逻辑不需要分支；
+  托盘「退出」仍走 `app.exit(0)`（记录留在盘上，下次启动按过期接管）。
+
+### 3. 验证
+
+- `cd desktop/src-tauri && cargo check --all-targets`：通过，零告警。
+- `single.rs` 新增 7 条用例（真 socket + 临时目录，不依赖 `AppHandle`）：
+  `a_second_launch_raises_the_copy_that_is_already_running`（二次认领 → `AlreadyRunning`，
+  首个进程被唤回**恰好一次**，记录未被改写）、`a_record_left_by_a_dead_process_is_taken_over`
+  （端口无人监听 → 接管，pid 更新、token 换新）、`a_record_that_cannot_be_used_is_replaced`
+  （空文件 / 非 JSON / 空 token 三态）、`only_a_holder_of_the_token_can_raise_the_window`
+  （错 token / 缺 token / HTTP 请求 / 空行一律 `no` 且不唤回）、`a_request_names_the_protocol_the_action_and_the_token`
+  （10 条畸形行的纯函数表，含 CRLF 与大小写）、`an_unusable_record_reads_as_no_record`、
+  `a_directory_that_cannot_be_written_still_starts_the_app`（降级为无监听，`serve` 不 panic）。
+- 本机（Windows）Tauri 测试二进制仍因 `STATUS_ENTRYPOINT_NOT_FOUND` 起不来（见 AGENTS.md），
+  故把 `single.rs` 原样复制进一个临时 crate（只留 `serde` / `serde_json` / `rand`）跑了一遍：
+  **7 条全绿**（1.03s），确认握手、接管与降级路径在真实 socket 上成立；CI 的 Linux job 跑同一份文件。
