@@ -268,6 +268,7 @@
 | N7 | 三平台：Linux（deb + 便携 tar.gz）、macOS（dmg + app 便携 tar.gz，aarch64）、Windows（msi + 便携 zip）；不产出 appimage，每次 release 恰好 9 个 assets |
 | N8 | **发布脚本可测**：`desktop/scripts/**`（stamp / make-icon / 签名 / latest-json）由 `desktop/` 自己的 Vitest 工程覆盖，四项 100%；脚本形态为「导出纯函数 + 无参 `main()` + 末尾一句 `runAsEntry(import.meta.url, main)`」，入口判定在 `scripts/lib/entry.mjs`，**不得**用 `exclude` 或 `/* v8 ignore */` 换取数字 |
 | N9 | **图标编码器产出的是真 PNG**：`make-icon.mjs` 生成的 PNG 其 IDAT 必须能被标准 inflater 解开（stored block 头为 `BFINAL`(bit0)｜`BTYPE=00`），`assets/app-icon.png` 与编码器输出一致 |
+| N10 | **子进程不弹控制台**：外壳是 GUI 进程（自身无控制台），它启动的每个子进程（`icacls` 收紧文件权限、执行节点的任务）都以 `CREATE_NO_WINDOW` 创建，桌面不出现黑色命令窗口；输出仍经 `Stdio::piped` 回传 |
 
 ## 4. 服务端契约（本轮新增）
 
@@ -482,6 +483,10 @@
    原窗口被唤回且仍停在关闭前的页面（代理端口、SSE、会话均未重建）；首个进程被 `kill` 后再次启动
    正常成为新实例（遗留记录被接管，token 换新）；空文件 / 非 JSON / 无 token 的损坏记录同样被接管；
    只有携带记录中 token 的握手能唤回窗口，其余请求得到非 `ok` 回应且不唤回。
+45. 无控制台闪现（N10）：Windows 上切换 light / dark 主题（即一次 `/__shell/config` 保存，会调
+   `icacls /inheritance:r /grant:r <user>:F` 收紧 `config.json`）与执行节点跑一条任务，都**不出现
+   命令窗口**；`icacls` 的退出码与失败日志行为不变；`console.rs` 的源码守卫要求 `session.rs` /
+   `executor/spawn.rs` 里每个 `Command::new` 附近都有 `console::hide`（漏掉即在 CI 红）。
 
 ## 7. 自动更新（F19）
 

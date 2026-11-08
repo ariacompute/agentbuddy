@@ -85,6 +85,10 @@ pub async fn run(policy: &Policy, request: &ExecRequest) -> ExecOutcome {
     };
 
     let mut command = Command::new(request.command.trim());
+    // Windows hands a console program started from this GUI app a console
+    // window of its own; a job would flash one over the workbench every time.
+    // Its output comes through the pipes below, so no console is needed.
+    crate::console::hide_async(&mut command);
     command.args(&request.args);
     command.current_dir(&dir);
     command.env_clear();

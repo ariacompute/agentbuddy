@@ -1395,3 +1395,44 @@ v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的
 - 本机（Windows）Tauri 测试二进制仍因 `STATUS_ENTRYPOINT_NOT_FOUND` 起不来（见 AGENTS.md），
   故把 `single.rs` 原样复制进一个临时 crate（只留 `serde` / `serde_json` / `rand`）跑了一遍：
   **7 条全绿**（1.03s），确认握手、接管与降级路径在真实 socket 上成立；CI 的 Linux job 跑同一份文件。
+
+## M34 — 变更配置时闪现控制台窗口（bug fix，2026-11-08）
+
+切换 light / dark 主题会闪一个黑色命令行窗口：切主题 = 保存设置，保存设置 = 收紧文件权限，
+收紧权限 = 起 `icacls`。外壳是 GUI 子系统程序，自身没有控制台，Windows 于是给这个控制台程序
+**新开一个控制台窗口**——它随 `icacls` 退出而消失，看起来就是「改个主题弹了一下命令窗口」。
+
+### 1. 根因
+
+- `ConfigStore::save()` → `session::write_private_file()` → `restrict_to_owner()`。后者的 Windows 实现
+  用 `std::process::Command::new("icacls")` 收紧 ACL，只重定向了 stdio（`Stdio::null()`），
+  **没有给 `CreateProcess` 任何「不要窗口」的标志**；stdio 重定向并不影响控制台的创建。
+- 同一缺陷也埋在 `executor/spawn.rs`：执行节点的每条任务都把输出接进管道，却同样会让
+  控制台程序弹窗——只是默认关闭、且要服务端下发任务才看得到，所以先被发现的是切主题。
+- **只在打包版出现**：`main.rs` 的 `windows_subsystem = "windows"` 只在非 debug 生效；debug 构建
+  仍带控制台，子进程会继承它，所以 `tauri dev` 看不到这个窗口。
+- 因此修复点不在「主题」，而在「GUI 进程启动子进程」这一层。
+
+### 2. 收口
+
+- **新增 `src-tauri/src/console.rs`**（零新依赖）：`CREATE_NO_WINDOW = 0x0800_0000` 直接写出，
+  不为一个标志引入 `windows-sys`；`hide(&mut std::process::Command)` 与
+  `hide_async(&mut tokio::process::Command)` 各设一次 `creation_flags`（`std` 与 `tokio` 是两套
+  `Command` 类型），非 Windows 为空操作，调用点因此没有 `cfg`。
+- **接线两处**：`session.rs` 的 `icacls`（**只加标志**，参数、`Stdio::null()`、退出码日志与
+  `eprintln` 行为一律不变），`executor/spawn.rs` 的 `Command::new(request.command.trim())`。
+  输出本就只走 `Stdio::piped`，控制台从不参与，隐藏窗口不影响任何回执。
+- **源码守卫**（`console.rs` 的用例）：`include_str!` 读 `session.rs` / `executor/spawn.rs`，
+  每个 `Command::new(` 之后 400 字符内必须出现 `console::hide`。这类缺陷没有可断言的运行时痕迹
+  （标志不对外暴露，闪窗只在有桌面的机器上肉眼可见），读源码是唯一能进 CI 的证明；
+  另有一条用例钉住常量值，防止被误写成相邻的 `EXTENDED_STARTUPINFO_PRESENT`（0x0000_0800）。
+
+### 3. 验证
+
+- `cd desktop/src-tauri && cargo check --all-targets`：通过，零告警（含 `#[cfg(test)]` 目标）。
+- 本机（Windows）Tauri 测试二进制同样起不来，故把 `console.rs` 连同两个被检查的源文件原样复制
+  进一个临时 crate（只留 `tokio`/`process`）实跑：**2 条全绿**，确认常量值与源码守卫都成立；
+  CI 的 Linux job 跑同一份文件（`hide` 在那里是空操作，守卫照样读文本）。
+- 待实机复核（本地无桌面会话，未跑起打包后的窗口）：Windows 上切 light / dark 主题与执行节点
+  跑一条命令时都不再出现控制台窗口，且 `config.json` 的 ACL 仍被收紧（`icacls` 的调用、参数与
+  退出码分支均未改动，本项只是「窗口不再存在」）。

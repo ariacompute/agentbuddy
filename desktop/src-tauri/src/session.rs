@@ -325,16 +325,20 @@ pub fn restrict_to_owner(path: &Path) {
     }
     // argv array, not a shell string: a path with spaces or quotes cannot turn
     // into a second argument.
-    let output = Command::new("icacls")
+    let mut command = Command::new("icacls");
+    // A GUI app owns no console, so `icacls` gets one of its own: a black window
+    // flashing over the workbench on every save — and the theme is saved this way
+    // too, which is how it became visible. See `console.rs`.
+    crate::console::hide(&mut command);
+    command
         .arg(path)
         .arg("/inheritance:r")
         .arg("/grant:r")
         .arg(format!("{user}:F"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    match output {
+        .stderr(Stdio::null());
+    match command.status() {
         Ok(status) if status.success() => {}
         Ok(status) => eprintln!(
             "agentbuddy desktop: cannot restrict {} to the current user (icacls exited with {status})",

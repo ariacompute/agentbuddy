@@ -193,6 +193,14 @@ desktop/
   无凭据库时才回退到文件，且文件**创建即 `0600`**（`write_private_file`，不「先写后改」），
   Windows 用 `icacls /inheritance:r /grant:r <user>:F` 显式收紧。日志只记「已迁移/回退」，
   绝不打印密钥、Cookie 或 URL 里的 userinfo。
+- **子进程不弹控制台（`console.rs`）**：外壳是 GUI 进程，自身没有控制台，Windows 会给它启动的
+  每个控制台程序**新开一个窗口**——`icacls` 因此在每次设置保存（含切 light/dark 主题）时闪一个黑框。
+  现象只在 release 出现：`main.rs` 的 `windows_subsystem = "windows"` 仅非 debug 生效，`tauri dev`
+  的控制台会被子进程继承。
+  `console::hide()` / `hide_async()` 统一加 `CREATE_NO_WINDOW`（`std` 与 `tokio` 的 `Command` 各一份，
+  非 Windows 为空操作），**执行节点任务同样走它**；输出只经 `Stdio::piped` 回传，控制台从不参与。
+  `console.rs` 的用例读源码守卫这条：`session.rs` / `executor/spawn.rs` 每个 `Command::new(` 附近
+  400 字符内必须有 `console::hide`，新增一处 spawn 忘了加会在 CI 直接红。
 - **执行节点（BYOM）**：`src-tauri/src/executor/` 让本机可选地成为 agenthub 的执行节点，**默认关闭**，
   开启必须先经 `window.confirm` 确认。安全边界全部落在 `policy.rs` / `spawn.rs` / `procgroup_*.rs`：
   命令按**精确名**白名单匹配、**绝不拼 shell**（argv 直 exec）、
