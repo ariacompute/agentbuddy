@@ -37,10 +37,10 @@ public class ResidualShellTests : IDisposable
         var original = PlatformUpgradeInstaller.StartProcess;
         try
         {
-            PlatformUpgradeInstaller.StartProcess = _ => TestProbe.Echo();
+            PlatformUpgradeInstaller.StartProcess = _ => Start("where", "where");
             Assert.True(await new PlatformUpgradeInstaller().InstallAsync([1, 2], "agentbuddy.msi", CancellationToken.None));
 
-            PlatformUpgradeInstaller.StartProcess = _ => TestProbe.Failer();
+            PlatformUpgradeInstaller.StartProcess = _ => Start("where", "definitely-not-a-program-" + Guid.NewGuid().ToString("N"));
             Assert.False(await new PlatformUpgradeInstaller().InstallAsync([1], "agentbuddy.msi", CancellationToken.None));
 
             PlatformUpgradeInstaller.StartProcess = _ => null;
@@ -126,6 +126,14 @@ public class ResidualShellTests : IDisposable
         Assert.True(result.TimedOut);
         Assert.Equal(-1, result.ExitCode);
     }
+
+    private static Process? Start(string file, string arg) => Process.Start(new ProcessStartInfo(file)
+    {
+        ArgumentList = { arg },
+        UseShellExecute = false,
+        CreateNoWindow = true,
+        RedirectStandardOutput = true
+    });
 
     private sealed class NullStore : ICredentialStore
     {

@@ -114,7 +114,12 @@ public class ExecutorCoverageTests : IDisposable
     [Fact]
     public void TerminatingATreeHandlesBothALiveAndAFinishedChild()
     {
-        var finished = TestProbe.Echo();
+        var finished = Process.Start(new ProcessStartInfo("where.exe")
+        {
+            ArgumentList = { "where" },
+            UseShellExecute = false,
+            CreateNoWindow = true
+        });
         if (finished is not null)
         {
             using (finished)
@@ -124,7 +129,12 @@ public class ExecutorCoverageTests : IDisposable
             }
         }
 
-        var live = TestProbe.Sleeper();
+        var live = Process.Start(new ProcessStartInfo("ping.exe")
+        {
+            ArgumentList = { "-n", "30", "127.0.0.1" },
+            UseShellExecute = false,
+            CreateNoWindow = true
+        });
         if (live is null) return;
         using (live)
         {
@@ -814,10 +824,20 @@ public class NotificationCoverageTests
         var original = SystemNotifier.StartProcess;
         try
         {
-            SystemNotifier.StartProcess = _ => TestProbe.Echo();
+            SystemNotifier.StartProcess = _ => Process.Start(new ProcessStartInfo("where.exe")
+            {
+                ArgumentList = { "where" },
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
             Assert.Null(await new SystemNotifier().NotifyAsync("t", "b", null));
 
-            SystemNotifier.StartProcess = _ => TestProbe.Failer();
+            SystemNotifier.StartProcess = _ => Process.Start(new ProcessStartInfo("where.exe")
+            {
+                ArgumentList = { "definitely-not-a-program" },
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
             Assert.Equal("denied", await new SystemNotifier().NotifyAsync("t", "b", null));
 
             SystemNotifier.StartProcess = _ => null;
