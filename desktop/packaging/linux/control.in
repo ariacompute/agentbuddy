@@ -1,0 +1,11 @@
+Package: agentbuddy
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Aria Compute <hello@ariacompute.ai>
+Description: Unified agent workbench desktop client
+ agentbuddy is a native desktop workbench that connects to an agenthub server.
+ It provides threads, task tracing, channels, connectors, shared files,
+ scheduling and optional local execution nodes.
+Homepage: https://github.com/ariacompute/agentbuddy

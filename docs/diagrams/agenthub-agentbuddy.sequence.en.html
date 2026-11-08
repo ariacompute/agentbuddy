@@ -5267,11 +5267,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         </g>
 
-        <g data-edge-from="workbench" data-edge-to="proxy" data-edge-label="Same-origin fetch" data-edge-key="1" data-edge-id="same-origin">
+        <g data-edge-from="workbench" data-edge-to="proxy" data-edge-label="HttpClient request" data-edge-key="1" data-edge-id="same-origin">
           <path data-composition-edge-from="workbench" data-composition-edge-to="proxy" data-composition-edge-id="same-origin" data-composition-points="266.83333333333337,195;395.1666666666667,195" d="M 266.83333333333337 195 L 395.1666666666667 195" class="a-default" data-animate="edge" style="--step:1" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
           <rect x="268.9" y="175" width="124.19999999999999" height="18" rx="3" class="c-mask"/>
-          <text x="331" y="185" class="t-muted" font-size="11" text-anchor="middle">Same-origin fetch</text>
+          <text x="331" y="185" class="t-muted" font-size="11" text-anchor="middle">HttpClient request</text>
         </g>
         </g>
 
@@ -5402,8 +5402,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="117.5" y="122" class="t-muted" font-size="7" text-anchor="middle">Desktop workbench</text>
         </g>
 
-        <g id="node-workbench" data-node-id="workbench" data-node-label="Vue 3 Workbench" tabindex="0" role="button" aria-label="Focus Vue 3 Workbench, Same-origin fetch, Sequence participant" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="Same-origin fetch" data-node-context="Sequence participant">
-          <title>Vue 3 Workbench · Same-origin fetch · Sequence participant</title>
+        <g id="node-workbench" data-node-id="workbench" data-node-label="Avalonia Workbench" tabindex="0" role="button" aria-label="Focus Avalonia Workbench, HttpClient request, Sequence participant" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="HttpClient request" data-node-context="Sequence participant">
+          <title>Avalonia Workbench · HttpClient request · Sequence participant</title>
           <rect x="204.33333333333337" y="72" width="111" height="60" rx="6" class="c-mask"/>
           <rect x="204.33333333333337" y="72" width="111" height="60" rx="6" class="c-frontend" data-animate="node" style="--step:1" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(210.33333333333337 78) scale(0.6875)">
@@ -5412,19 +5412,19 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="259.83333333333337" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Vue 3 Workbench</text>
-          <text data-detail="context" x="259.83333333333337" y="122" class="t-muted" font-size="7" text-anchor="middle">Same-origin fetch</text>
+          <text data-node-label="" data-detail-anchor="" x="259.83333333333337" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Avalonia Workbench</text>
+          <text data-detail="context" x="259.83333333333337" y="122" class="t-muted" font-size="7" text-anchor="middle">HttpClient request</text>
         </g>
 
-        <g id="node-proxy" data-node-id="proxy" data-node-label="Loopback Proxy" tabindex="0" role="button" aria-label="Focus Loopback Proxy, 4 prefix routes, Sequence participant" aria-pressed="false" data-node-kind="security" data-node-sublabel="4 prefix routes" data-node-context="Sequence participant">
-          <title>Loopback Proxy · 4 prefix routes · Sequence participant</title>
+        <g id="node-proxy" data-node-id="proxy" data-node-label="Loopback Gateway" tabindex="0" role="button" aria-label="Focus Loopback Gateway, 4 prefix routes, Sequence participant" aria-pressed="false" data-node-kind="security" data-node-sublabel="4 prefix routes" data-node-context="Sequence participant">
+          <title>Loopback Gateway · 4 prefix routes · Sequence participant</title>
           <rect x="346.6666666666667" y="72" width="111" height="60" rx="6" class="c-mask"/>
           <rect x="346.6666666666667" y="72" width="111" height="60" rx="6" class="c-security" data-animate="node" style="--step:2" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(352.6666666666667 78) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="402.1666666666667" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Loopback Proxy</text>
+          <text data-node-label="" data-detail-anchor="" x="402.1666666666667" y="108" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Loopback Gateway</text>
           <text data-detail="context" x="402.1666666666667" y="122" class="t-muted" font-size="7" text-anchor="middle">4 prefix routes</text>
         </g>
 
@@ -5704,11 +5704,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="card">
         <div class="card-header">
           <div class="card-dot slate"></div>
-          <h3>Same-origin communication</h3>
+          <h3>Loopback communication</h3>
         </div>
         <ul>
-          <li>The workbench talks only to the loopback proxy on 127.0.0.1, same origin</li>
-          <li>The session lives in an HttpOnly cookie that the proxy reuses</li>
+          <li>The workbench uses HttpClient to talk only to the loopback gateway on 127.0.0.1</li>
+          <li>The session lives in an HttpOnly cookie that the gateway reuses</li>
           <li>Task bodies, artifacts, spans and event frames are persisted synchronously or best-effort</li>
         </ul>
       </div>

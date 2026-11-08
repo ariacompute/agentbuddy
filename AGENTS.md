@@ -5,159 +5,151 @@
 
 ## 概述
 
-`agentbuddy` 是 **Tauri v2 桌面外壳 + Vue 3 工作台前端**的桌面客户端（Linux / Windows / macOS）。
-**自身无后端、无数据库**：它把 `http://127.0.0.1:<随机端口>` 上的相对请求环回转发到用户配置的
-`agenthub` 服务端，从而复用 agenthub 的认证、A2A 编排、注册中心与任务状态机。
+`agentbuddy` 是 **.NET 10 LTS + C# + Avalonia 11 原生桌面客户端**（Windows / macOS / Linux）。
+**自身无后端、无数据库、无 WebView**：原生 XAML 界面用 `HttpClient` 打到进程内的
+`127.0.0.1:<随机端口>` 环回网关，网关把相对请求转发到用户配置的 `agenthub` 服务端，
+从而复用 agenthub 的认证、A2A 编排、注册中心与任务状态机。
 
-- 后端（别人的）：`agenthub`（Go 1.27 + PostgreSQL）。本仓库 **不 import** agenthub，只经 HTTP 对话。
-- 前端：Vue 3.5 + Vite 5（**bun 1.4.4+** 运行时，弃用 npm/Node）；15 屏工作台；**13 种语言**；
-  **纯黑/白/灰单色**；无 UI 组件库、无 CSS 框架，样式全部手写于单个 `web/src/style.css`。
-- 桌面外壳：`desktop/src-tauri`（**Rust + Tauri v2**，出向 TLS 由 rustls + webpki-roots ≥1.0.10 校验），**不含后端、不含数据库**，用环回反向代理把
-  同一份工作台对着用户指定的服务端打开；外壳自有文案同样 13 语。
+- 服务端（别人的）：`agenthub`（Go + PostgreSQL）。本仓库 **不 import** agenthub，只经 HTTP 对话，本轮零改动。
+- 界面：`desktop/src/AgentBuddy.App`，Avalonia XAML + CommunityToolkit.Mvvm；17 个视图
+  （15 屏工作台 + Connect + About）、6 个共享控件；**13 种语言**、**纯黑/白/灰单色**、
+  默认浅色主题、阿拉伯语右到左、触控目标 ≥44px。
+  样式只写 `Styles/Theme.axaml`（Dark 基准 + Light 成对覆盖）与 `Styles/Controls.axaml`。
+- 领域层：`desktop/src/AgentBuddy.Core`，纯 C#、无 UI/平台依赖；冻结契约、DTO、13 语文案、
+  上游客户端、SSE 解析、轮询聚合、通知决策、实时订阅。
+- 外壳层：`desktop/src/AgentBuddy.Shell`，ASP.NET Core / Kestrel 环回网关、凭据库、
+  BYOM 执行节点、托盘/通知、自动更新验签安装。
 
-## 架构（两端协作）
+## 架构（单向依赖）
 
 ```
-┌───────────────────────────────┐          ┌──────────────────────────────────┐
-│ agentbuddy 桌面客户端           │          │ agenthub 服务端（常驻）             │
-│  ── 触达 / UI 层 ──             │   SSE /  │  ── 执行 / 编排层 ──               │
-│  • 窗口 / 托盘 / 系统通知        │   HTTP   │  • agent 长驻运行时（adapter）      │
-│  • 语音采集与播放               │ ───────► │  • 任务推进 / HITL park-resume     │
-│  • avatar / persona 渲染        │ ◄─────── │  • SSE Broker、push                │
-│  • 轮询聚合（无全局事件流）      │          │  • channels / connectors / speech  │
-└───────────────────────────────┘          └──────────────────────────────────┘
-         │                                              │
-         └── loopback proxy（axum, 127.0.0.1:0）────────┘
-             └─ /__shell/notify ──► 系统通知（标题由工作台按当前语言解析）
+┌────────────────────────────────────────────┐        ┌──────────────────────────────┐
+│ agentbuddy 桌面客户端                       │        │ agenthub 服务端（常驻）      │
+│  App（Avalonia XAML + ViewModel，17 视图）  │  HTTP  │  • agent 运行时 / adapter    │
+│    ↓ 引用                                   │ / SSE  │  • 任务推进 / HITL 挂起恢复  │
+│  Core（契约 / DTO / 文案 / 客户端 / 服务）   │ ─────► │  • SSE Broker / push         │
+│    ↑ 端口接口由 Core 定义，实现在 Shell      │ ◄───── │  • channels / connectors     │
+│  Shell（Kestrel 环回网关、托盘、通知、更新）  │        │  • speech / files / router   │
+└────────────────────────────────────────────┘        └──────────────────────────────┘
+         └─ 127.0.0.1:0 网关：/api /a2a /healthz /.well-known 转发；
+            /__shell/* 是 ViewModel 与外壳之间的本地控制面（替代旧的 JS 桥）
 ```
 
-外壳只认**前缀**（`/api`、`/a2a`、`/healthz`、`/.well-known`），其余路径一律 SPA 回退到 `index.html`，
-因此**服务端新增 `/api/*` 端点不需要改桌面端代码**（本轮新增的 `/api/channels*`、
-`/api/connectors*`、`/api/threads/{id}/audio` 全部被 `/api` 覆盖）。
+网关只认**前缀**（`/api`、`/a2a`、`/healthz`、`/.well-known`），因此
+**服务端新增 `/api/*` 端点不需要改桌面端代码**。其余路径不是 SPA 回退，
+而是 `/__shell/*` 控制面或直接 404 —— 界面不再有 HTML 注入、CSP nonce 与 `web/dist` 内嵌。
 
 ## 目录
 
 ```
-web/                        Vue 3 工作台（bun + vite）
-  src/App.vue               全局壳：镜像 <html lang|dir>、启动 ActivityMonitor
-  src/router.js             16 条路由 + 登录守卫
-  src/style.css             唯一全局样式表（单色令牌 + 全站样式）
-  src/lib/                  语言、copy、api、stores、monitor、notifications、voice
-  src/lib/copy/scheduler-copy.js  调度器文案（13 语，合并进 hub / errors 命名空间）
-  src/views/                15 屏（SchedulesView 含调度水位 / 运行历史 / 触发流 / 策略四区块；
-                            FilesView 为共享文件（上传 / 列表 / 下载 / 删除）；
-                            KnowledgeView 为只读知识片段列表）
-  src/components/           共享组件
-  tests/                    Vitest（含 style 单色守卫、copy-fallback 13 语完整性、
-                            api-usage 导出引用守卫、round4 六面接线回归；
-                            smoke.e2e.spec.js 用真 socket + node:http 桩跑真客户端）
 desktop/
-  src-tauri/src/            Rust：config / session / proxy / executor / tray / notify / i18n
-  src-tauri/assets/         shell.html（连接页 + 关于页）
-  frontend-stub/            启动占位页（tauri.conf.json 的 frontendDist）
+  agentbuddy.sln / global.json / Directory.Build.props / Directory.Packages.props
+  src/AgentBuddy.Core/
+    Contracts/         Endpoints.cs（约 80 端点 + 12 条 /__shell/* + 8 个 SSE 事件名）、
+                       Codes.cs（74 错误码 + 13 升级码 + Limits）、ReleaseContract.cs（9 assets）、
+                       ShellConfig.cs（config.json 唯一 schema）
+    I18n/copy.json     13 语 × 61 键，en 浅合并兜底
+    Gateway/           AgentHubClient.cs（HttpClient 单例、上传进度、流式下载、语音 multipart）、
+                       SseParser.cs（逐行增量解析）
+    Services/          ConfigService / LocalizationService / MonitorService /
+                       NotificationDecider / RealtimeService（四路 SSE + since 重放）
+  src/AgentBuddy.Shell/
+    Loopback/          LoopbackGateway / BootstrapAuth / ForwardHandler / ShellRoutes
+    Credentials/       ICredentialStore + Win/Mac/Linux/受限文件回退
+    Executor/          默认关闭的 BYOM 节点、精确命令白名单、进程组终止
+    Notifications/     三平台通知 + DeepLinkQueue
+    Tray/              13 语菜单、角标 clamp 999（>99 显示 99+）
+    Upgrade/           GitHub/Gitee 选源、semver、Ed25519 验签、平台化安装重启
+  src/AgentBuddy.App/
+    Views/             17 个 .axaml + ViewClasses.cs
+    ViewModels/        每屏一个 VM + NavigationService（17 路由 + 登录守卫）+ ShellViewModel
+    Controls/          6 个共享控件（页头、顶栏、侧栏、文件传输、语音、任务动作）
+    Styles/            Theme.axaml / Controls.axaml
+    Composition.cs     组合根：网关 → 客户端 → VM → 轮询/实时 → 窗口能力注入
+  tests/               Core.Tests / Shell.Tests / App.Tests / Guards（xUnit）
+  tools/AgentBuddy.Build/  ab-tool：icons / stamp / inject-pubkey / sign / wix / manifest / verify
+  packaging/           linux/control.in、linux/agentbuddy.desktop、macos/Info.plist
+  assets/app-icon.png 唯一图标源
+.github/workflows/     ci.yml（dotnet job）、release.yml（三平台 publish + 9 assets）
 ```
 
 ## 硬性约定
 
-### 前端（web/）
+### 文案、主题与无障碍
 
-- **文案**：`src/lib/copy/*-copy.js`，13 语（`en zh zh-TW es fr de it ru ja ko pt ar hi`）。
-  `use-copy.js` 的 `resolve()` 用 `{...copy.en, ...copy[lang]}` 浅合并 + **en 兜底**。
-  **禁止在模板里硬编码自然语言**。
-- **主题**：`:root` 为暗色基础值，`[data-theme='light']` 在文件末尾**成对**翻转同一批令牌；
-  **默认主题为 light**（无存储偏好时），由 `web/index.html` 预绘制脚本与 `ThemeToggle` 设定
-  `document.documentElement.dataset.theme='light'`，`agentbuddy.theme` 持久用户选择。
-  新增颜色必须两处都写，禁止硬编码色值。
-- **单色禁令**：UI 不得出现任何有彩色相，一律落在 `#000 ↔ #fff` 明度轴；
-  `tests/style.spec.js` 自动校验（hex 三通道相等 + rgb/hsl 中性 + 色相词黑名单）。
-- **RTL**：`ar` 下 `document.documentElement.dir = 'rtl'`，布局一律逻辑属性
-  （`margin-inline` / `inset-inline`）。
-- **无障碍**：触控目标 ≥44px；焦点环 2px + 2px offset；`prefers-reduced-motion: reduce` 下禁全部动效。
-- **错误**：store 只存 `error.code`；文案经 `errors.js` + `copy/errors-copy.js` 本地化。
-  新增错误码须登记三处（服务端 `httputil.Code*`、前端 `CODE_KEYS`、`errors-copy.js` 13 语）。
-- **测试**：`cd web && bun run test`（Vitest）。**勿用裸 `bun test`**（Bun 原生 runner 不加载
-  `vitest.config.js`，无 jsdom 环境）。新增功能须补**正常 + 异常**双路径用例。
-  覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线（32 个 spec、**785** 条用例）：
-  语句/行 **100%**、分支 **100%**、函数 **100%**（10989 条语句、1804 个分支、433 个函数）；
-  **四项须保持 100%**，回落时先看报告里的未覆盖行再补用例，禁止用 exclude 绕过。
-  界面上按钮 disabled 因而点不到的守卫，用 `wrapper.vm` 直接调用处理函数覆盖；
-  无 `window` 的 setup 分支用 `createSSRApp` + `renderToString` 覆盖。
-- **接线守卫**：`api.js` 的每个具名导出至少要被 `web/src/**`（除 `api.js` 自身）引用一处，
-  `tests/api-usage.spec.js` 强制这条且白名单必须为空；新增封装却忘了接界面会直接红。
-  `tests/round4.spec.js` 按「界面 → 端点」逐面钉住正常与异常双路径（知识库、资源新建、
-  连接器动作、计算机卡片、调度策略/详情、@提及与解除订阅），防止「有封装无界面」回归。
-- **系统通知**：工作台只经 `notifyShell()` → `POST /__shell/notify` 投递（`{title, body, link}`），
-  标题在发送瞬间用 `useCopy('workspace')` 解析（**不能传 copy key**），且必须 fire-and-forget
-  （`Promise.resolve(...).catch()`）；外壳的 `notify_enabled` / `notify_quiet_minutes` 由
-  `shell-settings.js` 读出后喂给 `decide()`，两条设置才真正生效。纯 Web 构建没有 `/__shell`，
-  请求失败静默吞掉。
-- **通知深链**：`link` 是站内路径（`/threads/42`），外壳在 `notify.rs` 里入队，用户点击 toast
-  （`ActionPerformed::action_id() == "tap"`）时取用并 `window.location.hash = '#/…'` 导航——
-  工作台是 hash 路由，这是唯一无需新增 IPC 面的跳转通道。只接受单斜杠开头、拒绝 `//host` /
-  `javascript:` / 反斜杠与控制字符；一次点击只消费一次。
-- **托盘未读角标**：工作台在未读数变化处经 `setTrayBadge(count)` → `POST /__shell/badge`
-  （`{count}`）投递，同样 fire-and-forget。外壳把计数存在 `ProxyState.unread` 里并 clamp 到 `999`，
-  再交给 `tray::set_unread`：tooltip 全平台可见、`set_title` 在支持的平台显示数字（>99 显示 `99+`）。
-  **计数留在进程里**，`refresh`（语言切换重建菜单）后重新套用，否则切语言会把角标抹掉；
-  文案走 `badge_text(lang, count)` 纯函数（13 语 `trayUnread`），因此无窗口可单测。0 表示全读，
-  此时角标清空、tooltip 回落产品名。
+- **13 语**：`en zh zh-TW es fr de it ru ja ko pt ar hi`。`copy.json` 每语键集必须完全一致，
+  `zh` 与 `zh-TW` 必须不同；`LocalizationService` 用 `{...en, ...lang}` 浅合并 + **en 兜底**。
+  **禁止在 `.axaml` 模板里硬编码自然语言**，一切走 `{Binding}` + copy key。
+  `tests/AgentBuddy.Guards` 扫描 13 语键集、翻译真实性与模板硬编码。
+- **单色禁令**：UI 不得出现任何有彩色相，一律落在 `#000 ↔ #fff` 明度轴。
+  控件模板只引用 `DynamicResource Brush.*` 键，禁止硬编码色值；
+  `Theme.axaml` 的 Dark 基准与 Light 覆盖必须**成对**写同一批键，`App.axaml` 默认 `Light`。
+- **RTL**：`ar` 下 `window.FlowDirection = RightToLeft`；布局一律逻辑属性，
+  禁止绝对左右定位与 `HorizontalAlignment=Left/Right` 的语义依赖。
+- **无障碍**：触控目标 ≥44px（`Double.MinTouch`）；焦点环 2px + 2px offset；
+  不声明任何过渡动画，`ReducedMotionService` 在 `prefers-reduced-motion` 下打 `reduce-motion` 标记。
+- **错误**：ViewModel 只存机器 `error.code`；展示文案由 `ErrorText` 按 code 查 copy。
+  新增错误码须同步 `Codes.cs` 的 `All`（74 条）与 13 语 `errors.*` 键。
 
-### 桌面外壳（desktop/）
+### 契约与接线守卫
 
-- **环回代理**：`TcpListener::bind("127.0.0.1:0")`；axum `Router::new().fallback(dispatch)`；
-  转发前缀 `/api` `/a2a` `/healthz` `/.well-known`。
-- **SSE 必须真流式**：`reqwest` 字节流 → `Body::from_stream`；强制 `accept-encoding: identity`；
-  **禁止整体超时**（仅 `CONNECT_TIMEOUT = 10s`）。
-- **Cookie 重写**：丢 `Secure` / `Domain` / 原 `Path`，`SameSite=None` → `Lax`，补 `; Path=/`；
-  保留 `HttpOnly`。
-- **关闭行为**：`CloseRequested` 时读取 `config.background`——为 `true`（默认）则
-  `api.prevent_close()` + `window.hide()`（保留在托盘运行）；为 `false` 则放行关闭，
-  应用随之退出（外壳无其他窗口）。**仅托盘「退出」恒走 `app.exit(0)`**。
-  该偏好由 `/__shell/config` 落盘，连接页与工作台「设置」页均可改。
-- **内嵌前端为 `../../web/dist`**：`build.rs` 保证目录存在（`rust-embed` 目录缺失会编译失败）。
-- **外壳文案 13 语**：`src-tauri/src/i18n/copy.rs`，语言代码集必须与 `web/src/lib/languages.js` 一致。
-- **托盘菜单语言跟随应用**：Rust 无法读取浏览器 `localStorage`，故工作台在 `setLang` 时把
-  `agentbuddy.lang` 经 `/__shell/config` 推送到外壳 `config.lang`，托盘据此重建（`tray::refresh`）；
-  连接页 `connect()` 同样会同步。即托盘语言 = 应用的 `agentbuddy.lang`，而非外壳独立设置。
-- **代理准入（三件套，缺一不可）**：每次启动生成 256 位 token 与**一次性 nonce**；窗口经
-  `GET /__shell/bootstrap?nonce=…` 兑换 `HttpOnly; SameSite=Strict; Path=/` 的 `ab_proxy` Cookie 后
-  `303 → /`。除 bootstrap 外**所有**路径（含 `/api`、`/a2a`、`/__shell/*` 与静态资源）都必须带该
-  Cookie（原生客户端可用 `Authorization: Bearer`）；`Origin` 与 `self_url` 不符者**先于鉴权**以
-  `403 proxy_origin_refused` 拒绝。token 只在代理内存与 Cookie 里，绝不进 JS、绝不转发上游。
-- **每响应 CSP nonce**：代理输出的每个 HTML 都带 `Content-Security-Policy`，
-  `script-src 'self' 'nonce-<每响应随机>'`（**不含** `unsafe-inline`）；注入的内联脚本必须声明该 nonce。
-  转发上游时只丢逐跳头，上游 CSP / HSTS / X-Frame-Options 原样透传。
-- **凭据只进凭据库**：agenthub 会话与执行节点 API key 一律存操作系统凭据库
-  （`session.rs` 的 `Keyring`，密钥用 `secret:<name>` 账户），`config.json` 里该字段留空、`load()` 回填；
-  无凭据库时才回退到文件，且文件**创建即 `0600`**（`write_private_file`，不「先写后改」），
-  Windows 用 `icacls /inheritance:r /grant:r <user>:F` 显式收紧。日志只记「已迁移/回退」，
-  绝不打印密钥、Cookie 或 URL 里的 userinfo。
-- **执行节点（BYOM）**：`src-tauri/src/executor/` 让本机可选地成为 agenthub 的执行节点，**默认关闭**，
-  开启必须先经 `window.confirm` 确认。安全边界全部落在 `policy.rs` / `spawn.rs` / `procgroup_*.rs`：
-  命令按**精确名**白名单匹配（`sh` / `bash` / `cmd` 在构造上拒绝）、**绝不拼 shell**（argv 直 exec）、
-  工作根目录必须绝对路径且只能在其内读写执行、环境变量按白名单直传、输出截断、并发有上限；
-  超时由 `terminate_tree()` 收场——unix 下 `process_group(0)` 使子进程成为组长，
-  对 `-pgid` 先 TERM、250ms 宽限后 KILL、再 `wait()` 收尸，**孙进程不残留**；`pgid <= 1` 或信号被拒
-  时降级为直接子进程 `start_kill`。Windows 无进程组语义，如实退回直接子进程终止（不伪装已支持）。
-  状态与开关只经 `GET|POST /__shell/executor` 暴露，**网页视图不获得任何文件系统或命令执行权限**；
-  拒绝原因是机器码（`root_unusable` / `command_not_allowed` / …），由工作台 13 语本地化。
-- **测试**：`cd desktop/src-tauri && cargo test`。本机（Windows）测试二进制因 Tauri 原生依赖
-  入口缺失无法启动，只能 `cargo test --no-run` 做编译校验；纯逻辑用例（i18n 表、托盘映射、
-  会话存取、执行节点的白名单/根目录/超时/截断、通知深链的入队/取用/转义）不依赖 AppHandle，
-  在 CI 上一跑即知。`i18n/copy.rs` 用 `include_str!` 读 `web/src/lib/languages.js` 钉住 13 语代码集，
-  改语言清单会在此处报错。
-  **CI 跑 `cargo test` 前必须先 `make icons`**：`tauri::generate_context!` 在编译期读 `icons/`，
-  而该目录被 gitignore，缺了连 `cargo check` 都过不去（`make desktop-test` / `make desktop-check`
-  已依赖 `icons`，裸 `cargo test` 不会代劳）。
-  **CI 还要先构建 `web/dist`**：`rust-embed` 在编译期把它嵌进二进制，缺了 `proxy/static_files.rs`
-  里依赖 `index.html` / `theme-init.js` 的那几条用例（版本戳、客户端路由回落与**每响应** CSP nonce、
-  缺文件 404、`assets/` 长缓存）会走「未构建则跳过」分支——绿，但什么也没证明。
-  本机若 `cargo` 报 `untrusted mount point`（`~/.cargo/bin` 的 shim 起不来），直接调
-  `%USERPROFILE%\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\cargo.exe`（并把该目录
-  加到 `PATH` 以找到 `rustc`）即可完成 `cargo test --no-run` 的编译校验。
-  `.github/workflows/ci.yml` 的 desktop job 因此在 cargo 之前跑一次 `bun install --frozen-lockfile
-  && bun run build`（Windows runner 无 `make`，所以写的是两条原生命令）。
+- `Contracts/Endpoints.cs` 是**唯一**字面量来源：约 80 个 `/api/*`、12 条 `/__shell/*`、
+  8 个 SSE 事件名、`ab_proxy` Cookie 名、默认服务端地址、平台键、错误机器码。
+  `EveryFrozenEndpointConstantIsReferencedOutsideItsDefinition` 强制每个常量至少有一处真实调用方，
+  **白名单为空**，新增封装却忘了接界面会直接红。
+- `ReleaseContract.AllAssets()` 钉住**恰好 9 个发布产物**：6 下载 + `latest.json` +
+  `latest-gitee.json` + `SHA256SUMS`；`ab-tool verify` 在发布前断言目录内容完全一致。
+- 传输细节：语音 multipart 字段名 `audio`、文件名 `voice.webm`；文件下载是字节流；
+  上传有 `IProgress<int>`；`Set-Cookie` 丢 `Secure`/`Domain`/原 `Path`、
+  `SameSite=None` → `Lax`、补 `; Path=/` 并保留 `HttpOnly`；`Location` 只改写服务端本地跳转。
+- 日志统一 `Microsoft.Extensions.Logging` 分级，**绝不打印密钥、Cookie、URL userinfo 或请求体**；
+  通知与角标投递一律 fire-and-forget 且捕获异常。
+
+### 网关准入与安全
+
+- **三件套缺一不可**：每次启动生成 256 位 token 与**一次性 nonce**；窗口经
+  `GET /__shell/bootstrap?nonce=…` 兑换 `HttpOnly; SameSite=Strict; Path=/` 的 `ab_proxy` Cookie
+  后 `303 → /`。除 bootstrap 外**所有**路径（含 `/api`、`/a2a`、`/__shell/*`）都必须带该 Cookie
+  （原生客户端可用 `Authorization: Bearer`）；`Origin` 与 `self_url` 不符者**先于鉴权**
+  以 `403 proxy_origin_refused` 拒绝。token 只在网关内存与 Cookie 里，绝不进 UI、绝不转发上游。
+- **SSE 必须真流式**：`ResponseHeadersRead` + 字节流拷贝，强制 `accept-encoding: identity`，
+  **禁止整体超时**（仅 `ConnectTimeout = 10s`）；请求体上限 32MiB。
+- **凭据只进凭据库**：agenthub 会话与执行节点 API key 存操作系统凭据库，
+  `config.json` 该字段留空并在 `Load()` 回填；无凭据库时回退 `0600` 文件（Windows 用 `icacls` 收紧）。
+- **执行节点（BYOM）**：默认关闭、开启需显式确认。命令按**精确名**白名单匹配
+  （`sh`/`bash`/`cmd` 构造上拒绝）、**绝不拼 shell**（argv 直 exec）、根目录与环境变量白名单、
+  输出截断、并发上限；Unix 负 pgid `TERM → 250ms → KILL → wait()` 收尸，
+  Windows 无进程组语义，如实退回直接子进程终止。状态/开关只经 `GET|POST /__shell/executor` 暴露，
+  **UI 不获得任何文件系统或命令执行权限**；拒绝原因是机器码（`root_unusable` 等），13 语本地化。
+
+### 托盘、通知与更新
+
+- **托盘菜单语言跟随应用**：`ShellViewModel.Lang` 变化时经 `/__shell/config` 推 `lang` 给外壳，
+  `TrayService.Refresh()` 重建 13 语菜单；角标计数留在进程里，`refresh` 后重新套用。
+- **通知深链**：`link` 是站内路径（`/threads/42`），`DeepLinkQueue` 只接受单斜杠开头，
+  拒绝 `//host`、`javascript:`、反斜杠与控制字符；点击只消费一次并交给 `NavigationService`。
+  标题在发送瞬间按当前语言解析，**不能传 copy key**。
+- **未读角标**：`POST /__shell/badge` clamp 到 999，>99 显示 `99+`，0 清空 tooltip 回落产品名。
+- **自动更新**：GitHub / Gitee 并发竞速（不采集位置、不读 IP）、semver 比较、24h 单飞
+  （时钟回拨视为到期）、跳过版本；`MinisignVerifier` 用 minisign 兼容的 Ed25519 验签，
+  **未配置公钥一律返回 `not_configured`，绝不安装未验签包**；签名字段覆盖全部 6 个下载。
+  发布矩阵仅 `linux-x86_64` / `darwin-aarch64` / `windows-x86_64`，其余返回 `unsupported_platform`。
+- **同一个公钥只有一处**：release 前 `ab-tool inject-pubkey` 从 secret 写入
+  `Upgrade/Pubkey.g.cs`；无 secret 时保持空。签名私钥 secret 为 minisign key box
+  （两行文本或其 base64 包装），由 `ab-tool sign` / `MinisignVerifier.Decode` 共用同一解码语义。
+
+### 测试与命令
+
+- `cd desktop && dotnet test agentbuddy.sln`。四个 xUnit 项目：Core（契约/文案/轮询/SSE）、
+  Shell（准入/Cookie/流式/凭据/执行节点/升级/真 socket 冒烟）、App（Headless VM/导航守卫）、
+  Guards（静态扫描）。新增功能须补**正常 + 异常**双路径用例。
+- `dotnet build agentbuddy.sln -warnaserror` 必须 **0 警告 0 错误**；
+  `dotnet test --collect:"XPlat Code Coverage"` 出 Cobertura。
+  静态守卫是硬门槛（13 语键集、单色 XAML、契约常量可达性、共享控件复用、构建/发布只用 .NET），
+  禁止用 exclude 绕过。
+- CI 用 `actions/setup-dotnet@v4` + `global-json-file: desktop/global.json`；
+  release 用 `dotnet publish -r <rid> --self-contained true` + WiX v4 / `dpkg-deb` / `hdiutil`
+  + `ab-tool` 出 9 个 assets。
 
 ### 服务端（agenthub，改动需谨慎）
 
@@ -165,91 +157,33 @@ desktop/
 - 新路由必须同时登记 `handlers/listen.go` 的 `Listeners()` 与 `listen_test.go` 的 `probes`。
 - 不新增权限码：通道 / 连接器 / 语音复用 `tasks:read` / `tasks:write` / `resources:*`。
 
-## 自动更新（upgrade）
-
-- **选源**：`src/upgrade/source.rs` 并发探测 GitHub / Gitee 两源的 `latest.json`（Gitee 先经公开
-  release API 解出 tag），取可用且延迟最低者，失败自动落到另一源；**不采集位置、不读 IP、
-  不依赖定位服务**。胜出 + 回落端点经 `UpdaterBuilder::endpoints()` 注入插件，插件顺序 failover。
-- **检查与匹配**：启动延时 8s 首检，之后每 24h（`due()`，时钟回拨视为到期）、`AtomicBool` 单飞；
-  版本用 `semver::Version` 比 `crate::VERSION`；`platform_key(OS, ARCH)` 映射到 Tauri 平台键。
-  发布矩阵当前只有 `linux-x86_64` / `darwin-aarch64` / `windows-x86_64`，其余平台返回
-  `unsupported_platform` 并给手动下载入口，不反复重试。
-- **安装**：`tauri-plugin-updater` 只负责验签、下载、平台化安装与重启。**同一个公钥必须到两处**：
-  `src/upgrade/mod.rs` 的 `upgrade::UPDATER_PUBKEY`（运行时经 `Builder::pubkey()` 验签），以及
-  `tauri.conf.json` 的 `plugins.updater.pubkey`（`tauri build` 打包时用它校验签名私钥是否配对）。
-  CLI 的 `pub_key()` 对该值 `base64 解码 → UTF-8 → PublicKeyBox::from_string`，留空或只填裸
-  `RW…` 公钥行会报 `failed to convert updater pubkey: Missing comment in public key`；即便运行时
-  常量已注入也照样失败。**两处在源码里都恒为空、公钥不进仓库**：release 构建前
-  `desktop/scripts/inject-updater-pubkey.mjs` 读 secret `UPDATER_PUBKEY` 同时写入两处，本地构建
-  无 secret 时不改文件。**未配置公钥时「立即升级」返回 `not_configured`，绝不安装未验签的包**。
-  生成：在 `desktop/` 下先 `bun install`，再
-  `bunx tauri signer generate -w ~/.tauri/agentbuddy.key`（`tauri` 只是本地 devDependency，
-  没有全局命令；Rust 侧可用 `cargo tauri signer generate`）；两个密钥 secret 与口令必须一起配，
-  缺 `UPDATER_PUBKEY` 时脚本直接 fail，不再让打包拖到几分钟后才报错。
-- **密钥格式**：`~/.tauri/agentbuddy.key`（私钥）与 `.key.pub`（公钥）本身就是
-  **单行 base64**（解码后才是两行 minisign 文本），secret 直接取文件内容：
-  `gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key`、
-  `gh secret set UPDATER_PUBKEY < ~/.tauri/agentbuddy.key.pub`；**不要再 `base64 -w0`
-  二次编码**。公钥解码后必须是完整的两行 public key box（首行
-  `untrusted comment: … public key`，第二行解码为 42 字节），`inject-updater-pubkey.mjs` 会在
-  写文件前这样校验；私钥由 tauri-cli 解码一次后交给 `SecretKeyBox::from_string`，网页粘贴带入的
-  尾随空格/换行足以造成 `Invalid padding`。`prepare-updater-secrets.mjs` 兼容明文两行文件、
-  拒绝路径 / 公钥 / 二次编码值、去掉口令 CR/LF，规范化后经 `GITHUB_ENV` 交给构建步骤
-  （故 build step 不再设同名 step env）。
-- **发布产物**：每次 release 恰好 9 个 assets —— 6 个下载（Linux deb + 便携 tar.gz、
-  macOS dmg + app 便携 tar.gz、Windows msi + 便携 zip）、`latest.json`、
-  `latest-gitee.json`、`SHA256SUMS`。`bundle.createUpdaterArtifacts` **恒不开启**，
-  Linux 也不再追加 `appimage`，因此不存在额外更新包、重复 msi、82MB AppImage、
-  `.sig` 或 `updater-*.json`。`TAURI_SIGNING_PRIVATE_KEY` 存在时，各 leg 用
-  `tauri signer sign --app-version V` 直接签自己的 2 个下载；
-  `desktop/scripts/latest-json.mjs collect` 归一化签名、删除临时 `.sig`、把元数据写进
-  独立 `meta/` artifact，`manifest` 产出 `latest.json`（GitHub URL）与
-  `latest-gitee.json`（Gitee URL）：`platforms` 指向可安装资产（deb / macOS tar.gz / msi），
-  新增 `signatures` 覆盖全部 6 个下载（旧客户端忽略未知字段）；`verify` 断言恰好 9 个文件。
-  **Gitee 镜像把后者重命名为 `latest.json`，并上传同样的 6 个下载**，不再上传 `.sig`；
-  清单里的 URL 只能指向自己那一源，绝不跨源混用。缺签名密钥时 9 个文件照常发布，
-  只是 `platforms`/`signatures` 为空，客户端走手动下载。
-- **桥、文案与通知**：`GET /__shell/upgrade`、`POST /__shell/upgrade/check`、
-  `POST /__shell/upgrade/install` 继承 `ab_proxy` Cookie 与 Origin 准入，**不给 WebView 任何
-  updater 权限**；状态一律机器码 `UpgradeCode`，web 走 `copy/upgrade-copy.js`（`withCopy` 折进
-  `settings`），外壳走 `i18n/upgrade.rs`，两端 13 语各有测试钉住键集。偏好
-  `upgrade_auto_check` / `upgrade_skipped_version` / `upgrade_last_checked` 复用 `/__shell/config`。
-  后台发现新版本经 `notify::notify_upgrade()` 发通知，标题按 `config.lang` 在发送瞬间解析，
-  深链 `/settings` 复用 `tap` → `window.location.hash`；每版本只发一次，跳过版本不再提醒。
-- **测试**：选源 / semver / 平台映射 / 24h 到期 / 跳过 / 失败回落均为不依赖 `AppHandle` 的
-  inline tests；`web/tests/upgrade.spec.js` 用真 `api.js` + stub fetch 覆盖正常与异常双路径。
-  本机 Windows 的 Rust 测试二进制仍因原生依赖入口缺失无法启动，只能 `cargo check --all-targets`
-  / `cargo test --no-run`，CI（Linux）实跑。
-
 ## 常用命令
 
 ```bash
-make web-install      # bun install
-make web-dev          # vite dev（:5173，代理 /api 到 localhost:3500）
-make web-build        # 产出 web/dist（外壳内嵌它）
-make web-test         # vitest
-make web-coverage     # vitest + v8 覆盖率
-make desktop-install  # @tauri-apps/cli
-make desktop-dev      # web-build + tauri dev
-make desktop-build    # web-build + tauri build（宿主平台安装包）
-make desktop-test     # cargo test
-make desktop-test-report # 同上 + desktop-test.log 与可粘贴摘要（与 CI 的 step summary 同形）
-make desktop-check    # cargo check --all-targets
-make web-smoke        # 真 socket + node:http 桩（store 与 api.js）
-make desktop-smoke    # 真上游 + 真 axum 代理（bootstrap → 转发 → 通知）
-make smoke            # 上面两条
-make icons            # 从 assets/app-icon.png 派生全部尺寸
-make stamp VERSION=x  # 同步版本号到 Cargo.toml / tauri.conf.json
-make test             # web-test + desktop-test
-make clean
+make help                # 列出全部目标
+make dotnet-install      # 校验 global.json 的 SDK + dotnet restore
+make dotnet-icons        # 从 assets/app-icon.png 派生 png/ico/icns
+make dotnet-build        # 全解决方案（warnings are errors）
+make dotnet-test         # 四个 xUnit 项目
+make dotnet-test-report  # 同一批测试 + 可粘贴的摘要与保留日志
+make dotnet-coverage     # Cobertura 覆盖率
+make dotnet-smoke        # 真 socket 环回网关冒烟
+make dotnet-publish RID=win-x64   # 自包含发布（linux-x64 / osx-arm64 / win-x64）
+make icons               # dotnet-icons 的别名
+make stamp VERSION=1.2.3 # 写 Directory.Build.props 的唯一版本源
+make manifest / make verify       # 双清单 / 恰好 9 assets 校验
+make smoke / make test / make build / make clean
 ```
+
+`ab-tool`：`dotnet run --project desktop/tools/AgentBuddy.Build -- <子命令>`，
+子命令 `icons`、`stamp`、`inject-pubkey`、`sign`、`wix`、`manifest`、`verify`。
 
 ## 开发流程（硬性要求）
 
-1. **Plan 模式产出 `requirements.md`**（功能边界 / API / 表结构 / 异常 / 验收标准），
+1. **Plan 模式产出 `requirements.md`**（功能边界 / API / 异常 / 验收标准），
    人工审核通过后再创建 `task.md` 分步实施。
 2. **实现与单元测试同步**：新增功能必须补单测，覆盖正常与异常路径。
-3. **合入前校验全绿**：前端 `bun run build` + `bun run test`；桌面 `cargo check` + `cargo test`；
-   agenthub `go build` + `go vet` + `go test -race ./...`；涉及代理 / api.js / 通知链路时加跑 `make smoke`。
+3. **合入前校验全绿**：`make dotnet-build` + `make dotnet-test`；
+   涉及网关/通知/更新链路时加跑 `make dotnet-smoke`；agenthub 改动走 `go build` + `go vet` + `go test -race ./...`。
 4. 改动行为时同步三件套：`README.md`、`requirements.md`、`task.md`；只改代码不改文档视为未完成。
 5. 渐进式披露：本文件保持精简，领域细节写在各自子目录或代码注释中。

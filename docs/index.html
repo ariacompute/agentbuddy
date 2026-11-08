@@ -84,15 +84,15 @@
   <header>
     <p class="eyebrow" lang="en">agentbuddy + agenthub</p>
     <h1>图示 <span lang="en">/ Diagrams</span></h1>
-    <p>三张可交互图，分别说明运行时架构、一次 A2A 委派与任务状态机。</p>
-    <p lang="en">Three interactive diagrams: the runtime architecture, one A2A delegation, and the task state machine.</p>
+    <p>三张可交互图，分别说明运行时架构、一次 A2A 委派与任务状态机。桌面端为 .NET 10 / Avalonia 原生实现，界面经进程内环回网关与 agenthub 通信。</p>
+    <p lang="en">Three interactive diagrams: the runtime architecture, one A2A delegation, and the task state machine. The desktop client is a native .NET 10 / Avalonia app that reaches agenthub through an in-process loopback gateway.</p>
     <p class="note">每张图都是单文件 HTML，可下载后离线打开；支持明暗主题、节点搜索、路径追踪与 PNG / SVG 导出。</p>
   </header>
 
   <section aria-labelledby="en-title">
     <h2 id="en-title" lang="en">English</h2>
     <ul>
-      <li><a class="card" href="diagrams/agenthub-agentbuddy.architecture.en.html" lang="en"><span>Runtime architecture</span><small>desktop shell ↔ server</small></a></li>
+      <li><a class="card" href="diagrams/agenthub-agentbuddy.architecture.en.html" lang="en"><span>Runtime architecture</span><small>Avalonia client ↔ loopback gateway ↔ server</small></a></li>
       <li><a class="card" href="diagrams/agenthub-agentbuddy.sequence.en.html" lang="en"><span>One A2A delegation</span><small>message/send → tasks/resume</small></a></li>
       <li><a class="card" href="diagrams/agenthub-agentbuddy.lifecycle.en.html" lang="en"><span>Task state machine</span><small>HITL park / resume</small></a></li>
     </ul>
@@ -101,7 +101,7 @@
   <section aria-labelledby="zh-title">
     <h2 id="zh-title">中文</h2>
     <ul>
-      <li><a class="card" href="diagrams/agenthub-agentbuddy.architecture.html"><span>运行时架构</span><small>桌面外壳 ↔ 服务端</small></a></li>
+      <li><a class="card" href="diagrams/agenthub-agentbuddy.architecture.html"><span>运行时架构</span><small>Avalonia 界面 ↔ 环回网关 ↔ 服务端</small></a></li>
       <li><a class="card" href="diagrams/agenthub-agentbuddy.sequence.html"><span>一次 A2A 委派</span><small>message/send → tasks/resume</small></a></li>
       <li><a class="card" href="diagrams/agenthub-agentbuddy.lifecycle.html"><span>任务状态机</span><small>HITL 挂起 / 恢复</small></a></li>
     </ul>

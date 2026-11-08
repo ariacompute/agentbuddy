@@ -2,7 +2,10 @@
 
 [English](README.md) | [中文](README_cn.md)
 
-面向 [agenthub](https://github.com/ariacompute/agenthub)（A2A 互连平台）的桌面客户端。
+面向 [agenthub](https://github.com/ariacompute/agenthub)（A2A 互连平台）的
+**.NET 10 / Avalonia 原生桌面客户端**。没有 WebView、没有内嵌网页包、没有本地后端：
+XAML 界面通过进程内环回网关把 `/api`、`/a2a`、`/healthz`、`/.well-known`
+转发到用户配置的服务端。
 
 ## 功能
 
@@ -36,50 +39,58 @@
 
 ## 开发
 
-前置依赖：[bun](https://bun.sh) 1.4+ 与 Rust 工具链（edition 2021）。
+前置依赖：**.NET 10 SDK**（版本由 `desktop/global.json` 钉住）。不需要 Node、Rust 工具链，
+也没有前端构建步骤。
 
 ```bash
-make web-dev      # vite 开发服务器（:5173），/api 代理到 localhost:3500
-make desktop-dev  # 用刚构建好的控制台启动外壳
-make build        # 控制台 + 当前平台的安装包
+make dotnet-install   # 校验 SDK 并还原 desktop/agentbuddy.sln
+make dotnet-icons     # 从 desktop/assets/app-icon.png 派生 png/ico/icns
+make dotnet-build     # 编译整个解决方案，警告即错误
+make dotnet-publish RID=win-x64   # 自包含发布（linux-x64 / osx-arm64 / win-x64）
 ```
 
-也可完全用 bun 逐步构建（不依赖 make）。Tauri 图标由
-`desktop/assets/app-icon.png` 派生，位于 `desktop/src-tauri/icons/`
-（该目录已被 git 忽略，属构建产物，见 `.gitignore`），因此在执行
-`tauri build` / `tauri dev` 前需先运行 `bun run icons`：
+也可以不经过 `make`：
 
 ```bash
-cd web && bun install && bun run build  # 构建 web/dist，编译期嵌入二进制
-cd desktop && bun install
-bun run icons                           # 从 assets/app-icon.png 派生 Tauri 图标
-bun run build                           # 针对当前平台执行 tauri build
-# bun run dev                           # 开发模式同样需先运行 bun run icons
+cd desktop
+dotnet restore agentbuddy.sln
+dotnet run --project tools/AgentBuddy.Build -- icons
+dotnet build agentbuddy.sln -warnaserror
+dotnet run --project src/AgentBuddy.App/AgentBuddy.App.csproj   # 启动原生窗口
 ```
+
+`ab-tool`（`desktop/tools/AgentBuddy.Build`）是唯一的构建 CLI：
+`icons`、`stamp <semver>`、`inject-pubkey`、`sign`、`wix`、`manifest`、`verify`。
+`Directory.Build.props` 是唯一版本源（`make stamp VERSION=1.2.3`）。
 
 ## 测试
 
 ```bash
-make test                           # 前端 Vitest + 桌面 cargo 测试，全程离线
-cd web && bun run test              # Vitest：i18n 完整性、单色守卫、lib 单测
-cd web && bun run test:coverage     # 同一批用例 + v8 覆盖率报告
-cd desktop/src-tauri && cargo test  # proxy / config / i18n 单测
-make smoke                          # 两条跨进程冒烟（见下）
+make test              # dotnet test agentbuddy.sln，全程离线
+make dotnet-coverage   # 四个测试项目的 Cobertura 覆盖率
+make dotnet-smoke      # 真 socket 环回网关冒烟，只连回环地址
 ```
 
-`make smoke` 跑那两条真正走 socket 的用例，且只连 `127.0.0.1`，不出机器：
+四个 xUnit 项目取代旧的前端/桌面双套测试：
 
-- `make web-smoke`——真 `api.js` + Pinia store 对 `node:http` 桩：`refreshAll()` 打到每个端点、
-  通知 POST 带本地化标题到达、401 记为 `authExpired`、连接被拒记为 `offline`（绝不误判为会话过期）。
-- `make desktop-smoke`——真上游 `TcpListener` + 真 `axum::serve` 代理 + 真 `reqwest` 客户端：
-  无 token → 401，bootstrap nonce → Cookie，`/api` 转发且上游 `Set-Cookie` 被重写，
-  `/__shell/notify` 回机器码，外来 `Origin` → 403。
+- `AgentBuddy.Core.Tests`——13 语兜底、端点契约、配置、SSE 分帧、
+  `MonitorService` 与 `RealtimeService` 的正常/异常双路径。
+- `AgentBuddy.Shell.Tests`——bootstrap 准入、`Set-Cookie`/`Location` 改写、流式转发、
+  凭据回退、执行节点策略、升级选源/验签失败、通知深链与托盘角标。
+  `GatewaySmokeTests` 用真实 Kestrel 环回网关与上游 HTTP 桩跑真 socket，
+  不出 `127.0.0.1`。
+- `AgentBuddy.App.Tests`——Avalonia.Headless 下的 ViewModel、路由守卫、
+  文件传输、语音与通知深链。
+- `AgentBuddy.Guards`——静态扫描：13 语键集、单色 `.axaml`、模板无硬编码文案、
+  冻结端点常量全部可达、主题字典成对、构建/发布只用 .NET。
 
 ## 发布
 
 通过 [`.github/workflows/release.yml`](.github/workflows/release.yml) 构建并发布安装包。
-每次 release 恰好 9 个 assets：下表 6 个下载，加 `latest.json`、`latest-gitee.json`
-与 `SHA256SUMS`。**不再发布**独立的签名更新包、`.sig` 或 `updater-*.json`。
+三个平台各自跑一次自包含 `dotnet publish`，再分别用 WiX v4（msi）、`dpkg-deb`（deb）、
+`hdiutil`（dmg）封装安装包并另出一份便携包。每次 release 恰好 9 个 assets：
+下表 6 个下载，加 `latest.json`、`latest-gitee.json` 与 `SHA256SUMS`。
+**不再发布**独立的签名更新包、`.sig` 或 `updater-*.json`。
 
 | 平台          | 便携版                  | 安装包          |
 | ------------- | ----------------------- | --------------- |
@@ -89,24 +100,23 @@ make smoke                          # 两条跨进程冒烟（见下）
 
 ### 签名更新（一次性配置）
 
-```bash
-cd desktop
-bun install
-mkdir -p ~/.tauri
-bunx tauri signer generate -w ~/.tauri/agentbuddy.key
-```
+签名是 minisign 兼容的 Ed25519 key box，由 `ab-tool` 生成与验证，
+不依赖 Tauri signer 或任何更新插件。可用任意 minisign 工具（例如 `minisign -G`）生成密钥对；
+私钥盒为 74 字节（`Ed` + 8 字节 key id + 32 字节种子 + 32 字节公钥），
+公钥盒为 42 字节（`Ed` + key id + 32 字节公钥）。
 
-按提示输入口令，CLI 会打印公钥，并生成 `~/.tauri/agentbuddy.key`（私钥）与
-`~/.tauri/agentbuddy.key.pub`。只有 Rust 工具链时也可 `cargo install tauri-cli --version '^2' --locked`
-后用 `cargo tauri signer generate -w ~/.tauri/agentbuddy.key`。
-
-三个值都放仓库 secrets。两个密钥文件本身就是**单行 base64**，直接取文件内容即可：
+两个仓库 secret 原样保存 key box —— 两行文本盒或它的 base64 包装，**不要二次 base64**：
 
 ```bash
-gh secret set UPDATER_PUBKEY < ~/.tauri/agentbuddy.key.pub
-gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
-gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+gh secret set UPDATER_PUBKEY < agentbuddy.key.pub
+gh secret set UPDATER_PRIVATE_KEY < agentbuddy.key
 ```
+
+`release.yml` 依次调用 `ab-tool inject-pubkey`（写入 `Upgrade/Pubkey.g.cs`）、
+`ab-tool sign`（签 6 个下载）、`ab-tool manifest`（生成两份清单）、
+`ab-tool verify`（发布前断言恰好 9 个文件）。未配置密钥时 9 个文件照常发布，
+只是 `platforms`/`signatures` 为空，客户端返回 `not_configured`，绝不安装未验签的包。
+Gitee 镜像上传同样 6 个下载，并把 `latest-gitee.json` 改名为 `latest.json`。
 
 ## 执行环境
 
@@ -128,7 +138,7 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 
 | 能力 | agentbuddy | OpenDots | openmuse | openbot | Octop | openagents | Velozity |
 |---|---|---|---|---|---|---|---|
-| 形态 | Tauri v2 桌面 + Vue 3 工作台 | Web+移动模板 | RN/Expo/Web 应用 | Electron 桌面 | 自托管单进程 | Agent 协作 OS | 云端 AI Office（SaaS） |
+| 形态 | .NET 10 / Avalonia 原生桌面 | Web+移动模板 | RN/Expo/Web 应用 | Electron 桌面 | 自托管单进程 | Agent 协作 OS | 云端 AI Office（SaaS） |
 | 后端 | agenthub（可自托管）| CopilotKit runtime | CopilotKit runtime | 本地 Agent CLI | Octop Harness | Network SDK（可自托管） | 闭源云端 |
 | 多 Agent | 角色经 `persona`（F10） | 专用 Dots | 单一个人 Agent | 多个持久 Agent | 专家团队 + AgentTeams | 任意 Agent 同一工作区 | 用户自建 AI 劳动力 |
 | 计算机使用 | 租约沙盒：docker（默认）、gVisor、Kata、bubblewrap、托管运行时或登记的节点（F17） | OpenBot 容器 | Playwright 浏览器 | Computer Use（cua） | Browser AI+ / 远程桌面 | 共享浏览器 | 未公开 |

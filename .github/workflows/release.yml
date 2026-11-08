@@ -1,10 +1,10 @@
-# agentbuddy — build and publish desktop installers on a tag push.
+# agentbuddy — build and publish native desktop packages on a tag push.
 #
-# Each platform builds the console (web/) into web/dist, which is embedded into
-# the Rust binary at compile time (rust-embed), then runs `tauri build`. Tauri
-# yields the native installer for the host OS; we additionally wrap the bare
-# executable in a portable archive so users get both an installer and a
-# no-install download.
+# Each platform runs one self-contained `dotnet publish` for its RID, then wraps
+# the output in a native installer plus a portable archive. ab-tool owns every
+# release-side contract: version stamping, public-key injection, Ed25519
+# (minisign-compatible) signing, WiX authoring, both updater manifests and the
+# "exactly nine assets" verification. agenthub is never built or touched here.
 #
 # Resulting release assets (per version V) — exactly nine files:
 #   agentbuddy-amd64-V.deb                native installer, x86_64 Linux
@@ -16,25 +16,18 @@
 #   latest.json / latest-gitee.json       updater manifests
 #   SHA256SUMS                            checksums for the six downloads
 #
-# There is deliberately NO separate updater archive, no `.sig` asset and no
-# `updater-*.json` on the release page. When TAURI_SIGNING_PRIVATE_KEY is
-# configured, each leg signs its two downloads directly with
-# `tauri signer sign --app-version V`; the base64 signatures are embedded in
-# the two manifests (`platforms` for the installable asset, `signatures` for
-# all six) and the temporary `.sig` files are consumed by `latest-json.mjs
-# collect`, which writes internal metadata to a separate artifact. Gitee
-# mirrors upload the same six downloads plus `latest-gitee.json` renamed to
-# `latest.json` — one manifest per mirror, never a cross-mirror download.
-# `bundle.createUpdaterArtifacts` is never enabled, so no extra AppImage,
-# app.tar.gz or duplicate MSI is built.
+# There is deliberately NO `.sig` asset and no `updater-*.json` on the release
+# page. When UPDATER_PRIVATE_KEY is configured, each leg signs its two downloads
+# with `ab-tool sign`; the signature boxes travel in a separate metadata
+# artifact and are embedded in the manifests (`platforms` for the installable
+# asset, `signatures` for all six). Gitee mirrors upload the same six downloads
+# plus `latest-gitee.json` renamed to `latest.json` — one manifest per mirror,
+# never a cross-mirror download. With no key configured the client reports
+# `not_configured` and never installs an unverified package.
 #
-# The matching public key comes from the UPDATER_PUBKEY secret and is written
-# into BOTH desktop/src-tauri/src/upgrade/mod.rs (runtime verification) and
-# tauri.conf.json's plugins.updater.pubkey; neither file holds a key in git.
-# TAURI_SIGNING_PRIVATE_KEY / UPDATER_PUBKEY hold the single-line base64 key
-# contents verbatim (do NOT base64 them again). The configure step validates
-# both formats and fails early with a hint instead of surfacing "Invalid
-# padding" minutes into bundling.
+# UPDATER_PUBKEY / UPDATER_PRIVATE_KEY hold the minisign key boxes verbatim (the
+# two-line text box or its base64 wrapper). `ab-tool inject-pubkey` writes the
+# public key into Pubkey.g.cs at build time; no key is ever committed.
 
 name: release
 
@@ -42,8 +35,6 @@ on:
   release:
     types: [published]
 
-# One publish at a time: a newer release cancels an in-progress one so a
-# release's assets are never a mix of two runs.
 concurrency:
   group: release
   cancel-in-progress: true
@@ -52,7 +43,9 @@ permissions:
   contents: write
 
 env:
-  CARGO_TERM_COLOR: always
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
 
 jobs:
   build:
@@ -62,155 +55,156 @@ jobs:
         include:
           - os: ubuntu-22.04
             platform: linux
-            arch: x86_64
-            bundles: deb
+            rid: linux-x64
           - os: macos-latest
             platform: macos
-            arch: aarch64
-            bundles: app,dmg
+            rid: osx-arm64
           - os: windows-latest
             platform: windows
-            arch: x86_64
-            bundles: msi
+            rid: win-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: swatinem/rust-cache@v2
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@v4
         with:
-          workspaces: desktop/src-tauri
+          global-json-file: desktop/global.json
 
-      - name: Linux build dependencies
-        if: matrix.platform == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev build-essential curl wget file
-
-      - name: Build console (embedded into the binary)
-        working-directory: web
-        run: |
-          bun install
-          bun run build
-          test -f dist/index.html || { echo "console build produced no index.html"; exit 1; }
-
-      - name: Stamp version from tag
+      - name: Stamp version and derive icons
         shell: bash
         run: |
+          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "AGENTBUDDY_VERSION=$VERSION" >> "$GITHUB_ENV"
-          if [ -n "$VERSION" ]; then
-            sed -i.bak -E 's/("version":[[:space:]]*")[^"]*(")/\1'"$VERSION"'\2/' \
-              desktop/src-tauri/tauri.conf.json && rm -f desktop/src-tauri/tauri.conf.json.bak
-            sed -i.bak -E 's/^(version = ")[^"]*(")/\1'"$VERSION"'\2/' \
-              desktop/src-tauri/Cargo.toml && rm -f desktop/src-tauri/Cargo.toml.bak
-          fi
+          dotnet run --project desktop/tools/AgentBuddy.Build -- stamp "$VERSION"
+          dotnet run --project desktop/tools/AgentBuddy.Build -- icons
 
       - name: Configure updater signing
         id: updater
         shell: bash
         env:
-          # Injected into src/upgrade/mod.rs at build time; never committed.
           UPDATER_PUBKEY: ${{ secrets.UPDATER_PUBKEY }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          UPDATER_PRIVATE_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
         run: |
-          node desktop/scripts/inject-updater-pubkey.mjs
-          node desktop/scripts/prepare-updater-secrets.mjs
+          set -euo pipefail
+          dotnet run --project desktop/tools/AgentBuddy.Build -- inject-pubkey
+          if [ -n "${UPDATER_PRIVATE_KEY:-}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Build desktop app
-        working-directory: desktop
+      - name: Publish self-contained app
         shell: bash
-        # Signing variables are exported by the step above through GITHUB_ENV,
-        # after normalising the secrets. A step-level env here would override
-        # them with the raw values and reintroduce the base64 padding failure.
-        # `tauri build` only produces plain bundles; the downloads are signed
-        # afterwards, so no appimage / updater artifacts are ever built.
         run: |
-          bun install
-          bun run icons   # derive desktop/src-tauri/icons from assets/app-icon.png (git-ignored)
-          bun run build -- --bundles "${{ matrix.bundles }}"
+          set -euo pipefail
+          dotnet publish desktop/src/AgentBuddy.App/AgentBuddy.App.csproj \
+            -c Release -r "${{ matrix.rid }}" --self-contained true \
+            -o "$GITHUB_WORKSPACE/publish/${{ matrix.rid }}"
 
       - name: Package artifacts (Linux)
         if: matrix.platform == 'linux'
         shell: bash
+        env:
+          UPDATER_PRIVATE_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           OUT="$GITHUB_WORKSPACE/out"; META="$GITHUB_WORKSPACE/meta"
-          mkdir -p "$OUT" "$META"
-          BIN="desktop/src-tauri/target/release/agentbuddy"
-          DEB=$(ls desktop/src-tauri/target/release/bundle/deb/*.deb | head -n1)
-          cp "$DEB" "$OUT/agentbuddy-amd64-${VERSION}.deb"
-          tar -czf "$OUT/agentbuddy-linux-x86_64-${VERSION}.tar.gz" -C "$(dirname "$BIN")" agentbuddy
+          PUB="$GITHUB_WORKSPACE/publish/${{ matrix.rid }}"
+          STAGE="$GITHUB_WORKSPACE/stage"; PORTABLE="$GITHUB_WORKSPACE/portable"
+          mkdir -p "$OUT" "$META" "$STAGE/DEBIAN" "$STAGE/usr/lib/agentbuddy" \
+                   "$STAGE/usr/bin" "$STAGE/usr/share/applications" \
+                   "$STAGE/usr/share/icons/hicolor/256x256/apps" "$PORTABLE/agentbuddy"
+          printf 'agentbuddy release metadata\n' > "$META/README.txt"
+
+          sed "s/@VERSION@/$VERSION/" desktop/packaging/linux/control.in > "$STAGE/DEBIAN/control"
+          cp -R "$PUB/." "$STAGE/usr/lib/agentbuddy/"
+          cp -R "$PUB/." "$PORTABLE/agentbuddy/"
+          chmod +x "$STAGE/usr/lib/agentbuddy/agentbuddy" "$PORTABLE/agentbuddy/agentbuddy"
+          ln -s ../lib/agentbuddy/agentbuddy "$STAGE/usr/bin/agentbuddy"
+          cp desktop/packaging/linux/agentbuddy.desktop "$STAGE/usr/share/applications/"
+          cp desktop/src/AgentBuddy.App/Assets/Icons/app-icon.png \
+             "$STAGE/usr/share/icons/hicolor/256x256/apps/agentbuddy.png"
+          dpkg-deb --build --root-owner-group "$STAGE" "$OUT/agentbuddy-amd64-$VERSION.deb"
+          tar -czf "$OUT/agentbuddy-linux-x86_64-$VERSION.tar.gz" -C "$PORTABLE" agentbuddy
+
           if [ "${{ steps.updater.outputs.enabled }}" = "true" ]; then
             for asset in "$OUT"/agentbuddy-*; do
-              (cd desktop && bun run tauri signer sign "$asset" --app-version "$VERSION")
+              dotnet run --project desktop/tools/AgentBuddy.Build -- sign "$asset" \
+                --out "$META/$(basename "$asset").sig"
             done
           fi
-          node desktop/scripts/latest-json.mjs collect linux-x86_64 "$OUT" "$META"
 
       - name: Package artifacts (macOS)
         if: matrix.platform == 'macos'
         shell: bash
+        env:
+          UPDATER_PRIVATE_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           OUT="$GITHUB_WORKSPACE/out"; META="$GITHUB_WORKSPACE/meta"
-          mkdir -p "$OUT" "$META"
-          APP=$(ls -d desktop/src-tauri/target/release/bundle/macos/*.app | head -n1)
-          DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -n1)
-          cp "$DMG" "$OUT/agentbuddy-aarch64-${VERSION}.dmg"
-          tar -czf "$OUT/agentbuddy-macos-aarch64-${VERSION}.tar.gz" -C "$(dirname "$APP")" "$(basename "$APP")"
+          PUB="$GITHUB_WORKSPACE/publish/${{ matrix.rid }}"
+          STAGE="$GITHUB_WORKSPACE/stage"
+          APP="$STAGE/agentbuddy.app"
+          mkdir -p "$OUT" "$META" "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          printf 'agentbuddy release metadata\n' > "$META/README.txt"
+          cp -R "$PUB/." "$APP/Contents/MacOS/"
+          sed "s/@VERSION@/$VERSION/" desktop/packaging/macos/Info.plist > "$APP/Contents/Info.plist"
+          cp desktop/src/AgentBuddy.App/Assets/Icons/app.icns "$APP/Contents/Resources/app.icns"
+          chmod +x "$APP/Contents/MacOS/agentbuddy"
+          hdiutil create -volname agentbuddy -srcfolder "$APP" -ov -format UDZO \
+            "$OUT/agentbuddy-aarch64-$VERSION.dmg"
+          tar -czf "$OUT/agentbuddy-macos-aarch64-$VERSION.tar.gz" -C "$STAGE" agentbuddy.app
+
           if [ "${{ steps.updater.outputs.enabled }}" = "true" ]; then
             for asset in "$OUT"/agentbuddy-*; do
-              (cd desktop && bun run tauri signer sign "$asset" --app-version "$VERSION")
+              dotnet run --project desktop/tools/AgentBuddy.Build -- sign "$asset" \
+                --out "$META/$(basename "$asset").sig"
             done
           fi
-          node desktop/scripts/latest-json.mjs collect darwin-aarch64 "$OUT" "$META"
 
       - name: Package artifacts (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
+        env:
+          UPDATER_PRIVATE_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
         run: |
           $ErrorActionPreference = "Stop"
           $OUT = "$env:GITHUB_WORKSPACE/out"
           $META = "$env:GITHUB_WORKSPACE/meta"
-          New-Item -ItemType Directory -Force -Path $OUT, $META | Out-Null
-          $EXE = "desktop/src-tauri/target/release/agentbuddy.exe"
-          $MSI = (Get-ChildItem desktop/src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1).FullName
-          Copy-Item $MSI "$OUT/agentbuddy-x64-${env:VERSION}.msi"
-          Compress-Archive -Path $EXE -DestinationPath "$OUT/agentbuddy-windows-x86_64-${env:VERSION}.zip"
+          $PUB = "$env:GITHUB_WORKSPACE/publish/${{ matrix.rid }}"
+          $TOOLS = "$env:GITHUB_WORKSPACE/.tools"
+          New-Item -ItemType Directory -Force -Path $OUT, $META, $TOOLS | Out-Null
+          Set-Content -Path (Join-Path $META "README.txt") -Value "agentbuddy release metadata"
+
+          $msiVersion = ($env:VERSION -split '-')[0]
+          dotnet tool install --tool-path $TOOLS wix --version 4.0.6
+          dotnet run --project desktop/tools/AgentBuddy.Build -- wix --dir $PUB --out "$TOOLS/Product.wxs"
+          & "$TOOLS/wix.exe" build -arch x64 -d "Version=$msiVersion" "$TOOLS/Product.wxs" `
+            -o "$OUT/agentbuddy-x64-$($env:VERSION).msi"
+
+          Compress-Archive -Path "$PUB/*" -DestinationPath "$OUT/agentbuddy-windows-x86_64-$($env:VERSION).zip"
           if ("${{ steps.updater.outputs.enabled }}" -eq "true") {
             Get-ChildItem "$OUT/agentbuddy-*" | ForEach-Object {
-              Push-Location desktop
-              try { bun run tauri signer sign $_.FullName --app-version $env:VERSION }
-              finally { Pop-Location }
+              dotnet run --project desktop/tools/AgentBuddy.Build -- sign $_.FullName `
+                --out (Join-Path $META ($_.Name + ".sig"))
+              if ($LASTEXITCODE -ne 0) { throw "signing failed for $($_.Name)" }
             }
           }
-          node desktop/scripts/latest-json.mjs collect windows-x86_64 $OUT $META
 
-      # The publishable downloads and the internal signature metadata travel in
-      # separate artifacts. Only `release-assets/` is ever attached to the
-      # GitHub release, so `.sig` files and `updater-*.json` can never leak.
+      # Publishable downloads and signature metadata travel in separate artifacts,
+      # so `.sig` files can never become release assets.
       - name: Upload release assets
         uses: actions/upload-artifact@v4
         with:
-          name: agentbuddy-assets-${{ matrix.platform }}-${{ matrix.arch }}
+          name: agentbuddy-assets-${{ matrix.platform }}
           path: out
           if-no-files-found: error
       - name: Upload internal metadata
         uses: actions/upload-artifact@v4
         with:
-          name: agentbuddy-meta-${{ matrix.platform }}-${{ matrix.arch }}
+          name: agentbuddy-meta-${{ matrix.platform }}
           path: meta
           if-no-files-found: error
 
@@ -219,6 +213,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: desktop/global.json
       - uses: actions/download-artifact@v4
         with:
           pattern: agentbuddy-assets-*
@@ -236,7 +234,10 @@ jobs:
         env:
           RELEASE_NOTES: ${{ github.event.release.body }}
         run: |
-          node desktop/scripts/latest-json.mjs manifest release-assets release-meta "${GITHUB_REF_NAME#v}"
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          dotnet run --project desktop/tools/AgentBuddy.Build -- manifest \
+            --version "$VERSION" --meta release-meta --out release-assets
       - name: Gitee mirror checklist
         continue-on-error: true
         shell: bash
@@ -258,16 +259,14 @@ jobs:
       - name: Verify release assets
         shell: bash
         run: |
-          node desktop/scripts/latest-json.mjs verify release-assets "${GITHUB_REF_NAME#v}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          dotnet run --project desktop/tools/AgentBuddy.Build -- verify release-assets "$VERSION"
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          # ARIACOMPUTE_TOKEN is a PAT with release-write scope; it is used here
-          # to attach the built assets to the GitHub release (the deprecated
-          # agentbuddy workflow used the same secret as GITHUB_TOKEN).
           token: ${{ secrets.ARIACOMPUTE_TOKEN }}
-          # An explicit allowlist on top of the verify step above: even a stray
-          # file in release-assets/ can never become a release asset.
+          # An explicit allowlist on top of the verify step: even a stray file in
+          # release-assets/ can never become a release asset.
           files: |
             release-assets/agentbuddy-amd64-*.deb
             release-assets/agentbuddy-linux-x86_64-*.tar.gz

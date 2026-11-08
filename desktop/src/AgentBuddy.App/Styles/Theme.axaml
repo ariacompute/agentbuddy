@@ -1,0 +1,40 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    Monochrome only: every colour sits on the #000..#fff lightness axis.
+    Dark is the base dictionary, Light flips the SAME key set (tests/Guards
+    asserts the pair). Default theme is Light, set in App.axaml.
+    Control templates must reference these keys and never inline a colour.
+  -->
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="Brush.Surface">#FFFFFFFF</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.SurfaceAlt">#FFF2F2F2</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.SurfaceRaised">#FFE8E8E8</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.Border">#FFC8C8C8</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.Text">#FF111111</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.TextMuted">#FF5A5A5A</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.Accent">#FF000000</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.Focus">#FF000000</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.Overlay">#FFDDDDDD</SolidColorBrush>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="Brush.Surface">#FF141414</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.SurfaceAlt">#FF222222</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.SurfaceRaised">#FF303030</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.Border">#FF4A4A4A</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.Text">#FFF7F7F7</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.TextMuted">#FFB0B0B0</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.Accent">#FFFFFFFF</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.Focus">#FFFFFFFF</SolidColorBrush>
+          <SolidColorBrush x:Key="Brush.Overlay">#FF3A3A3A</SolidColorBrush>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+      <x:Double x:Key="Double.MinTouch">44</x:Double>
+      <x:Double x:Key="Double.FocusRing">2</x:Double>
+      <Thickness x:Key="Thickness.FocusOffset">2</Thickness>
+    </ResourceDictionary>
+  </Styles.Resources>
+</Styles>

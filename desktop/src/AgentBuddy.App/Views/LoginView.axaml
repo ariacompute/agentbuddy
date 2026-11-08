@@ -1,0 +1,19 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:AgentBuddy.App.Controls"
+             x:Class="AgentBuddy.App.Views.LoginView">
+  <StackPanel Margin="24" Spacing="10" MaxWidth="440">
+    <c:PageHeaderControl />
+    <TextBlock Text="{Binding ServerLabel}" />
+    <TextBox Text="{Binding ServerUrl}" />
+    <TextBlock Text="{Binding EmailLabel}" />
+    <TextBox Text="{Binding Email}" />
+    <TextBlock Text="{Binding PasswordLabel}" />
+    <TextBox Text="{Binding Password}" PasswordChar="*" />
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <Button Content="{Binding LoginLabel}" Command="{Binding LoginCommand}" />
+      <Button Content="{Binding RefreshLabel}" Command="{Binding ConnectCommand}" />
+    </StackPanel>
+    <ListBox ItemsSource="{Binding Items}" MinHeight="80" />
+  </StackPanel>
+</UserControl>
