@@ -37,9 +37,13 @@ public sealed class CredentialStore(IAppPaths paths) : ICredentialStore
             if (value is not null) { Backend = _primary.Backend; return value; }
         }
         catch (Exception) { /* unavailable store: fall back, log nothing about the secret */ }
-        var fromFile = await _fallback.GetAsync(name, ct).ConfigureAwait(false);
-        Backend = fromFile is null ? "memory" : "file";
-        return fromFile;
+        try
+        {
+            var fromFile = await _fallback.GetAsync(name, ct).ConfigureAwait(false);
+            Backend = fromFile is null ? "memory" : "file";
+            return fromFile;
+        }
+        catch (Exception) { Backend = "memory"; return null; } // corrupt or unreadable: behave as if signed out
     }
 
     public async Task SetAsync(string name, string secret, CancellationToken ct = default)
@@ -59,7 +63,8 @@ public sealed class CredentialStore(IAppPaths paths) : ICredentialStore
     {
         try { await _primary.DeleteAsync(name, ct).ConfigureAwait(false); }
         catch (Exception) { /* best effort */ }
-        await _fallback.DeleteAsync(name, ct).ConfigureAwait(false);
+        try { await _fallback.DeleteAsync(name, ct).ConfigureAwait(false); }
+        catch (Exception) { /* an unreadable store still counts as signed out */ }
     }
 
     private static ICredentialStore CreatePrimary()
@@ -70,16 +75,22 @@ public sealed class CredentialStore(IAppPaths paths) : ICredentialStore
         return new NoopCredentialStore();
     }
 
+    /// <summary>
+    /// Looks the helper up on PATH instead of spawning it: probing by execution would
+    /// leave a process behind on every start and could block on a wedged helper.
+    /// </summary>
     private static bool Exists(string executable)
     {
-        try
+        var path = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
-            var psi = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true };
-            psi.ArgumentList.Add("--version");
-            using var p = Process.Start(psi);
-            return p is not null;
+            try
+            {
+                if (File.Exists(Path.Combine(directory.Trim(), executable))) return true;
+            }
+            catch (Exception) { /* malformed PATH entry */ }
         }
-        catch (Exception) { return false; }
+        return false;
     }
 }
 
@@ -241,6 +252,10 @@ public sealed class UnixCommandCredentialStore(string platform) : ICredentialSto
 
     private static string ServiceFor(string name) => CredentialStore.Service + "." + name;
 
+    /// <summary>
+    /// A locked or prompting keychain answers slowly or not at all; without a budget
+    /// the whole gateway request would wait with it. The helper is killed on timeout.
+    /// </summary>
     private static async Task<string?> RunAsync(string file, string[] args, string? stdin, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(file)
@@ -253,10 +268,23 @@ public sealed class UnixCommandCredentialStore(string platform) : ICredentialSto
         };
         foreach (var arg in args) psi.ArgumentList.Add(arg);
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("credential client unavailable");
-        if (stdin is not null) await process.StandardInput.WriteAsync(stdin.AsMemory(), ct).ConfigureAwait(false);
-        if (stdin is not null) process.StandardInput.Close();
-        var output = await process.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
-        await process.WaitForExitAsync(ct).ConfigureAwait(false);
-        return process.ExitCode == 0 ? output : null;
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(TimeSpan.FromSeconds(Limits.CredentialTimeoutSeconds));
+        try
+        {
+            if (stdin is not null)
+            {
+                await process.StandardInput.WriteAsync(stdin.AsMemory(), budget.Token).ConfigureAwait(false);
+                process.StandardInput.Close();
+            }
+            var output = await process.StandardOutput.ReadToEndAsync(budget.Token).ConfigureAwait(false);
+            await process.WaitForExitAsync(budget.Token).ConfigureAwait(false);
+            return process.ExitCode == 0 ? output : null;
+        }
+        catch (OperationCanceledException)
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch (Exception) { /* gone */ }
+            throw new TimeoutException("credential helper timed out");
+        }
     }
 }

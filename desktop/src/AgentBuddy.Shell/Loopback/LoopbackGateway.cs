@@ -1,11 +1,14 @@
 using System.Net;
 using System.Net.Security;
-using System.Net.Sockets;
 using System.Text.Json;
 using AgentBuddy.Core.Contracts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace AgentBuddy.Shell.Loopback;
@@ -29,19 +32,40 @@ public sealed class LoopbackGateway(ShellServices services, ILogger? logger = nu
     public async Task<Uri> StartAsync(CancellationToken ct = default)
     {
         if (_app is not null) return BaseAddress;
-        var port = FreeLoopbackPort();
-        var builder = WebApplication.CreateBuilder();
+        // ContentRootPath is pinned to the install directory: a stray appsettings.json
+        // in whatever directory the user launched from must not shape the host.
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            Args = [],
+            ContentRootPath = AppContext.BaseDirectory,
+            EnvironmentName = Environments.Production
+        });
         builder.Logging.ClearProviders();
-        builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
+        // Port 0 lets Kestrel pick a free port and report it back — no bind/close/bind
+        // race where another local process could take the port between the two binds.
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.WebHost.ConfigureKestrel(options =>
-            options.Limits.MaxRequestBodySize = Limits.MaxRequestBody);
+        {
+            options.Limits.MaxRequestBodySize = Limits.MaxRequestBody;
+            options.AddServerHeader = false;
+            options.Limits.MaxRequestLineSize = 16 * 1024;
+            options.Limits.MaxRequestHeadersTotalSize = 32 * 1024;
+        });
         var app = builder.Build();
         app.Run(DispatchAsync);
         _upstream = CreateUpstreamClient();
         await app.StartAsync(ct).ConfigureAwait(false);
         _app = app;
-        BaseAddress = new Uri($"http://127.0.0.1:{port}/");
-        logger?.LogInformation("loopback gateway ready on 127.0.0.1:{Port}", port);
+        var address = app.Services.GetRequiredService<IServer>()
+            .Features.Get<IServerAddressesFeature>()?.Addresses.FirstOrDefault();
+        if (!Uri.TryCreate(address, UriKind.Absolute, out var bound) || bound.Port <= 0)
+        {
+            await app.DisposeAsync().ConfigureAwait(false);
+            _app = null;
+            throw new InvalidOperationException("loopback gateway did not report a bound address");
+        }
+        BaseAddress = new Uri($"http://127.0.0.1:{bound.Port}/");
+        logger?.LogInformation("loopback gateway ready on 127.0.0.1:{Port}", bound.Port);
         return BaseAddress;
     }
 
@@ -86,6 +110,11 @@ public sealed class LoopbackGateway(ShellServices services, ILogger? logger = nu
             if (path == "/")
             {
                 await Write(context, 200, new { app = "agentbuddy", shell = "avalonia", version = services.Version });
+                return;
+            }
+            if (global::AgentBuddy.Core.Contracts.Gateway.IsRemotePath(path) && !IsForwardablePath(path))
+            {
+                await Write(context, 400, new { code = ErrorCodes.Invalid });
                 return;
             }
             if (global::AgentBuddy.Core.Contracts.Gateway.IsRemotePath(path)) { await ForwardAsync(context); return; }
@@ -147,20 +176,25 @@ public sealed class LoopbackGateway(ShellServices services, ILogger? logger = nu
         }
     }
 
+    /// <summary>
+    /// No forwarded path may carry a traversal segment, a backslash or a doubled
+    /// slash: those are how a base-URI join gets turned into an authority change
+    /// ("//host/x") or an escape from the API prefix ("/api/../admin").
+    /// </summary>
+    public static bool IsForwardablePath(string path) =>
+        !path.Contains("..", StringComparison.Ordinal) &&
+        !path.Contains('\\') &&
+        !path.Contains("//", StringComparison.Ordinal);
+
     private static async Task Write(HttpContext context, int status, object payload)
     {
         context.Response.StatusCode = status;
         context.Response.ContentType = "application/json; charset=utf-8";
+        // Nothing this gateway emits is a document: no sniffing, no caching, no referrer.
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        context.Response.Headers["Referrer-Policy"] = "no-referrer";
         await context.Response.WriteAsJsonAsync(payload, Json).ConfigureAwait(false);
-    }
-
-    private static int FreeLoopbackPort()
-    {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-        return port;
     }
 
     public async ValueTask DisposeAsync()

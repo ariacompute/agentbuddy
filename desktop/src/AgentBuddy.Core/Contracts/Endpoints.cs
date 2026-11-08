@@ -173,6 +173,13 @@ public static class Gateway
 {
     public const string CookieName = "ab_proxy";
     public const string CookieAttributes = "; HttpOnly; SameSite=Strict; Path=/";
+    /// <summary>
+    /// The one upstream cookie worth persisting. agenthub names its session cookie
+    /// here (auth.Options default) and everything else it sets — OAuth state and
+    /// PKCE verifier — is transient, so nothing else is written to the credential
+    /// store. A hostile server therefore cannot plant a durable credential.
+    /// </summary>
+    public const string SessionCookieName = "agenthub_session";
     public const string DefaultServerUrl = "http://localhost:3500";
     public const int NonceTtlSeconds = 60;
     public const int TokenBytes = 32;

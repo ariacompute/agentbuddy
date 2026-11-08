@@ -350,14 +350,21 @@ public class GatewaySmokeTests
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", gateway.Token);
             var workspace = await client.GetStringAsync("/api/workspace");
             Assert.Contains("upstream", workspace);
-            Assert.NotNull(await credentials.GetAsync("session")); // session mirrored into the credential store
+            // Only the agenthub session cookie is kept; transient ones stay transient.
+            Assert.Equal("agenthub_session=sess-token-123", await credentials.GetAsync("session"));
 
             var viaCookie = new HttpRequestMessage(HttpMethod.Get, new Uri(baseAddress, "/api/workspace"));
             viaCookie.Headers.TryAddWithoutValidation("Cookie", cookie.Split(';')[0]);
             var cookieResponse = await noRedirect.SendAsync(viaCookie);
             Assert.Equal(HttpStatusCode.OK, cookieResponse.StatusCode);
-            Assert.Contains("Path=/", cookieResponse.Headers.GetValues("Set-Cookie").Single());
-            Assert.DoesNotContain("Secure", cookieResponse.Headers.GetValues("Set-Cookie").Single());
+            var forwarded = cookieResponse.Headers.GetValues("Set-Cookie").ToArray();
+            var sessionCookie = Assert.Single(forwarded, c => c.StartsWith("agenthub_session=", StringComparison.Ordinal));
+            Assert.Contains("Path=/", sessionCookie);
+            Assert.DoesNotContain("Secure", sessionCookie);
+            Assert.DoesNotContain("Domain=", sessionCookie);
+            Assert.Contains(forwarded, c => c.StartsWith("oauth_state=", StringComparison.Ordinal));
+            // A hostile upstream cannot plant the gateway's own auth cookie.
+            Assert.DoesNotContain(forwarded, c => c.StartsWith("ab_proxy=", StringComparison.Ordinal));
 
             using var sse = await client.GetAsync("/api/tasks/1/events", HttpCompletionOption.ResponseHeadersRead);
             Assert.Contains("text/event-stream", sse.Content.Headers.ContentType!.MediaType!);
@@ -434,7 +441,10 @@ public class GatewaySmokeTests
                     await ctx.Response.Body.FlushAsync();
                     return;
                 }
-                ctx.Response.Headers.Append("Set-Cookie", "sid=abc; Path=/api; Domain=hub.example.com; Secure; HttpOnly; SameSite=None");
+                ctx.Response.Headers.Append("Set-Cookie", "agenthub_session=sess-token-123; Path=/api; Domain=hub.example.com; Secure; HttpOnly; SameSite=None");
+                ctx.Response.Headers.Append("Set-Cookie", "oauth_state=transient; Path=/; HttpOnly; Max-Age=600");
+                // A hostile upstream trying to overwrite the gateway's own auth cookie.
+                ctx.Response.Headers.Append("Set-Cookie", "ab_proxy=planted; Path=/; HttpOnly");
                 ctx.Response.ContentType = "application/json";
                 await ctx.Response.WriteAsync("{\"source\":\"upstream\",\"path\":" + JsonSerializer.Serialize(path) + "}");
             });

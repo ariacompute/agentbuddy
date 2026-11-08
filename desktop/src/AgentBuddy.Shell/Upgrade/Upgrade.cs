@@ -66,9 +66,21 @@ public sealed class HttpReleaseDownloader(HttpClient http) : IReleaseDownloader
     {
         using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
+        // Refuse an oversized body before reading it, and keep refusing once the
+        // running total passes the cap: a mirror must not be able to exhaust memory.
+        if (response.Content.Headers.ContentLength is > Limits.MaxPackageBytes)
+            throw new InvalidOperationException("package too large");
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         using var buffer = new MemoryStream();
-        await stream.CopyToAsync(buffer, ct).ConfigureAwait(false);
+        var chunk = new byte[81920];
+        while (true)
+        {
+            var read = await stream.ReadAsync(chunk, ct).ConfigureAwait(false);
+            if (read == 0) break;
+            if (buffer.Length + read > Limits.MaxPackageBytes)
+                throw new InvalidOperationException("package too large");
+            buffer.Write(chunk, 0, read);
+        }
         return buffer.ToArray();
     }
 }
@@ -83,14 +95,22 @@ public sealed class MinisignVerifier : IUpgradeVerifier
     public bool Verify(byte[] payload, string signatureBox, string publicKeyBox)
     {
         if (string.IsNullOrWhiteSpace(publicKeyBox) || string.IsNullOrWhiteSpace(signatureBox)) return false;
+        if (payload.Length == 0) return false;
         try
         {
             var pub = Decode(publicKeyBox, 42);
             var sig = Decode(signatureBox, 74);
+            // Exact minisign layout: "Ed" + 8-byte key id + 32-byte key / 64-byte sig.
+            // The prehashed "ED" algorithm is refused outright rather than silently
+            // producing a different answer on one side of the pair.
+            if (pub.Length != 42 || sig.Length != 74) return false;
+            if (pub[0] != (byte)'E' || pub[1] != (byte)'d') return false;
+            if (sig[0] != (byte)'E' || sig[1] != (byte)'d') return false;
+            if (!pub.AsSpan(2, 8).SequenceEqual(sig.AsSpan(2, 8))) return false;
             var signer = new Ed25519Signer();
-            signer.Init(false, new Ed25519PublicKeyParameters(pub[^32..], 0));
+            signer.Init(false, new Ed25519PublicKeyParameters(pub[10..42], 0));
             signer.BlockUpdate(payload, 0, payload.Length);
-            return signer.VerifySignature(sig[^64..]);
+            return signer.VerifySignature(sig[10..74]);
         }
         catch (Exception) { return false; }
     }
@@ -272,12 +292,17 @@ public sealed class PlatformUpgradeInstaller : IUpgradeInstaller
 {
     public async Task<bool> InstallAsync(byte[] package, string fileName, CancellationToken ct)
     {
+        // The name comes from a manifest URL: keep it a plain file name so the write
+        // can never land outside the per-run directory.
+        if (string.IsNullOrWhiteSpace(fileName) || fileName != Path.GetFileName(fileName) ||
+            fileName.Contains('/') || fileName.Contains('\\') || fileName is "." or "..") return false;
         var temp = Path.Combine(Path.GetTempPath(), "agentbuddy-update-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temp);
         var file = Path.Combine(temp, fileName);
-        await File.WriteAllBytesAsync(file, package, ct).ConfigureAwait(false);
+        var cleanUp = true;
         try
         {
+            await File.WriteAllBytesAsync(file, package, ct).ConfigureAwait(false);
             var psi = new ProcessStartInfo { UseShellExecute = false, CreateNoWindow = true };
             if (OperatingSystem.IsWindows() && fileName.EndsWith(".msi", StringComparison.OrdinalIgnoreCase))
             {
@@ -286,7 +311,9 @@ public sealed class PlatformUpgradeInstaller : IUpgradeInstaller
             }
             else if (OperatingSystem.IsMacOS() && fileName.EndsWith(".dmg", StringComparison.OrdinalIgnoreCase))
             {
+                // open returns as soon as the mount starts, so the image must survive.
                 psi.FileName = "open"; psi.ArgumentList.Add(file);
+                cleanUp = false;
             }
             else if (OperatingSystem.IsLinux() && fileName.EndsWith(".deb", StringComparison.OrdinalIgnoreCase))
             {
@@ -299,5 +326,12 @@ public sealed class PlatformUpgradeInstaller : IUpgradeInstaller
             return process.ExitCode == 0;
         }
         catch (Exception) { return false; }
+        finally
+        {
+            if (cleanUp)
+            {
+                try { Directory.Delete(temp, recursive: true); } catch (Exception) { /* best effort */ }
+            }
+        }
     }
 }

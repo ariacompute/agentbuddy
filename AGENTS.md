@@ -111,16 +111,49 @@ desktop/
   `GET /__shell/bootstrap?nonce=…` 兑换 `HttpOnly; SameSite=Strict; Path=/` 的 `ab_proxy` Cookie
   后 `303 → /`。除 bootstrap 外**所有**路径（含 `/api`、`/a2a`、`/__shell/*`）都必须带该 Cookie
   （原生客户端可用 `Authorization: Bearer`）；`Origin` 与 `self_url` 不符者**先于鉴权**
-  以 `403 proxy_origin_refused` 拒绝。token 只在网关内存与 Cookie 里，绝不进 UI、绝不转发上游。
+  以 `403 proxy_origin_refused` 拒绝。token 只在网关内存与 Cookie 里，绝不进 UI；出向请求由
+  `FilterProxyCookie` 剥掉该 Cookie（**大小写不敏感**），token 绝不转发上游。
+- **绑定用端口 0**：Kestrel 绑 `127.0.0.1:0` 后从 `IServerAddressesFeature` 读回实际端口，
+  **禁止**「先探测空闲端口→关闭→再绑」（中间会被别的进程抢走）；`AddServerHeader = false`，
+  `ContentRootPath` 钉在 `AppContext.BaseDirectory`（当前目录里的 `appsettings.json` 不得影响宿主）。
 - **SSE 必须真流式**：`ResponseHeadersRead` + 字节流拷贝，强制 `accept-encoding: identity`，
   **禁止整体超时**（仅 `ConnectTimeout = 10s`）；请求体上限 32MiB。
+- **转发只走前缀白名单**：`IsForwardablePath` 拒绝含 `..` / `\` / `//` 的路径
+  （`//host` 会改掉 base-URI 的 authority，`/api/../x` 会跑出前缀）。
+- **`Location` 按 origin 比较**（scheme + host + port），不是字符串前缀：
+  `https://hub.example.com.evil.test` 是另一个主机，绝不能改写到环回 origin。
+- **上游 `Set-Cookie` 不得越权**：名为 `ab_proxy` 或带 `__Host-`/`__Secure-` 前缀的 Cookie
+  **整条丢弃**；只有 `agenthub_session`（`Gateway.SessionCookieName`）才写入凭据库，
+  其余（OAuth state / PKCE verifier）只转发不落盘——恶意服务端因此无法种下长期凭据。
+  凭据库写失败只记日志，不能把已成功的登录变成 502。
 - **凭据只进凭据库**：agenthub 会话与执行节点 API key 存操作系统凭据库，
   `config.json` 该字段留空并在 `Load()` 回填；无凭据库时回退 `0600` 文件（Windows 用 `icacls` 收紧）。
-- **执行节点（BYOM）**：默认关闭、开启需显式确认。命令按**精确名**白名单匹配
-  （`sh`/`bash`/`cmd` 构造上拒绝）、**绝不拼 shell**（argv 直 exec）、根目录与环境变量白名单、
-  输出截断、并发上限；Unix 负 pgid `TERM → 250ms → KILL → wait()` 收尸，
-  Windows 无进程组语义，如实退回直接子进程终止。状态/开关只经 `GET|POST /__shell/executor` 暴露，
-  **UI 不获得任何文件系统或命令执行权限**；拒绝原因是机器码（`root_unusable` 等），13 语本地化。
+  `UnixCommandCredentialStore` 的 `security`/`secret-tool` 有 5s 预算（`Limits.CredentialTimeoutSeconds`），
+  超时即杀，锁住的钥匙串不得挂住请求。
+- **`config.json` 原子私有写**：写同目录私有临时文件（Unix 建即 `0600`、Windows 先 `icacls`）
+  再 `File.Move(overwrite: true)`；**禁止**「先删后建」（丢内容、留窗口期）；
+  读取时损坏或 >1MiB 一律回落默认值，不阻塞启动。
+- **执行节点（BYOM）**：默认关闭、开启需显式确认。命令按**精确名**白名单匹配且**必须是裸名**
+  （`command == Path.GetFileName(command)`，含 `/`、`\`、空格、`..`、控制字符一律拒绝）；
+  shell（`sh`/`bash`/`cmd`/`sh.exe`…）与「启动器」（`env`/`sudo`/`xargs`/`timeout`/`docker`/`ssh`…，
+  `ExecutorReject.Launchers`）构造上拒绝，白名单条目本身也按同一规则校验；
+  **绝不拼 shell**（argv 直 exec）、根目录与环境变量白名单、并发上限；
+  根目录与工作目录先经 `ResolveExisting` 解析符号链接再比较（链接逃逸被拒），
+  文件系统根永远不可用；stdout/stderr 边读边截断（超限只丢弃，内存有界）；
+  Unix 负 pgid `TERM → 250ms → KILL → wait()` 收尸，Windows 无进程组语义，如实退回直接子进程终止。
+  状态/开关只经 `GET|POST /__shell/executor` 暴露，**UI 不获得任何文件系统或命令执行权限**；
+  拒绝原因是机器码（`root_unusable` 等），13 语本地化。
+- **两条写配置的路由共用一套校验**：`POST /__shell/config` 与 `POST /__shell/executor` 都走
+  `ShellRoutes.ValidatePatch`；`executorApiKey` 在合并前被 `ExtractApiKey` 摘出并只进凭据库，
+  **永远不进 `config.json`**（曾经的后门：`/__shell/executor` 直接 `ApplyPatchAsync(raw)`）。
+- **通知文本绝不进脚本源码**：标题/正文来自服务端，Windows 走 `AB_NOTIFY_TITLE`/`AB_NOTIFY_BODY`
+  环境变量、macOS 走 `osascript` 的 `run argv`、Linux 走 `notify-send --`，一律单行且限长
+  （`MaxNotifyTitleChars` / `MaxNotifyBodyChars`）；深链队列有上限（20 条、单条 ≤512 字符）。
+- **有界读取（内存是攻击面）**：JSON 响应 `MaxJsonBytes`、SSE 单事件 `MaxEventBytes`
+  （逐字节分帧，超长行整行丢弃）、更新包 `MaxPackageBytes`；文件下载返回**活流**
+  （`OwnedStream` 随 `Dispose` 释放 response），不再整包读进内存。
+- **验签是严格 minisign 布局**：公钥盒 42 字节、签名盒 74 字节，`Ed` 标记与 8 字节 key id
+  必须两侧一致；`ED`（预哈希）直接拒绝而不是给出另一种答案；空负载、空公钥一律失败。
 
 ### 托盘、通知与更新
 

@@ -68,8 +68,22 @@ public sealed class ConfigService
         {
             if (File.Exists(_paths.ConfigFile))
             {
-                var text = await File.ReadAllTextAsync(_paths.ConfigFile, ct).ConfigureAwait(false);
-                _current = (JsonSerializer.Deserialize<ShellConfig>(text, Json) ?? new ShellConfig()).Normalize();
+                // A corrupt or oversized file must not block startup: fall back to
+                // defaults and let the next save rewrite it.
+                try
+                {
+                    var info = new FileInfo(_paths.ConfigFile);
+                    if (info.Length is > 0 and <= 1024 * 1024)
+                    {
+                        var text = await File.ReadAllTextAsync(_paths.ConfigFile, ct).ConfigureAwait(false);
+                        _current = (JsonSerializer.Deserialize<ShellConfig>(text, Json) ?? new ShellConfig()).Normalize();
+                    }
+                    else if (info.Length == 0)
+                    {
+                        _current = new ShellConfig();
+                    }
+                }
+                catch (Exception) { _current = new ShellConfig(); }
             }
             return _current;
         }
@@ -112,22 +126,41 @@ public sealed class ConfigService
     }
 
     /// <summary>
-    /// Creates the file with restrictive permissions from the very first byte
-    /// ("create then chmod" is not used). On Windows icacls explicitly removes
-    /// inheritance and grants only the current user.
+    /// Writes through a private temp file in the same directory and then renames it
+    /// over the target. The content therefore never exists at a permissive mode
+    /// (Unix create mode is restrictive from the first byte; Windows gets icacls
+    /// before the rename), the old file is never deleted before the new one is
+    /// complete, and a crash cannot leave a half-written config.json behind.
     /// </summary>
     public static void WritePrivateFile(string path, string content)
     {
         var full = Path.GetFullPath(path);
-        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-        if (File.Exists(full)) File.Delete(full);
-        using (var stream = new FileStream(full, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        var directory = Path.GetDirectoryName(full)!;
+        Directory.CreateDirectory(directory);
+        var temp = Path.Combine(directory, "." + Path.GetFileName(full) + "." + Guid.NewGuid().ToString("N") + ".tmp");
+        try
         {
+            var options = new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None
+            };
             if (!OperatingSystem.IsWindows())
-                File.SetUnixFileMode(full, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            stream.Write(Encoding.UTF8.GetBytes(content));
+                options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            using (var stream = new FileStream(temp, options))
+            {
+                stream.Write(Encoding.UTF8.GetBytes(content));
+                stream.Flush(flushToDisk: true);
+            }
+            if (OperatingSystem.IsWindows()) HardenWindows(temp);
+            File.Move(temp, full, overwrite: true);
         }
-        if (OperatingSystem.IsWindows()) HardenWindows(full);
+        catch (Exception)
+        {
+            try { if (File.Exists(temp)) File.Delete(temp); } catch (Exception) { /* best effort */ }
+            throw;
+        }
     }
 
     private static void HardenWindows(string full)

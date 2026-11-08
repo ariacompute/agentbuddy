@@ -32,27 +32,44 @@ public static class ExecutorPolicy
     {
         if (string.IsNullOrWhiteSpace(root) || !Path.IsPathFullyQualified(root) || !Directory.Exists(root))
             return ExecutorReject.RootUnusable;
-        var full = Path.GetFullPath(root);
-        if (full == Path.GetPathRoot(full)) return ExecutorReject.RootUnusable;
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        // A root that is a link to "/" (or "C:\") is the filesystem root in disguise.
+        var resolved = Path.TrimEndingDirectorySeparator(ResolveExisting(full));
+        if (IsFileSystemRoot(resolved)) return ExecutorReject.RootUnusable;
         return null;
     }
 
     public static string? ValidateCommand(string command, IReadOnlyList<string> allowlist)
     {
-        var name = Path.GetFileName(command);
-        if (string.IsNullOrWhiteSpace(name)) return ExecutorReject.CommandNotAllowed;
-        if (ExecutorReject.Shells.Contains(name, StringComparer.OrdinalIgnoreCase))
+        // The allowlist matches an exact name and the name is what gets spawned.
+        // Anything with a directory part ("../x", "/bin/x", "C:\x") is refused so a
+        // relative or absolute path can never ride in on an allowlisted basename.
+        if (string.IsNullOrWhiteSpace(command) || command != command.Trim()) return ExecutorReject.CommandNotAllowed;
+        if (Path.IsPathRooted(command)) return ExecutorReject.CommandNotAllowed;
+        if (command.Contains('/') || command.Contains('\\')) return ExecutorReject.CommandNotAllowed;
+        if (Path.GetFileName(command) != command) return ExecutorReject.CommandNotAllowed;
+        if (command is "." or "..") return ExecutorReject.CommandNotAllowed;
+        if (command.Any(char.IsControl)) return ExecutorReject.CommandNotAllowed;
+        if (ExecutorReject.Shells.Contains(command, StringComparer.OrdinalIgnoreCase))
             return ExecutorReject.CommandNotAllowed;
-        if (!allowlist.Contains(name, StringComparer.Ordinal)) return ExecutorReject.CommandNotAllowed;
+        if (ExecutorReject.Launchers.Contains(command, StringComparer.OrdinalIgnoreCase))
+            return ExecutorReject.CommandNotAllowed;
+        if (!allowlist.Contains(command, StringComparer.Ordinal)) return ExecutorReject.CommandNotAllowed;
         return null;
     }
 
+    /// <summary>
+    /// Both sides are resolved through any symlink first, so a link inside the root
+    /// that points elsewhere is rejected instead of being compared as a string.
+    /// </summary>
     public static string? ValidateWorkDir(string root, string directory)
     {
-        var rootFull = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
-        var dirFull = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+        var rootFull = Path.TrimEndingDirectorySeparator(ResolveExisting(Path.GetFullPath(root)));
+        var dirFull = Path.TrimEndingDirectorySeparator(ResolveExisting(Path.GetFullPath(directory)));
         var separator = Path.DirectorySeparatorChar.ToString();
-        return dirFull == rootFull || dirFull.StartsWith(rootFull + separator, StringComparison.Ordinal)
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return dirFull.Equals(rootFull, comparison) ||
+               dirFull.StartsWith(rootFull + separator, comparison)
             ? null
             : ExecutorReject.DirOutsideRoot;
     }
@@ -62,10 +79,60 @@ public static class ExecutorPolicy
             ? null
             : ExecutorReject.EnvNotAllowed;
 
+    /// <summary>
+    /// An allowlist entry is a command name, not a command line: no separators, no
+    /// shell, no launcher. Validated when the setting is saved as well as when used.
+    /// </summary>
+    public static string? ValidateAllowlistEntry(string? entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry) || entry != entry.Trim()) return ExecutorReject.CommandNotAllowed;
+        if (entry.Contains('/') || entry.Contains('\\') || entry.Contains(' ') || entry.Any(char.IsControl))
+            return ExecutorReject.CommandNotAllowed;
+        if (Path.GetFileName(entry) != entry || Path.IsPathRooted(entry) || entry is "." or "..")
+            return ExecutorReject.CommandNotAllowed;
+        if (ExecutorReject.Shells.Contains(entry, StringComparer.OrdinalIgnoreCase)) return ExecutorReject.CommandNotAllowed;
+        if (ExecutorReject.Launchers.Contains(entry, StringComparer.OrdinalIgnoreCase)) return ExecutorReject.CommandNotAllowed;
+        return null;
+    }
+
     public static string Truncate(string value)
     {
         if (value.Length <= Limits.MaxOutputBytes) return value;
         return value[..Limits.MaxOutputBytes] + "\n[truncated]";
+    }
+
+    /// <summary>
+    /// Resolves the deepest existing ancestor through its final link target and
+    /// re-appends the parts that do not exist yet. Never throws; an unreadable
+    /// path simply keeps its literal form.
+    /// </summary>
+    public static string ResolveExisting(string path)
+    {
+        try
+        {
+            var remainder = new List<string>();
+            var probe = path;
+            while (!string.IsNullOrEmpty(probe) && !Directory.Exists(probe) && !File.Exists(probe))
+            {
+                var parent = Path.GetDirectoryName(probe);
+                if (string.IsNullOrEmpty(parent) || parent == probe) return path;
+                remainder.Insert(0, Path.GetFileName(probe));
+                probe = parent;
+            }
+            if (!Directory.Exists(probe) && !File.Exists(probe)) return path;
+            var target = Directory.Exists(probe)
+                ? Directory.ResolveLinkTarget(probe, returnFinalTarget: true)?.FullName
+                : File.ResolveLinkTarget(probe, returnFinalTarget: true)?.FullName;
+            if (target is null) return path;
+            return remainder.Count == 0 ? target : Path.Combine([target, .. remainder]);
+        }
+        catch (Exception) { return path; }
+    }
+
+    private static bool IsFileSystemRoot(string path)
+    {
+        var trimmed = Path.TrimEndingDirectorySeparator(path);
+        return string.IsNullOrEmpty(trimmed) || trimmed == Path.GetPathRoot(trimmed);
     }
 }
 
@@ -137,11 +204,15 @@ public sealed class ExecutorService(ICredentialStore credentials)
         finally { _slots.Release(); }
     }
 
+    /// <summary>
+    /// Changing the concurrency swaps in a fresh semaphore. The old one is left for
+    /// the GC: disposing it while tasks still hold slots would throw ObjectDisposed
+    /// on their Release(), and SemaphoreSlim only needs disposal for its wait handle.
+    /// </summary>
     private void EnsureSlots(int max)
     {
         max = Math.Clamp(max, 1, 8);
         if (max == _configuredSlots) return;
-        _slots.Dispose();
         _slots = new SemaphoreSlim(max, max);
         _configuredSlots = max;
     }
@@ -168,9 +239,15 @@ public sealed class ExecutorService(ICredentialStore credentials)
         foreach (var (key, value) in environment)
             if (ExecutorReject.EnvAllow.Contains(key, StringComparer.Ordinal)) psi.Environment[key] = value;
 
-        using var process = Process.Start(psi) ?? throw new ExecutorRejectException(ExecutorReject.SpawnFailed);
-        var stdout = process.StandardOutput.ReadToEndAsync(ct);
-        var stderr = process.StandardError.ReadToEndAsync(ct);
+        Process? started;
+        try { started = Process.Start(psi); }
+        catch (Exception) { throw new ExecutorRejectException(ExecutorReject.SpawnFailed); }
+        if (started is null) throw new ExecutorRejectException(ExecutorReject.SpawnFailed);
+        using var process = started;
+
+        // Bounded reads: output past the cap is drained and discarded, never buffered.
+        var stdout = ReadBoundedAsync(process.StandardOutput, ct);
+        var stderr = ReadBoundedAsync(process.StandardError, ct);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(global::AgentBuddy.Core.Contracts.Limits.ExecutorTimeoutSeconds));
         var timedOut = false;
@@ -186,7 +263,31 @@ public sealed class ExecutorService(ICredentialStore credentials)
         int exitCode;
         try { exitCode = process.HasExited ? process.ExitCode : -1; }
         catch (InvalidOperationException) { exitCode = -1; }
-        return new ExecResult(exitCode, ExecutorPolicy.Truncate(outText), ExecutorPolicy.Truncate(errText), timedOut);
+        return new ExecResult(exitCode, outText, errText, timedOut);
+    }
+
+    /// <summary>
+    /// Keeps at most <see cref="global::AgentBuddy.Core.Contracts.Limits.MaxOutputBytes"/>
+    /// characters but keeps reading until the pipe closes, so the child never blocks
+    /// on a full buffer while a chatty command runs.
+    /// </summary>
+    private static async Task<string> ReadBoundedAsync(StreamReader reader, CancellationToken ct)
+    {
+        var bounded = new System.Text.StringBuilder();
+        var buffer = new char[4096];
+        var truncated = false;
+        while (true)
+        {
+            var read = await reader.ReadAsync(buffer, ct).ConfigureAwait(false);
+            if (read == 0) break;
+            var room = global::AgentBuddy.Core.Contracts.Limits.MaxOutputBytes - bounded.Length;
+            if (room <= 0) { truncated = true; continue; }
+            var take = Math.Min(read, room);
+            bounded.Append(buffer, 0, take);
+            if (take < read) truncated = true;
+        }
+        if (truncated) bounded.Append("\n[truncated]");
+        return bounded.ToString();
     }
 }
 

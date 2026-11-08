@@ -213,8 +213,8 @@
 | F17.3 | **租约卡片网格**：类型、状态胶囊、租约 id、所属 agent、作用域、执行后端、到期倒计时（≤3 分钟加粗而非变色）、执行次数；底部 44px 三操作：试跑 / 续租 / 终止（终止需二次确认） | — |
 | F17.4 | **审计抽屉**：右侧滑出，顶部租约 id，表格列命令摘要 / 退出码 / 耗时 / 时间 / `dry_run` 标记，失败行左缘 2px 实心竖条；抽屉内可直接试跑一条命令并就地看回执 | — |
 | F17.5 | **未接线语义**：服务端无控制面时整屏显示「沙盒已关闭」+ 一句如何开启，不渲染零值水位条、不显示错误横幅 | `feature_unavailable` |
-| F17.6 | **执行节点**（可选，**默认关闭**）：设置页开关 + 风险说明 + 确认；工作根目录（绝对路径）、命令白名单（逐行、精确匹配、禁 shell）、并发上限、节点 id（只读）、可选 API key、在线状态与最近拒绝原因 | BYOM |
-| F17.7 | 节点只在**本地 .NET 进程**执行：不经 shell、只跑白名单精确命令、只允许根目录内路径、超时**终止整棵进程组**、输出截断；Avalonia 视图**不获得**任何文件系统或命令执行能力（窗口能力以委托注入，ViewModel 保持 Headless 可测）。进程组语义仅 unix 具备（负 pgid TERM → 250ms 宽限 → KILL → `wait()` 收尸）；Windows 没有等价原语，如实退回直接子进程终止并在代码与文档中明确标注，而不是假装已清场 | — |
+| F17.6 | **执行节点**（可选，**默认关闭**）：设置页开关 + 风险说明 + 确认；工作根目录（绝对路径）、命令白名单（逐行、精确匹配、禁 shell 与启动器、条目只能是裸命令名）、并发上限、节点 id（只读）、可选 API key、在线状态与最近拒绝原因 | BYOM |
+| F17.7 | 节点只在**本地 .NET 进程**执行：不经 shell、只跑白名单精确命令、只允许根目录内路径（含符号链接解析后仍须在根内、文件系统根永不可用）、超时**终止整棵进程组**、输出边读边截断（内存有界）；Avalonia 视图**不获得**任何文件系统或命令执行能力（窗口能力以委托注入，ViewModel 保持 Headless 可测）。进程组语义仅 unix 具备（负 pgid TERM → 250ms 宽限 → KILL → `wait()` 收尸）；Windows 没有等价原语，如实退回直接子进程终止并在代码与文档中明确标注，而不是假装已清场 | — |
 | F17.8 | 节点生命周期：开启后注册 → 心跳 → 长轮询领任务 → 执行 → 回传；退出即停止，重启自动重新上线；间歇在线不算故障，服务端据此显示离线 | — |
 | F17.9 | 客户端不自建沙盒、不做类型探测：目录、可用性与原因全部来自服务端，客户端只渲染 | 单一事实来源 |
 
@@ -227,12 +227,17 @@
 | 编号 | 需求 |
 |---|---|
 | F18.1 | 每次启动生成 256 位 token 与一个**一次性** nonce（TTL 60s）；窗口打开 `/__shell/bootstrap?nonce=…` 兑换 `ab_proxy` Cookie（`HttpOnly; SameSite=Strict; Path=/`）后 `303` 落到 `/`。token 只存在于网关内存与 Cookie，绝不进入 UI 代码、绝不转发上游 |
-| F18.2 | 除 bootstrap 外的所有路由（`/api`、`/a2a`、`/__shell/*`）都要求该 Cookie，原生客户端可用 `Authorization: Bearer`；外来 `Origin` 在任何鉴权之前以 `403 proxy_origin_refused` 拒绝，无 token 为 `401 proxy_unauthorized` |
+| F18.2 | 除 bootstrap 外的所有路由（`/api`、`/a2a`、`/__shell/*`）都要求该 Cookie，原生客户端可用 `Authorization: Bearer`；外来 `Origin` 在任何鉴权之前以 `403 proxy_origin_refused` 拒绝，无 token 为 `401 proxy_unauthorized`。出向请求由 `FilterProxyCookie` 剥掉 `ab_proxy`（**大小写不敏感**），token 绝不转发上游 |
 | F18.3 | nonce 只在**匹配时**消费：错猜不消耗有效 nonce（否则本机一次错误请求就能让窗口永久打不开），重发 nonce 使旧 URL 失效，过期 nonce 一律丢弃 |
 | F18.4 | 网关**不输出 HTML**，因此不再需要逐响应 CSP nonce、SPA 回退 `index.html`、主题预绘制脚本或版本戳注入；连接页与关于页是 Avalonia 原生窗口，主题由 `RequestedThemeVariant` 在启动时设定，语言与版本由 ViewModel 绑定 |
-| F18.5 | 转发上游时只丢逐跳头，上游的 `Content-Security-Policy` / `Strict-Transport-Security` / `X-Frame-Options` 原样透传；`Set-Cookie` 与 `Location` 按 F1.7 / F2 规则改写 |
+| F18.5 | 转发上游时只丢逐跳头，上游的 `Content-Security-Policy` / `Strict-Transport-Security` / `X-Frame-Options` 原样透传；`Set-Cookie` 丢 `Secure`/`Domain`/原 `Path`、`SameSite=None → Lax`、补 `; Path=/` 并保留 `HttpOnly`；`Location` 按 **origin**（scheme + host + port）比较后改写，不是字符串前缀 |
 | F18.6 | 会话凭据存系统凭据库（F1.7）；设置页显示 `sessionBackend`，回退到文件时给出可读告警 |
 | F18.7 | 无窗口的测试路由器（`auth: None`）保持原转发行为；关闭准入时 `/__shell/bootstrap` 返回 404 |
+| F18.8 | **上游 `Set-Cookie` 不得越权**：名为 `ab_proxy` 或带 `__Host-` / `__Secure-` 前缀的 Cookie 整条丢弃；只有 `agenthub_session` 写入凭据库，其余（OAuth state / PKCE verifier）只转发不落盘；凭据库写失败只记日志，不得把已成功的登录变成 502 |
+| F18.9 | **转发路径白名单**：`IsForwardablePath` 拒绝含 `..`、`\` 或 `//` 的路径（`//host` 会改掉 base-URI 的 authority，`/api/../x` 会跑出前缀），命中即 `400 invalid` |
+| F18.10 | **端口与宿主**：Kestrel 绑 `127.0.0.1:0` 后从 `IServerAddressesFeature` 读回实际端口，禁止「探测空闲端口→关闭→再绑」的竞争；`AddServerHeader = false`；`ContentRootPath` 钉在 `AppContext.BaseDirectory`，当前目录的 `appsettings.json` 不影响宿主；网关自身 JSON 响应带 `Cache-Control: no-store` 与 `X-Content-Type-Options: nosniff` |
+| F18.11 | **有界读取**：JSON 响应 ≤16MiB、SSE 单事件 ≤1MiB（逐字节分帧，超长行整行丢弃）、更新包 ≤512MiB；文件下载返回活流并在 `Dispose` 时释放 response，不再整包读进内存 |
+| F18.12 | **原子私有写**：`config.json` 写同目录私有临时文件（Unix 建即 `0600`、Windows 先 `icacls`）后 `File.Move(overwrite: true)`；读取时损坏或 >1MiB 回落默认值，不阻塞启动；两条写配置路由共用 `ValidatePatch`，`executorApiKey` 合并前摘出、只进凭据库 |
 
 ### F19 共享文件与连接器审批队列
 
@@ -452,6 +457,23 @@
     文件系统、命令执行或更新安装权限，一切经 `/__shell/*` 控制面。
 36. `dotnet test --collect:"XPlat Code Coverage"` 出 Cobertura 报告；静态守卫是硬门槛，
     新增功能必须补正常 + 异常双路径用例，**不得**用 exclude / ignore 绕过。
+37. 执行节点命令准入（F17.6/F17.7）：`node` 这类裸名可执行；`../evil/node`、`/bin/node`、
+    `C:\x\node.exe`、`node --flag`、`sh`、`sh.exe`、`env`、`sudo`、`xargs`、`docker`、`ssh`
+    一律 `command_not_allowed`；白名单条目同规则校验；工作目录的兄弟前缀（`root-evil`）与
+    指向根外的符号链接都判 `dir_outside_root`；文件系统根判 `root_unusable`。
+38. 上游 Cookie 越权（F18.8）：上游下发 `ab_proxy=…`、`__Host-*`、`__Secure-*` 时该条
+    **不出现在**客户端响应里；`agenthub_session` 被改写后转发并写入凭据库；`oauth_state`
+    只转发不落盘。
+39. 有界读取（F18.11）：>1MiB 的单个 SSE 事件与超长未换行行被整段丢弃且不破坏后续分帧；
+    >16MiB 的 JSON 响应按空响应处理而不是 OOM；下载返回活流并在释放时关闭连接。
+40. 通知文本（F5.4）：标题/正文只经环境变量或 argv 传入系统通知，**绝不**拼进
+    PowerShell / AppleScript 源码；单行限长；深链队列上限 20 条、单条 ≤512 字符。
+41. 配置与凭据（F18.12）：`config.json` 写入不经过「先删后建」，目录内不残留 `.tmp`
+    文件；损坏/超大配置回落默认值且应用仍能启动；凭据助手超过 5s 即被杀，锁住的钥匙串
+    不挂住请求；`POST /__shell/executor` 与 `POST /__shell/config` 对根目录/白名单的拒绝
+    行为完全一致，且两条路径都不可能把 API key 写进 `config.json`。
+42. 更新验签（F19）：公钥盒 42 字节、签名盒 74 字节、`Ed` 标记与 8 字节 key id 必须两侧一致；
+    `ED`（预哈希）、篡改负载、截断盒、空负载、空公钥一律拒绝；安装包文件名必须是纯文件名。
 
 ## 7. 自动更新（F19）
 
