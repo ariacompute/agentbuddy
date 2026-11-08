@@ -38,6 +38,13 @@ pub struct AppConfig {
     /// Empty means "follow the system language".
     #[serde(default)]
     pub lang: String,
+    /// The workbench's colour theme: `light` (the default) or `dark`. It is
+    /// stored here because the page cannot keep it: the window is served from
+    /// `127.0.0.1:<port>`, the OS picks a new port on every start, and
+    /// `localStorage` is keyed by origin — so the page's own copy is gone by the
+    /// next launch. The proxy seeds it back before the first paint.
+    #[serde(default)]
+    pub theme: String,
     /// When true (the default), closing the window keeps the app running in the
     /// tray instead of quitting. The connection / settings page can turn this
     /// off, in which case closing the window ends the app.
@@ -97,6 +104,7 @@ impl Default for AppConfig {
             server_url: String::new(),
             accept_invalid_certs: false,
             lang: String::new(),
+            theme: String::new(),
             background: true,
             notify_enabled: true,
             notify_quiet_minutes: 0,
@@ -134,6 +142,11 @@ impl AppConfig {
         i18n::match_lang(&self.lang)
     }
 
+    /// The theme to render the workbench in: the chosen one, else light.
+    pub fn theme(&self) -> &'static str {
+        normalize_theme(&self.theme)
+    }
+
     /// The configured server, trailing slash removed, or `None` when the user
     /// has not pointed the shell anywhere yet.
     pub fn server_url(&self) -> Option<String> {
@@ -142,6 +155,17 @@ impl AppConfig {
 
     pub fn is_configured(&self) -> bool {
         self.server_url().is_some()
+    }
+}
+
+/// The two themes the workbench knows. Anything else means light: a hand-edited
+/// `config.json` must never leave the page without a set of tokens applied, and
+/// the value is injected into the page as a string literal.
+pub fn normalize_theme(raw: &str) -> &'static str {
+    if raw.trim().eq_ignore_ascii_case("dark") {
+        "dark"
+    } else {
+        "light"
     }
 }
 
@@ -465,6 +489,7 @@ mod tests {
             server_url: "https://hub.example.com".into(),
             accept_invalid_certs: true,
             lang: "zh-TW".into(),
+            theme: "dark".into(),
             background: true,
             notify_enabled: true,
             notify_quiet_minutes: 15,
@@ -481,6 +506,7 @@ mod tests {
         store.save(&config).unwrap();
         assert_eq!(store.load(), config);
         assert_eq!(store.load().lang(), "zh-TW");
+        assert_eq!(store.load().theme(), "dark");
         assert!(store.load().is_configured());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -522,6 +548,34 @@ mod tests {
     fn an_unknown_stored_language_falls_back_to_english() {
         let config = AppConfig { lang: "nl-NL".into(), ..Default::default() };
         assert_eq!(config.lang(), "en");
+    }
+
+    /// The theme has to be one of two constants, because it is written into the
+    /// page as a string literal on every start.
+    #[test]
+    fn the_theme_is_light_unless_dark_was_chosen() {
+        assert_eq!(AppConfig::default().theme(), "light");
+        let dark = AppConfig { theme: "dark".into(), ..Default::default() };
+        assert_eq!(dark.theme(), "dark");
+        assert_eq!(normalize_theme("DARK"), "dark");
+        assert_eq!(normalize_theme("  dark "), "dark");
+        assert_eq!(normalize_theme("purple"), "light");
+        assert_eq!(normalize_theme(""), "light");
+    }
+
+    /// A config written by a build that had no theme field must still load: the
+    /// preference is new, the file is not.
+    #[test]
+    fn an_old_config_file_without_a_theme_still_loads_and_is_light() {
+        let dir =
+            std::env::temp_dir().join(format!("agentbuddy-cfg-notheme-{}", std::process::id()));
+        let store = ConfigStore::new(dir.clone());
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(store.path(), r#"{"server_url":"https://hub.example.com","lang":"fr"}"#).unwrap();
+        let loaded = store.load();
+        assert_eq!(loaded.theme(), "light");
+        assert_eq!(loaded.lang(), "fr");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

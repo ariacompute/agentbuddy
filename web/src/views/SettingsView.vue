@@ -214,7 +214,9 @@ onMounted(async () => {
   }
   const local = readLocal()
   voiceInput.value = local.voiceInput ?? true
-  themeLight.value = local.theme !== 'dark'
+  // The canonical key, not the settings blob: the shell seeds it from its own
+  // config before the first paint, so it is what the page is showing right now.
+  themeLight.value = window.localStorage.getItem(THEME_KEY) !== 'dark'
   shellVersion.value = window.__AGENTBUDDY_VERSION__ || ''
   applyTheme()
   await readUpgrade()
@@ -300,7 +302,6 @@ function applyTheme() {
 
 function saveLocal() {
   const local = readLocal()
-  local.theme = themeLight.value ? 'light' : 'dark'
   local.voiceInput = voiceInput.value
   // Mirror the shell-managed flags so the dev fallback reflects the latest choice.
   local.background = background.value
@@ -320,6 +321,9 @@ async function save() {
     await request('/__shell/config', {
       method: 'POST',
       body: JSON.stringify({
+        // The theme travels with the rest: the shell is the only place that can
+        // keep it across a restart (the window's origin changes every launch).
+        theme: themeLight.value ? 'light' : 'dark',
         background: background.value,
         notify_enabled: notify.value,
         notify_quiet_minutes: quiet.value,

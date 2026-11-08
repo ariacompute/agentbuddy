@@ -218,7 +218,7 @@ async fn dispatch(State(state): State<ProxyState>, req: Request) -> Response {
     if !config.is_configured() && (path.is_empty() || path == "/" || path == "/index.html") {
         return static_files::shell_page("connect", &config);
     }
-    static_files::serve_console(&path, config.lang())
+    static_files::serve_console(&path, &config)
 }
 
 /// The paths that belong to the server rather than to the console bundle.
@@ -679,6 +679,13 @@ mod tests {
         assert_eq!(resp.status(), 200);
         let body = resp.text().await.unwrap();
         assert!(body.contains("<div id=\"app\""), "the console shell did not come back");
+        // The route hands the shell config to the page it serves: without the
+        // seed the workbench would forget the chosen language and theme at every
+        // launch, because the proxy's port (and so the page's origin) is new.
+        assert!(
+            body.contains("agentbuddy.theme"),
+            "the console shell was not seeded with the saved preferences"
+        );
     }
 
     #[tokio::test]

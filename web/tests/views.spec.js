@@ -1668,19 +1668,40 @@ describe('SettingsView', () => {
     expect(request).toHaveBeenCalledWith('/__shell/config', expect.objectContaining({ method: 'POST' }))
   })
 
-  it('writes both the local mirror and the canonical theme key', async () => {
+  it('writes the canonical theme key and sends it to the shell', async () => {
     request.mockResolvedValue({})
     window.localStorage.setItem('agentbuddy.theme', 'dark')
     const { wrapper } = mountWith(SettingsView)
     await flushPromises()
 
     const light = wrapper.findAll('button').find((b) => b.text() === 'Light')
+    request.mockClear()
     await light.trigger('click')
     await flushPromises()
 
     expect(window.localStorage.getItem('agentbuddy.theme')).toBe('light')
-    expect(JSON.parse(window.localStorage.getItem('agentbuddy.settings')).theme).toBe('light')
     expect(document.documentElement.dataset.theme).toBe('light')
+    // The page's own storage dies with its origin on every restart, so the
+    // shell config is the copy that has to receive it.
+    expect(request).toHaveBeenCalledWith(
+      '/__shell/config',
+      expect.objectContaining({ body: expect.stringContaining('"theme":"light"') }),
+    )
+  })
+
+  it('follows the theme the shell seeded, not a stale settings blob', async () => {
+    request.mockResolvedValue({})
+    // What the proxy plants from config.json before the first paint, next to an
+    // older settings blob that must not win.
+    window.localStorage.setItem('agentbuddy.theme', 'dark')
+    window.localStorage.setItem('agentbuddy.settings', JSON.stringify({ theme: 'light' }))
+    const { wrapper } = mountWith(SettingsView)
+    await flushPromises()
+
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(wrapper.findAll('button').find((b) => b.text() === 'Dark').classes()).toContain(
+      'btn-primary',
+    )
   })
 
   it('persists the language, the switches and the quiet window', async () => {

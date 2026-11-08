@@ -302,6 +302,19 @@ describe('ThemeToggle', () => {
     expect(document.documentElement.dataset.theme).toBe('dark')
     expect(window.localStorage.getItem('agentbuddy.theme')).toBe('dark')
   })
+
+  it('tells the shell so the choice survives a restart', async () => {
+    // The window's origin carries the proxy port, which the OS picks afresh on
+    // every start: `localStorage` alone forgets the theme by the next launch.
+    window.localStorage.setItem('agentbuddy.theme', 'light')
+    const { wrapper } = mountWith(ThemeToggle)
+    await nextTick()
+    await wrapper.find('button').trigger('click')
+    expect(fetch).toHaveBeenCalledWith(
+      '/__shell/config',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ theme: 'dark' }) }),
+    )
+  })
   it('flips its own state when there is no document or storage to write to', async () => {
     // The same component runs where a full DOM is not guaranteed (a prerender
     // pass, a test that tears the globals down). Toggling must not throw and must

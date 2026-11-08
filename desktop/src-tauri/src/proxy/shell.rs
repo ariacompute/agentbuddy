@@ -27,6 +27,7 @@ struct ConfigPayload {
     server_url: Option<String>,
     accept_invalid_certs: Option<bool>,
     lang: Option<String>,
+    theme: Option<String>,
     background: Option<bool>,
     notify_enabled: Option<bool>,
     notify_quiet_minutes: Option<u16>,
@@ -156,6 +157,7 @@ async fn read_config(state: &ProxyState) -> Response {
         "serverUrl": config.server_url,
         "acceptInvalidCerts": config.accept_invalid_certs,
         "lang": config.lang(),
+        "theme": config.theme(),
         "background": config.background,
         "notifyEnabled": config.notify_enabled,
         "notifyQuietMinutes": config.notify_quiet_minutes,
@@ -270,6 +272,12 @@ async fn save_config(state: &ProxyState, req: Request) -> Response {
     }
     if let Some(lang) = payload.lang {
         config.lang = lang;
+    }
+    if let Some(theme) = payload.theme {
+        // Stored canonical, not raw: `normalize_theme` is the same function the
+        // page injection reads, so the file can only ever hold one of the two
+        // values and no string from the page reaches the HTML.
+        config.theme = crate::config::normalize_theme(&theme).to_string();
     }
     if let Some(background) = payload.background {
         config.background = background;
@@ -622,6 +630,49 @@ mod tests {
         assert_eq!(json["upgradeSkippedVersion"], "0.9.0");
     }
 
+    /// The theme is a shell preference, not a page one: the page's storage is
+    /// keyed by an origin whose port changes on every start.
+    #[tokio::test]
+    async fn the_config_endpoint_persists_the_theme() {
+        let mut state = state().await;
+        // Its own directory: the shared fixture is written by every save in this
+        // module, and the tests run in parallel.
+        let dir = std::env::temp_dir().join(format!("agentbuddy-shell-theme-{}", std::process::id()));
+        state.store = Arc::new(ConfigStore::new(dir.clone()));
+
+        let (status, _) =
+            decode(handle(&state, json_post("/__shell/config", r#"{"theme":"dark"}"#)).await).await;
+        assert_eq!(status, StatusCode::OK);
+        // On disk, not just in memory: that file is what the next launch reads.
+        assert_eq!(state.store.load().theme, "dark");
+        let (_, json) = decode(handle(&state, req("GET", "/__shell/config")).await).await;
+        assert_eq!(json["theme"], "dark");
+
+        // Saving an unrelated switch must not reset the theme.
+        let (status, _) =
+            decode(handle(&state, json_post("/__shell/config", r#"{"background":false}"#)).await)
+                .await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, json) = decode(handle(&state, req("GET", "/__shell/config")).await).await;
+        assert_eq!(json["theme"], "dark");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The value reaches the page as a string literal, so only the two known
+    /// themes are ever stored — a hand-written body cannot inject anything.
+    #[tokio::test]
+    async fn an_unknown_theme_is_stored_as_light() {
+        let state = state().await;
+        let (status, _) = decode(
+            handle(&state, json_post("/__shell/config", r#"{"theme":"</script><b>x"}"#)).await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, json) = decode(handle(&state, req("GET", "/__shell/config")).await).await;
+        assert_eq!(json["theme"], "light");
+    }
+
     #[tokio::test]
     async fn a_hostile_skipped_version_is_not_stored() {
         let state = state().await;
@@ -867,6 +918,8 @@ mod tests {
         assert_eq!(json["notifyEnabled"], true);
         assert_eq!(json["notifyQuietMinutes"], 0);
         assert_eq!(json["acceptInvalidCerts"], false);
+        // Light until the page says otherwise.
+        assert_eq!(json["theme"], "light");
         // The node is off and has no identity until it is switched on.
         assert_eq!(json["executorEnabled"], false);
         assert_eq!(json["executorNodeId"], "");

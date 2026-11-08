@@ -4,6 +4,7 @@
 // fallback, exactly like the aria compute family.
 import { computed, ref } from 'vue'
 import { isRTL, isValidLang, matchLang } from './languages.js'
+import { pushShellConfig } from './shell-config.js'
 import { shellCopy } from './copy/shell-copy.js'
 import { workspaceCopy } from './copy/workspace-copy.js'
 import { threadCopy } from './copy/thread-copy.js'
@@ -71,15 +72,12 @@ export function setLang(next) {
     window.localStorage.setItem(STORAGE_KEY, lang)
     document.documentElement.lang = lang
     document.documentElement.dir = isRTL(lang) ? 'rtl' : 'ltr'
-    // Keep the desktop shell's tray menu in sync with the app language.
-    // agentbuddy.lang lives in browser storage, which Rust cannot read directly,
-    // so the workbench pushes it to the shell config the tray is built from.
-    // Fails silently outside the desktop shell (no /__shell endpoint).
-    fetch('/__shell/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lang }),
-    }).catch(() => {})
+    // Keep the desktop shell's tray menu — and the next launch — in sync with
+    // the app language. `agentbuddy.lang` lives in browser storage that the
+    // window loses with its origin on every restart (the proxy port changes),
+    // so the shell config is the copy that survives; Rust cannot read
+    // localStorage itself.
+    pushShellConfig({ lang })
   }
   return lang
 }
