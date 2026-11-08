@@ -45,7 +45,8 @@
       "items": [
         "AgentBuddy is a native .NET 10 / Avalonia client with no backend, no database and no WebView",
         "AgentHub is a single Go binary; resources, tasks, spans, events and callbacks all persist to PostgreSQL",
-        "New server-side /api/* endpoints require no desktop client changes"
+        "New server-side /api/* endpoints require no desktop client changes",
+        "Only the sandbox and router streams stay open; thread and task streams follow navigation, and a template path is never subscribed"
       ]
     },
     {

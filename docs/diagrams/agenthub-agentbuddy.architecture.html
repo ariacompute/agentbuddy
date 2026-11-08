@@ -5268,8 +5268,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <path data-edge-from="workbench" data-edge-to="notifier" data-edge-label="系统通知" data-edge-key="2" data-edge-id="notify" data-composition-points="315,364;315,450" data-composition-crossover="halo" data-composition-independent="true" d="M 315 364 L 315 450" class="a-default" data-animate="edge" style="--step:2" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:3">
-          <path data-graph-role="automatic-crossover-underlay" d="M 380 332 L 460 332" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="workbench" data-edge-to="proxy" data-edge-label="HttpClient 相对请求" data-edge-key="3" data-edge-id="same-origin" data-composition-points="380,332;460,332" data-composition-crossover="halo" data-composition-independent="true" d="M 380 332 L 460 332" class="a-default" data-animate="edge" style="--step:3" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 329 364 L 329 380 Q 329 388 337 388 L 517 388 Q 525 388 525 380 L 525 364" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="workbench" data-edge-to="proxy" data-edge-label="HttpClient 相对请求" data-edge-key="3" data-edge-id="same-origin" data-composition-points="329,364;329,388;525,388;525,364" data-composition-crossover="halo" data-composition-independent="true" d="M 329 364 L 329 380 Q 329 388 337 388 L 517 388 Q 525 388 525 380 L 525 364" class="a-default" data-animate="edge" style="--step:3" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:4">
           <path data-graph-role="automatic-crossover-underlay" d="M 590 332 L 670 332" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5458,8 +5458,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text x="284.8" y="410" class="t-edge-default" font-size="8" text-anchor="middle">系统通知</text>
         </g>
         <g data-detail="context" data-edge-from="workbench" data-edge-to="proxy" data-edge-label="HttpClient 相对请求" data-edge-key="3" data-edge-id="same-origin">
-          <rect x="395.8" y="312" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="420" y="322" class="t-edge-default" font-size="8" text-anchor="middle">HttpClient 相对请求</text>
+          <rect x="376.4" y="368" width="101.2" height="14" rx="3" class="c-mask"/>
+          <text x="427" y="378" class="t-edge-default" font-size="8" text-anchor="middle">HttpClient 相对请求</text>
         </g>
         <g data-detail="context" data-edge-from="proxy" data-edge-to="a2a" data-edge-label="转发" data-edge-key="4" data-edge-id="forward">
           <rect x="615" y="312" width="30" height="14" rx="3" class="c-mask"/>
@@ -5492,8 +5492,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->
         <g data-graph-role="structural-frame-label" data-composition-frame-id="0" data-composition-frame-kind="region" data-composition-frame-label="本机 · agentbuddy（.NET 10 / Avalonia，无后端 / 无数据库 / 无 WebView）">
-          <rect data-graph-role="structural-frame-label-mask" x="224" y="120" width="215.2" height="16" rx="3" class="c-mask"/>
-          <text data-boundary-label="" x="228" y="133" class="t-cloud" font-size="9" font-weight="600">本机 · agentbuddy（.NET 10 / Avalonia，无后端 / 无数据库 / 无 WebView）</text>
+          <rect data-graph-role="structural-frame-label-mask" x="224" y="120" width="391.99999999999994" height="16" rx="3" class="c-mask"/>
+          <text data-boundary-label="" x="228" y="132.96713615023475" class="t-cloud" font-size="8.967136150234742" font-weight="600">本机 · agentbuddy（.NET 10 / Avalonia，无后端 / 无数据库 / 无 WebView）</text>
         </g>
 
         <g data-graph-role="structural-frame-label" data-composition-frame-id="1" data-composition-frame-kind="region" data-composition-frame-label="服务端 · agenthub（可自托管）">
@@ -5715,6 +5715,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <li>AgentBuddy 是 .NET 10 / Avalonia 原生客户端，自身无后端、无数据库、无 WebView</li>
           <li>AgentHub 是 Go 单二进制，资源 / 任务 / span / 事件 / 回调全部落 PostgreSQL</li>
           <li>服务端新增 /api/* 端点不需要改桌面端代码</li>
+          <li>实时只有沙盒与路由两路常开，线程与任务按需跟随导航，模板路径永不订阅</li>
         </ul>
       </div>
 

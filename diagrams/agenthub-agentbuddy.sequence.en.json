@@ -52,7 +52,8 @@
       "items": [
         "message/stream pushes status and artifact frames over SSE; there is no [DONE] sentinel",
         "Termination is expressed by completed / failed / canceled / input-required state events",
-        "After a disconnect, GET /api/tasks/{id}/events?since=<seq> replays events before the live stream rejoins"
+        "After a disconnect, GET /api/tasks/{id}/events?since=<seq> replays events before the live stream rejoins",
+        "The desktop client subscribes to that entity stream only while its detail screen is open, and concurrent entry still yields one stream"
       ]
     },
     {

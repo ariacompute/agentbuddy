@@ -52,7 +52,8 @@
       "items": [
         "message/stream 以 SSE 推送状态与 artifact 帧，没有 [DONE] 哨兵",
         "终止由 completed / failed / canceled / input-required 状态事件表达",
-        "断线后可用 GET /api/tasks/{id}/events?since=<seq> 回放再接实时流"
+        "断线后可用 GET /api/tasks/{id}/events?since=<seq> 回放再接实时流",
+        "桌面端只在任务详情页按需订阅该实体流，离开即关；同一实体并发进入也只开一条"
       ]
     },
     {

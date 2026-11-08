@@ -12,6 +12,9 @@ A **native .NET 10 / Avalonia** desktop client for the
 - Agents, threads, task tracing, approvals (HITL park/resume), channels
   (Slack / Teams / Telegram / SMS webhooks), connectors (policy-gated actions),
   and voice (record → transcribe → delegate).
+- Live updates stay scoped: only the sandbox and router streams are always on,
+  while a thread or task detail subscribes to its own entity stream and closes it
+  on the way out — one stream per entity, never a template path.
 - Automatic updates: GitHub and Gitee are probed in parallel and the fastest
   reachable mirror wins, with failover to the other. Checks run on startup and
   daily; the signed installer is matched to the local OS/CPU and a one-click
@@ -73,17 +76,25 @@ make dotnet-coverage  # Cobertura coverage for all four test projects
 make dotnet-smoke     # real-socket loopback gateway smoke, loopback only
 ```
 
+394 cases in total — Core 143 / Shell 207 / App 33 / Guards 11 — at 98.97% line
+and 90.21% branch coverage across 34 source files; what is still uncovered is
+platform-exclusive or defensive.
+
 Four xUnit projects replace the old frontend/desktop split:
 
 - `AgentBuddy.Core.Tests` — 13-language fallback, endpoint contract, config,
-  SSE framing, `MonitorService` and `RealtimeService` normal + failure paths.
+  SSE framing and its byte caps, `MonitorService` and `RealtimeService` normal +
+  failure paths, and the per-entity stream lifecycle: a path claimed concurrently
+  opens one stream, a claimed-but-unpublished path reports success and opens
+  nothing, and a cancelled pump untracks without throwing.
 - `AgentBuddy.Shell.Tests` — bootstrap admission, `Set-Cookie`/`Location`
   rewriting, streaming forward, credential fallback, executor policy,
   upgrade source race / signature failure, deep links and tray badge.
   `GatewaySmokeTests` starts a real Kestrel loopback gateway and an upstream
   HTTP stub over real sockets (nothing leaves `127.0.0.1`).
 - `AgentBuddy.App.Tests` — Avalonia.Headless ViewModels, route guard,
-  file transfer, voice and notification deep links.
+  file transfer, voice, notification deep links, and one full assembly pass that
+  raises the real window, tray and composition root on a dedicated UI thread.
 - `AgentBuddy.Guards` — static scans: 13-language key parity, monochrome
   `.axaml`, no hardcoded template text, every frozen endpoint constant
   referenced, theme dictionaries paired, build/release tooling is .NET only.

@@ -5336,7 +5336,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="315" y="330" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Avalonia Workbench</text>
-        <text data-detail="context" x="315" y="346" class="t-muted" font-size="8.8" text-anchor="middle">17 views / 13 locales</text>
+        <text data-detail="context" x="315" y="346" class="t-muted" font-size="9" text-anchor="middle">17 views / 13 locales</text>
         </g>
 
         <g id="node-notifier" data-node-id="notifier" data-node-label="Notifications" tabindex="0" role="button" aria-label="Focus Notifications, Tray unread badge, Local: agentbuddy (.NET 10 / Avalonia, no backend, no WebView)" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="Tray unread badge" data-node-context="Local: agentbuddy (.NET 10 / Avalonia, no backend, no WebView)">
@@ -5458,7 +5458,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text x="289.6" y="410" class="t-edge-default" font-size="8" text-anchor="middle">Notify</text>
         </g>
         <g data-detail="context" data-edge-from="workbench" data-edge-to="proxy" data-edge-label="HttpClient requests" data-edge-key="3" data-edge-id="same-origin">
-          <rect x="381.2" y="368" width="91.6" height="14" rx="3" class="c-mask"/>
+          <rect x="376.4" y="368" width="101.2" height="14" rx="3" class="c-mask"/>
           <text x="427" y="378" class="t-edge-default" font-size="8" text-anchor="middle">HttpClient requests</text>
         </g>
         <g data-detail="context" data-edge-from="proxy" data-edge-to="a2a" data-edge-label="Forward" data-edge-key="4" data-edge-id="forward">
@@ -5492,7 +5492,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->
         <g data-graph-role="structural-frame-label" data-composition-frame-id="0" data-composition-frame-kind="region" data-composition-frame-label="Local: agentbuddy (.NET 10 / Avalonia, no backend, no WebView)">
-          <rect data-graph-role="structural-frame-label-mask" x="224" y="120" width="242.2" height="16" rx="3" class="c-mask"/>
+          <rect data-graph-role="structural-frame-label-mask" x="224" y="120" width="344.8" height="16" rx="3" class="c-mask"/>
           <text data-boundary-label="" x="228" y="133" class="t-cloud" font-size="9" font-weight="600">Local: agentbuddy (.NET 10 / Avalonia, no backend, no WebView)</text>
         </g>
 
@@ -5715,6 +5715,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <li>AgentBuddy is a native .NET 10 / Avalonia client with no backend, no database and no WebView</li>
           <li>AgentHub is a single Go binary; resources, tasks, spans, events and callbacks all persist to PostgreSQL</li>
           <li>New server-side /api/* endpoints require no desktop client changes</li>
+          <li>Only the sandbox and router streams stay open; thread and task streams follow navigation, and a template path is never subscribed</li>
         </ul>
       </div>
 
