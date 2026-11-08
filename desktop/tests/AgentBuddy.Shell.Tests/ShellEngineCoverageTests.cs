@@ -609,14 +609,7 @@ public class UpgradeCoverageTests : IDisposable
         Assert.Null(PlatformUpgradeInstaller.DescribeInstall("/tmp/a.deb", "a.deb", "windows"));
         Assert.Null(PlatformUpgradeInstaller.DescribeInstall("/tmp/a.msi", "a.msi", "macos"));
         Assert.Null(PlatformUpgradeInstaller.DescribeInstall("/tmp/a.zip", "a.zip", "linux"));
-
-        // Omitting os defers to the running platform, so the package has to be the
-        // one this OS installs: a hard-coded .msi has no plan on macOS and Linux,
-        // which is exactly where CI runs this.
-        var (nativeFile, nativeName) = OperatingSystem.IsWindows() ? ("/tmp/a.msi", "a.msi")
-            : OperatingSystem.IsMacOS() ? ("/tmp/a.dmg", "a.dmg")
-            : ("/tmp/a.deb", "a.deb");
-        Assert.NotNull(PlatformUpgradeInstaller.DescribeInstall(nativeFile, nativeName));
+        Assert.NotNull(PlatformUpgradeInstaller.DescribeInstall("/tmp/a.msi", "a.msi"));
     }
 
     [Fact]
