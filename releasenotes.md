@@ -44,6 +44,16 @@ over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known
 - **Session persistence**: the agenthub session cookie is persisted across app
   restarts — saved per server URL and resumed in the cookie jar on launch — so a
   server switch or relaunch does not force a re-login.
+- **Proxy hardening**: the loopback proxy is the only way into the console, so it
+  now refuses to be widened by the far side — an upstream `Set-Cookie` named
+  `ab_proxy` (or carrying a `__Host-` / `__Secure-` prefix) is dropped rather than
+  overwriting the shell's own admission cookie; `Location` is matched by **origin**
+  rather than by string prefix, so a redirect to `hub.example.com.evil.test` is no
+  longer rewritten onto the loopback origin; a forwarded path carrying `..`, `\`,
+  `//` or their percent-encoded spellings is refused with `400 invalid_target`
+  before it reaches a server that might normalise it; and every `/__shell/*` answer
+  plus every JSON error the shell writes carries `Cache-Control: no-store` and
+  `X-Content-Type-Options: nosniff`.
 - **Theme**: the app defaults to the light theme, with a toggle on the
   connection/about page that sets the persisted `agentbuddy.theme`.
 - **Version stamp**: a `vX.Y.Z@commit` stamp (built from the latest git tag plus
@@ -161,8 +171,13 @@ confirmation first, because it lets the server run commands on this machine unde
 user's identity. What it does *not* do is as important as what it does:
 
 - **no shell** — the argv is executed directly; only an exact name from the allow list is
-  accepted, so `sh`, `bash` and `cmd` are refused by construction;
-- **one root** — the working root must be an absolute path, and nothing outside it can be
+  accepted, so `sh`, `bash` and `cmd` are refused by construction — and so is every
+  **launcher** (`env`, `sudo`, `xargs`, `timeout`, `setsid`, `chroot`, `ssh`, `docker`,
+  `make`, `gdb`, …), because allowing `env` allows `env sh -c '…'`; the check ignores case
+  and a trailing `.exe`, and it runs again on every job so an allow list written by an
+  older build gets no benefit of the doubt;
+- **one root** — the working root must be an absolute path and cannot be a filesystem
+  root (`/`, `C:\`), which would mean "anywhere on this machine"; nothing outside it can be
   read, written or run;
 - **bounded** — a timeout kills the process group, output is truncated, concurrency is
   capped;

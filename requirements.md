@@ -215,6 +215,8 @@
 | F17.7 | 节点只在**本地 Rust 进程**执行：不经 shell、只跑白名单精确命令、只允许根目录内路径、超时**终止整棵进程组**、输出截断；网页视图**不获得**任何文件系统或命令执行能力。进程组语义仅 unix 具备（`process_group(0)` + `kill(-pgid)`，TERM → 250ms 宽限 → KILL → `wait()` 收尸）；Windows 没有等价原语，退回 `kill_on_drop` + 直接子进程 `start_kill`，并在代码中明确标注不支持，而不是假装已清场 | — |
 | F17.8 | 节点生命周期：开启后注册 → 心跳 → 长轮询领任务 → 执行 → 回传；退出即停止，重启自动重新上线；间歇在线不算故障，服务端据此显示离线 | — |
 | F17.9 | 客户端不自建沙盒、不做类型探测：目录、可用性与原因全部来自服务端，客户端只渲染 | 单一事实来源 |
+| F17.10 | 拒绝名单在 shell 之外还覆盖**启动器**（`env` / `sudo` / `xargs` / `timeout` / `setsid` / `nohup` / `nice` / `stdbuf` / `chroot` / `unshare` / `nsenter` / `script` / `watch` / `ssh` / `docker` / `make` / `gdb` / …）：允许 `env` 不是允许 `env`，是允许 `env sh -c '…'`。判定忽略大小写与一个 `.exe` 后缀；`Policy::new` 与**每次** `authorize` 双重复核，旧配置或手改 `config.json` 进来的条目同样不放行 | — |
+| F17.11 | 工作根目录必须是绝对路径、存在且为目录，且**不能是文件系统根**（`/`、`C:\`）：那只意味着「整台机器」，不是沙盒边界；白名单条目不得含空白或控制字符 | — |
 
 ### F18 环回代理准入与内容安全
 
@@ -231,6 +233,10 @@
 | F18.5 | 转发上游时只丢逐跳头，上游的 `Content-Security-Policy` / `Strict-Transport-Security` / `X-Frame-Options` 原样透传 |
 | F18.6 | 会话凭据存系统凭据库（F1.7）；设置页显示 `sessionBackend`，回退到文件时给出可读告警 |
 | F18.7 | 无窗口的测试路由器（`auth: None`）保持原转发行为；关闭准入时 `/__shell/bootstrap` 返回 404 |
+| F18.8 | 上游 `Set-Cookie` 不得写外壳自己的 Cookie：名为 `ab_proxy`（大小写不敏感）、以 `__Host-` / `__Secure-` 为前缀、或没有名字的一律**整条丢弃**（不转发也不落凭据库）；准入 Cookie 只由 bootstrap 发放 |
+| F18.9 | `Location` 按 **origin**（scheme + host + port）比对配置的服务端之后才改写为 `self_url`，并原样保留 path / query / fragment（OAuth 回调的 `code`、`state` 靠这条）；前缀相同但源不同者（`https://hub.example.com.evil.test/x`、`https://hub.example.com@evil.test/x`、端口不同、scheme 不同）一律不改写；相对 `Location` 与不可解析值原样交给浏览器 |
+| F18.10 | 转发前先过脏路径闸：`..`、`\`、`//` 以及 `%2e` / `%2f` / `%5c` / `%00` 任一命中即以 `400 invalid_target` 拒绝，**不让归一化发生在上游**（否则 `/api/../admin` 会走出挂载前缀）；查询串不参与判断，也不因编码差异漏判 |
+| F18.11 | `/__shell/*` 的**每个**响应（含 404 与外壳页面）与代理自造的每个 JSON 机器码都带 `Cache-Control: no-store` 与 `X-Content-Type-Options: nosniff`；代理输出的 HTML 与内嵌资源带 `nosniff`；上游响应的缓存头与安全头仍原样透传，不由外壳代改 |
 
 ### F19 共享文件与连接器审批队列
 
@@ -448,8 +454,21 @@
     仅 `platforms`/`signatures` 为空。
 35. 未配置公钥时「立即升级」返回 `not_configured` 且不下载任何包；WebView 未获得 updater 权限。
 36. v8 覆盖率四项（语句 / 行 / 分支 / 函数）均 **100%**。界面上按钮 disabled 因而点不到的
-    守卫分支须通过直接调用处理函数、服务端渲染等手段真实覆盖，**不得**用 `exclude` / ignore
-    注释绕过；`api-usage.spec.js` 白名单仍为空。
+   守卫分支须通过直接调用处理函数、服务端渲染等手段真实覆盖，**不得**用 `exclude` / ignore
+   注释绕过；`api-usage.spec.js` 白名单仍为空。
+37. 代理 Cookie 归属（F18.8）：上游回 `ab_proxy=…`、`__Host-sid=…`、`__Secure-sid=…` 或无名 Cookie 时，
+   响应里不出现该 `Set-Cookie`，窗口仍以原 token 通过准入；普通会话 Cookie 照常重写。
+38. 重定向按源比对（F18.9）：`https://hub.example.com.evil.test/steal`、`https://hub.example.com@evil.test/steal`、
+   端口或 scheme 不同者都**不**被改写到环回源；同源跳转保留 path / query / fragment。
+39. 脏路径闸（F18.10）：`/api/../__shell/config`、`/api/%2e%2e/x`、`/api//x` 等以 `400 invalid_target`
+   在到达上游之前被拒；`/api/resources`、`/api/tasks/42/artifacts/1`、`/.well-known/agent.json`
+   等真实路径照常转发。
+40. 响应头（F18.11）：`/__shell/config`、`/__shell/executor`、外壳页面、404 与 `POST /__shell/*`
+   都带 `no-store` + `nosniff`；代理自造的 JSON 错误同样带这两个头；含 CSP 的 HTML 仍带 `nosniff`。
+41. 执行节点拒绝扫尾（F17.10 / F17.11）：白名单含 `env` / `sudo` / `xargs` / `timeout` / `docker` / `make`
+   或它们的 `.exe`、任意大小写写法在保存时即以 `command_not_allowed` 拒绝；已写入 `config.json`
+   的同名条目在 `authorize` 处仍被拒，而同一列表里的 `git` 照常可跑；根目录填 `/` 或 `C:\` 以
+   `root_unusable` 拒绝。
 
 ## 7. 自动更新（F19）
 

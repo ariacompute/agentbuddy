@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::extract::Request;
-use axum::http::header::{HeaderName, HeaderValue};
+use axum::http::header::{HeaderName, HeaderValue, CACHE_CONTROL, X_CONTENT_TYPE_OPTIONS};
 use axum::http::{Response as HttpResponse, StatusCode};
 use axum::response::{IntoResponse, Response};
 use reqwest::cookie::{CookieStore, Jar};
@@ -136,7 +136,12 @@ fn build_response(state: &ProxyState, resp: reqwest::Response, base: &str) -> Re
             let is_location = name.as_str().eq_ignore_ascii_case("location");
             let value: Cow<'_, [u8]> = if is_set_cookie {
                 match value.to_str() {
-                    Ok(raw) => Cow::Owned(rewrite_set_cookie(raw).into_bytes()),
+                    // `None` is a cookie the shell owns: the server does not get
+                    // to write it.
+                    Ok(raw) => match rewrite_set_cookie(raw) {
+                        Some(cookie) => Cow::Owned(cookie.into_bytes()),
+                        None => continue,
+                    },
                     Err(_) => continue,
                 }
             } else if is_location {
@@ -270,15 +275,25 @@ pub fn drop_response_header(name: &str) -> bool {
 /// becomes `Lax` (it would otherwise be rejected without `Secure`), and the
 /// path is forced to `/` so the cookie rides along with every console request.
 /// `HttpOnly` and `Max-Age`/`Expires` are left exactly as the server sent them.
-pub fn rewrite_set_cookie(raw: &str) -> String {
+///
+/// `None` means the server tried to write a cookie that is not its to write; see
+/// [`is_reserved_cookie`]. A nameless cookie is dropped for the same reason: it
+/// is not a cookie, and the parser below would emit a header the browser
+/// silently rejects, which is worse than saying so.
+pub fn rewrite_set_cookie(raw: &str) -> Option<String> {
+    if is_reserved_cookie(raw) {
+        return None;
+    }
     let mut out = String::new();
-    for (index, part) in raw.split(';').enumerate() {
+    let mut written = 0usize;
+    for part in raw.split(';') {
         let attr = part.trim();
         if attr.is_empty() {
             continue;
         }
-        if index == 0 {
+        if written == 0 {
             out.push_str(attr);
+            written += 1;
             continue;
         }
         let lower = attr.to_ascii_lowercase();
@@ -300,16 +315,74 @@ pub fn rewrite_set_cookie(raw: &str) -> String {
         out.push_str(attr);
     }
     out.push_str("; Path=/");
-    out
+    Some(out)
+}
+
+/// Whether a `Set-Cookie` belongs to the shell rather than to the server.
+///
+/// Two classes are dropped:
+///
+/// * `ab_proxy` — the admission token. Letting an upstream overwrite it would
+///   at best sign the window out of its own proxy and at worst let a server the
+///   user merely typed into the address field plant a value the shell then has
+///   to decide about; neither is a decision a remote party should influence.
+/// * `__Host-` / `__Secure-` — cookie *prefixes* the browser reads as a promise
+///   that the cookie is `Secure` and host-bound. The loopback origin is plain
+///   http and `Path=/`, so the promise cannot hold; forwarding one produces a
+///   cookie the browser rejects with no explanation.
+///
+/// A nameless first segment is not a cookie either, so it is dropped.
+fn is_reserved_cookie(raw: &str) -> bool {
+    let name = raw
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .split('=')
+        .next()
+        .unwrap_or_default()
+        .trim();
+    if name.is_empty() {
+        return true;
+    }
+    if name.eq_ignore_ascii_case(super::auth::COOKIE_NAME) {
+        return true;
+    }
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with("__host-") || lower.starts_with("__secure-")
 }
 
 /// Sends a redirect that points back at the server through the loopback origin,
 /// and leaves anything else (an OAuth provider, for instance) alone.
+///
+/// "Back at the server" is decided by **origin**, not by string prefix: a
+/// `Location: https://hub.example.com.evil.test/x` shares the first 22 bytes
+/// with the configured base, and a prefix test would rewrite it onto the
+/// loopback origin — turning somebody else's host into a page of this app. The
+/// rest of the URL (path, query, fragment) is carried over verbatim, so an OAuth
+/// callback keeps its `code` and `state`.
 pub fn rewrite_location(raw: &str, base: &str, self_url: &str) -> String {
-    if base.is_empty() || self_url.is_empty() || !raw.starts_with(base) {
+    if base.is_empty() || self_url.is_empty() {
         return raw.to_string();
     }
-    format!("{}{}", self_url, &raw[base.len()..])
+    let (Ok(target), Ok(origin)) = (Url::parse(raw), Url::parse(base)) else {
+        // A relative `Location` resolves against the loopback origin by itself,
+        // and anything unparseable is left to the browser to reject.
+        return raw.to_string();
+    };
+    if target.origin() != origin.origin() {
+        return raw.to_string();
+    }
+    let mut out = self_url.trim_end_matches('/').to_string();
+    out.push_str(target.path());
+    if let Some(query) = target.query() {
+        out.push('?');
+        out.push_str(query);
+    }
+    if let Some(fragment) = target.fragment() {
+        out.push('#');
+        out.push_str(fragment);
+    }
+    out
 }
 
 /// Why an upstream request failed, as a machine-readable reason the connection
@@ -343,9 +416,20 @@ fn error_chain(err: &reqwest::Error) -> String {
     out
 }
 
+/// A machine-code answer the shell itself wrote (a refusal, an unreachable
+/// server, an unusable target).
+///
+/// It is never cacheable — these carry the state of the app (signed in or not,
+/// configured or not) — and it must not be sniffed into something executable:
+/// a body of `{"code":"…"}` served as `text/html` would be a way to turn an
+/// error message into a document.
 pub(crate) fn upstream_json(status: StatusCode, code: &str) -> Response {
     let body = serde_json::json!({ "code": code });
-    (status, axum::Json(body)).into_response()
+    let mut response = (status, axum::Json(body)).into_response();
+    let headers = response.headers_mut();
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    response
 }
 
 fn header(name: &str, value: &[u8]) -> Option<(HeaderName, HeaderValue)> {
@@ -377,26 +461,64 @@ mod tests {
     #[test]
     fn strips_secure_domain_and_the_original_path() {
         let rewritten =
-            rewrite_set_cookie("sid=abc; Path=/api; Domain=hub.example.com; Secure; HttpOnly; SameSite=None");
+            rewrite_set_cookie("sid=abc; Path=/api; Domain=hub.example.com; Secure; HttpOnly; SameSite=None")
+                .expect("a session cookie is the server's to set");
         assert_eq!(rewritten, "sid=abc; HttpOnly; SameSite=Lax; Path=/");
     }
 
     #[test]
     fn leaves_a_plain_cookie_alone_but_pins_it_to_the_root() {
-        assert_eq!(rewrite_set_cookie("sid=abc"), "sid=abc; Path=/");
+        assert_eq!(rewrite_set_cookie("sid=abc").as_deref(), Some("sid=abc; Path=/"));
         assert_eq!(
-            rewrite_set_cookie("sid=abc; Max-Age=600; HttpOnly"),
-            "sid=abc; Max-Age=600; HttpOnly; Path=/"
+            rewrite_set_cookie("sid=abc; Max-Age=600; HttpOnly").as_deref(),
+            Some("sid=abc; Max-Age=600; HttpOnly; Path=/")
         );
     }
 
     #[test]
     fn keeps_same_site_strict_as_it_is() {
         assert_eq!(
-            rewrite_set_cookie("sid=abc; SameSite=Strict"),
-            "sid=abc; SameSite=Strict; Path=/"
+            rewrite_set_cookie("sid=abc; SameSite=Strict").as_deref(),
+            Some("sid=abc; SameSite=Strict; Path=/")
         );
-        assert_eq!(rewrite_set_cookie("sid=abc; SameSite=Lax"), "sid=abc; SameSite=Lax; Path=/");
+        assert_eq!(
+            rewrite_set_cookie("sid=abc; SameSite=Lax").as_deref(),
+            Some("sid=abc; SameSite=Lax; Path=/")
+        );
+    }
+
+    /// The admission cookie is the proxy's own; an upstream that ships a
+    /// `Set-Cookie` with that name must not be able to overwrite it.
+    #[test]
+    fn a_server_cannot_write_the_proxy_cookie() {
+        for raw in [
+            "ab_proxy=deadbeef; Path=/",
+            "AB_Proxy=deadbeef",
+            "ab_proxy=; Max-Age=0",
+            // The shell's own lowercase/uppercase pair is not the only spelling.
+            " ab_proxy = deadbeef ",
+        ] {
+            assert_eq!(rewrite_set_cookie(raw), None, "`{raw}` must be dropped");
+        }
+        // A lookalike is still a normal cookie.
+        assert!(rewrite_set_cookie("ab_proxy_old=1").is_some());
+        assert!(rewrite_set_cookie("xab_proxy=1").is_some());
+    }
+
+    /// `__Host-` / `__Secure-` are promises about `Secure` and a host-bound
+    /// origin that the plain-http loopback origin cannot keep.
+    #[test]
+    fn prefixed_cookies_are_dropped() {
+        for raw in ["__Host-sid=1; Secure; Path=/", "__Secure-sid=1", "__host-sid=1"] {
+            assert_eq!(rewrite_set_cookie(raw), None, "`{raw}` must be dropped");
+        }
+    }
+
+    #[test]
+    fn a_nameless_cookie_is_dropped_instead_of_emitted() {
+        assert_eq!(rewrite_set_cookie("=orphan; Path=/"), None);
+        assert_eq!(rewrite_set_cookie("; Path=/"), None);
+        assert_eq!(rewrite_set_cookie("   "), None);
     }
 
     #[test]
@@ -407,10 +529,57 @@ mod tests {
         );
     }
 
+    /// The OAuth round trip has to survive the rewrite, or the callback loses
+    /// the very parameters it was called with.
+    #[test]
+    fn keeps_the_path_query_and_fragment_of_a_rewritten_redirect() {
+        assert_eq!(
+            rewrite_location(
+                "https://hub.example.com/api/auth/oauth/callback?code=abc&state=xyz#top",
+                "https://hub.example.com",
+                "http://127.0.0.1:41000",
+            ),
+            "http://127.0.0.1:41000/api/auth/oauth/callback?code=abc&state=xyz#top"
+        );
+        // A server mounted under a prefix keeps it.
+        assert_eq!(
+            rewrite_location("https://example.com/agenthub/login", "https://example.com/agenthub", "http://127.0.0.1:1"),
+            "http://127.0.0.1:1/agenthub/login"
+        );
+    }
+
     #[test]
     fn leaves_redirects_to_other_hosts_alone() {
         let raw = "https://github.com/login/oauth/authorize?x=1";
         assert_eq!(rewrite_location(raw, "https://hub.example.com", "http://127.0.0.1:1"), raw);
+    }
+
+    /// The reason the check moved from a string prefix to an origin: a host that
+    /// merely *starts with* the configured base is somebody else's host.
+    #[test]
+    fn a_lookalike_host_is_not_rewritten_onto_the_loopback_origin() {
+        for raw in [
+            "https://hub.example.com.evil.test/steal",
+            "https://hub.example.com@evil.test/steal",
+            "http://hub.example.com/steal",
+            "https://hub.example.com:8443/steal",
+        ] {
+            assert_eq!(
+                rewrite_location(raw, "https://hub.example.com", "http://127.0.0.1:1"),
+                raw,
+                "`{raw}` must not be rewritten"
+            );
+        }
+    }
+
+    #[test]
+    fn a_relative_or_unparseable_location_is_left_alone() {
+        for raw in ["/api/login", "not a url", ""] {
+            assert_eq!(rewrite_location(raw, "https://hub.example.com", "http://127.0.0.1:1"), raw);
+        }
+        // And with nothing configured there is no origin to compare against.
+        assert_eq!(rewrite_location("https://h/x", "", "http://127.0.0.1:1"), "https://h/x");
+        assert_eq!(rewrite_location("https://h/x", "https://h", ""), "https://h/x");
     }
 
     #[test]

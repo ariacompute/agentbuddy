@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use axum::body::to_bytes;
 use axum::extract::Request;
+use axum::http::header::HeaderValue;
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
@@ -61,6 +62,22 @@ struct ExecutorPayload {
 }
 
 pub async fn handle(state: &ProxyState, req: Request) -> Response {
+    // Every shell answer gets the same two headers, whichever branch produced
+    // it: the state of this app (signed in or not, configured or not, which
+    // update is pending) is nobody's to cache, and a JSON body must never be
+    // sniffed into a document. Applied here rather than in each arm so a new
+    // route cannot forget them.
+    harden(route(state, req).await)
+}
+
+fn harden(mut response: Response) -> Response {
+    let headers = response.headers_mut();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    response
+}
+
+async fn route(state: &ProxyState, req: Request) -> Response {
     let method = req.method().as_str().to_ascii_uppercase();
     let path = req.uri().path().to_string();
     match (method.as_str(), path.as_str()) {
@@ -507,6 +524,36 @@ mod tests {
         let (status, json) = decode(handle(&state, req("GET", "/__shell/nope")).await).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(json["code"], "not_found");
+    }
+
+    /// The shell's answers describe this app's state, so none of them may be
+    /// stored by a cache or sniffed into something executable — including the
+    /// 404 and the pages it renders itself.
+    #[tokio::test]
+    async fn every_shell_answer_forbids_caching_and_sniffing() {
+        let state = state().await;
+        for (method, path) in [
+            ("GET", "/__shell/config"),
+            ("GET", "/__shell/executor"),
+            ("GET", "/__shell/connect"),
+            ("GET", "/__shell/about"),
+            ("GET", "/__shell/nope"),
+            ("POST", "/__shell/hide"),
+            ("POST", "/__shell/badge"),
+        ] {
+            let (status, headers) = reply(handle(&state, req(method, path)).await).await;
+            assert_eq!(
+                headers.get("cache-control").map(|value| value.to_str().unwrap()),
+                Some("no-store"),
+                "{method} {path} must not be cacheable"
+            );
+            assert_eq!(
+                headers.get("x-content-type-options").map(|value| value.to_str().unwrap()),
+                Some("nosniff"),
+                "{method} {path} must not be sniffable"
+            );
+            assert_ne!(status, StatusCode::INTERNAL_SERVER_ERROR, "{method} {path}");
+        }
     }
 
     /// A headless upgrader: no window, so it can never install — but the GET

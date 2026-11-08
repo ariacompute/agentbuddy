@@ -110,7 +110,19 @@ desktop/
 - **SSE 必须真流式**：`reqwest` 字节流 → `Body::from_stream`；强制 `accept-encoding: identity`；
   **禁止整体超时**（仅 `CONNECT_TIMEOUT = 10s`）。
 - **Cookie 重写**：丢 `Secure` / `Domain` / 原 `Path`，`SameSite=None` → `Lax`，补 `; Path=/`；
-  保留 `HttpOnly`。
+  保留 `HttpOnly`。上游 `Set-Cookie` 若名为 `ab_proxy`（大小写不敏感）或以 `__Host-` / `__Secure-`
+  为前缀、或压根没有名字，**整条丢弃**（`rewrite_set_cookie` 返回 `None`）：准入 Cookie 不归上游写，
+  而那两个前缀是对「`Secure` + 主机绑定」的承诺，环回明文源兑现不了。
+- **重定向按源比对**：`Location` 只在 **origin**（scheme+host+port）与配置的服务端一致时才改写到
+  `self_url`，并原样保留 path / query / fragment（OAuth 回调的 `code`、`state` 靠这条）；
+  `https://hub.example.com.evil.test/x` 之类「前缀相同但不是同一个源」一律不动。
+- **转发路径先过脏路径闸**：`..`、`\`、`//` 以及 `%2e` / `%2f` / `%5c` / `%00` 任一出现即以
+  `400 invalid_target` 拒绝（`path_is_unsafe`），不让归一化发生在「三层之外」——否则
+  `/api/../admin` 会走出挂载前缀，抵达本不该被这个代理指到的端点。查询串不参与判断。
+- **外壳自己的响应不可缓存、不可嗅探**：`/__shell/*` 的每个响应（`handle()` 统一加 `harden()`）
+  与代理自造的每个 JSON 机器码（`upstream_json`）都带 `Cache-Control: no-store` 与
+  `X-Content-Type-Options: nosniff`；代理输出的 HTML 与内嵌资源同样带 `nosniff`
+  （`static_files.rs`）。上游响应的缓存头与安全头一律原样透传，不由外壳代改。
 - **关闭行为**：`CloseRequested` 时读取 `config.background`——为 `true`（默认）则
   `api.prevent_close()` + `window.hide()`（保留在托盘运行）；为 `false` 则放行关闭，
   应用随之退出（外壳无其他窗口）。**仅托盘「退出」恒走 `app.exit(0)`**。
@@ -135,8 +147,13 @@ desktop/
   绝不打印密钥、Cookie 或 URL 里的 userinfo。
 - **执行节点（BYOM）**：`src-tauri/src/executor/` 让本机可选地成为 agenthub 的执行节点，**默认关闭**，
   开启必须先经 `window.confirm` 确认。安全边界全部落在 `policy.rs` / `spawn.rs` / `procgroup_*.rs`：
-  命令按**精确名**白名单匹配（`sh` / `bash` / `cmd` 在构造上拒绝）、**绝不拼 shell**（argv 直 exec）、
-  工作根目录必须绝对路径且只能在其内读写执行、环境变量按白名单直传、输出截断、并发有上限；
+  命令按**精确名**白名单匹配、**绝不拼 shell**（argv 直 exec）、
+  工作根目录必须绝对路径（且**不能是文件系统根** `/` 或 `C:\`——那不是边界）且只能在其内读写执行、
+  环境变量按白名单直传、输出截断、并发有上限。
+  **拒绝名单**覆盖 shell（`sh` / `bash` / `cmd` / `powershell` / `wsl` / …）与**启动器**
+  （`env` / `sudo` / `xargs` / `timeout` / `setsid` / `chroot` / `ssh` / `docker` / `make` / `gdb` / …）：
+  允许 `env` 不是允许 `env`，是允许 `env sh -c …`。两者在 `Policy::new` 与**每次** `authorize`
+  都拦（旧配置或手改 `config.json` 进来的条目不给怀疑的余地），`.exe` 后缀与大小写不影响判定；
   超时由 `terminate_tree()` 收场——unix 下 `process_group(0)` 使子进程成为组长，
   对 `-pgid` 先 TERM、250ms 宽限后 KILL、再 `wait()` 收尸，**孙进程不残留**；`pgid <= 1` 或信号被拒
   时降级为直接子进程 `start_kill`。Windows 无进程组语义，如实退回直接子进程终止（不伪装已支持）。

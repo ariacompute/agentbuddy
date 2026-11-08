@@ -1177,3 +1177,67 @@ v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的
   `STATUS_ENTRYPOINT_NOT_FOUND` 无法启动，纯逻辑用例留 CI/Linux 实跑）；
   web 全量 32 spec / 785 用例通过，`test:coverage` 语句/行/分支/函数四项均 **100%**
   （新 spec 不 import `web/src`，不影响基线）。
+
+## M30 — 安全加固：代理的归属边界与执行节点的逃逸面（2026-11-08）
+
+对 Rust 外壳做一次定向审计，只看「一个恶意上游、一个手滑的设置会多拿到什么」。结论是六处，
+全部在 `desktop/src-tauri` 内闭合，`agenthub` 与 `web/` 零改动。
+
+### 1. 六处问题
+
+1. **上游可以写外壳自己的 Cookie。** `rewrite_set_cookie` 只改属性、不看名字，因此一份
+   `Set-Cookie: ab_proxy=…; Path=/` 会覆盖准入 Cookie（窗口随即被自己的代理拒之门外），
+   而 `__Host-` / `__Secure-` 前缀被原样转发成一个浏览器必定拒绝、且不解释的 Cookie。
+2. **`Location` 按字符串前缀判源。** `https://hub.example.com.evil.test/x` 与前缀
+   `https://hub.example.com` 匹配，于是「别人的主机」被改写到环回源上；端口或 scheme 不同
+   也一样误判。
+3. **转发路径没有脏路径闸。** `req.uri().path()` 不归一化，`/api/../admin` 会带着 `..` 交给
+   上游（或它前面的反向代理）去归一化，等于借用这个代理走出自己只该覆盖的前缀。
+4. **外壳自己的响应既没禁缓存也没禁嗅探。** `/__shell/config` 会答「服务端地址、是否忽略证书、
+   执行节点是否开启」；代理自造的 JSON 错误也没有 `nosniff`。
+5. **白名单只拦 shell，不拦启动器。** `env`、`xargs`、`timeout`、`setsid`、`sudo`、`ssh`、
+   `docker`、`make` 这类「运行别人」的程序一旦进白名单，等于把白名单整个作废
+   （`env sh -c '…'`）；`.exe` 与大小写写法还是另一条绕过路径。
+6. **根目录可以是文件系统根。** `Policy::new` 接受 `/`（或 `C:\`），此时「在根目录内」等于
+   「整台机器」，而白名单条目还允许空白/控制字符。
+
+### 2. 收口
+
+- `proxy/forward.rs`
+  - `rewrite_set_cookie` 改返回 `Option<String>`：名为 `ab_proxy`（大小写不敏感）、
+    以 `__Host-` / `__Secure-` 为前缀、或无名者返回 `None`，`build_response` 直接跳过该条
+    （既不转发，也不进 jar，因此也不会被持久化）。
+  - `rewrite_location` 改为 **origin** 比对（`url::Url::origin()`：scheme + host + port），
+    同源才改写，并保留 path / query / fragment；相对或不可解析的 `Location` 原样交给浏览器。
+  - `upstream_json` 统一补 `Cache-Control: no-store` 与 `X-Content-Type-Options: nosniff`。
+- `proxy/mod.rs`：新增 `path_is_unsafe`，`..` / `\` / `//` / `%2e` / `%2f` / `%5c` / `%00`
+  任一命中即在 `dispatch` 里以 `400 invalid_target` 拒绝（复用既有机器码，不新增词条），
+  归一化不再外包给上游。
+- `proxy/shell.rs`：`handle()` 拆成 `route()` + `harden()`，**每个** `/__shell/*` 响应
+  （含 404、外壳页面、bootstrap 的 303）统一带 `no-store` + `nosniff`，新增路由不会漏。
+- `proxy/static_files.rs`：代理输出的 HTML（`index.html`、外壳页）与内嵌资源都带 `nosniff`。
+- `executor/policy.rs`
+  - 新增 `LAUNCHERS` 拒绝名单（`env` / `sudo` / `doas` / `su` / `xargs` / `timeout` / `setsid` /
+    `nohup` / `nice` / `stdbuf` / `chroot` / `unshare` / `nsenter` / `script` / `watch` /
+    `flock` / `ssh` / `sshpass` / `docker` / `podman` / `nerdctl` / `buildah` / `make` /
+    `cmake` / `ninja` / `gdb` / `expect`）。
+  - `SHELLS` 改为**词干**表，新增 `is_forbidden_name`（忽略大小写与一个 `.exe` 后缀），
+    `Policy::new` 与**每次** `authorize` 都过这道判定——旧配置或手改 `config.json` 不放行。
+  - 白名单条目含空白或控制字符一律拒绝；根目录 canonicalize 后 `parent().is_none()`
+    （即 `/`、`C:\`）以 `root_unusable` 拒绝。
+- 文档：`AGENTS.md`（桌面外壳：Cookie 归属 / 重定向按源 / 脏路径闸 / 响应头；执行节点拒绝名单）、
+  `requirements.md`（F17.10、F17.11、F18.8～F18.11 与验收 37～41）。
+
+### 3. 验证
+
+- 新增桌面端用例 15 条，另扩写 1 条：`forward.rs` 里 Cookie 归属 3 条 + 重定向按源 3 条（含
+  `hub.example.com.evil.test` / `@evil.test` / 端口 / scheme 四种伪装）+ OAuth 参数保留；
+  `mod.rs` 里真实路径放行 1 条 + 脏路径 1 条 + `dispatch` 层 400 实测 1 条；`shell.rs` 里
+  「每个响应都禁缓存禁嗅探」1 条；`static_files.rs` 里 `nosniff` 1 条；`policy.rs` 里启动器 2 条
+  （构造拒绝 / 已存储仍拒）+ `.exe` 与大小写 1 条 + 文件系统根 1 条；白名单拒绝用例扩到
+  含 `..\`、控制字符与空白。既有 「`session=abc; HttpOnly; SameSite=Lax; Path=/`」
+  端到端断言仍通过，说明普通会话 Cookie 的重写没有被这次收口改坏。
+- `web/` 零改动：没有新增错误码（脏路径复用 `invalid_target`，执行节点复用
+  `command_not_allowed` / `root_unusable`），13 语文案与 `api-usage.spec.js` 白名单不受影响。
+- 桌面端编译校验仍走 `cargo test --no-run`（本机 Windows 测试二进制同样因 Tauri 原生依赖
+  无法启动，纯逻辑用例留 CI/Linux 实跑）。

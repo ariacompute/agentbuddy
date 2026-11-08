@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use axum::body::Body;
-use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
+use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use axum::http::{Response as HttpResponse, StatusCode};
 use axum::response::{IntoResponse, Response};
 use rust_embed::{EmbeddedFile, RustEmbed};
@@ -85,6 +85,7 @@ fn console_index(file: &EmbeddedFile) -> Response {
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "text/html; charset=utf-8")
         .header(CACHE_CONTROL, "no-cache")
+        .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(name, value)
         .body(Body::from(html.into_bytes()))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
@@ -132,6 +133,7 @@ pub fn shell_page(page: &str, config: &crate::config::AppConfig) -> Response {
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "text/html; charset=utf-8")
         .header(CACHE_CONTROL, "no-cache")
+        .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(name, value)
         .body(Body::from(html.into_bytes()))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
@@ -189,6 +191,9 @@ fn file_response(rel: &str, file: &EmbeddedFile) -> Response {
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, file.metadata.mimetype())
         .header(CACHE_CONTROL, cache)
+        // An embedded asset is served with the type the build gave it; sniffing
+        // would let a `.js` that a bundler mislabelled behave as HTML.
+        .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
         .body(Body::from(file.data.to_vec()))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
@@ -358,6 +363,26 @@ mod tests {
         // Anything outside assets/ may change between builds, so it is revalidated.
         let plain = file_response("theme-init.js", &file);
         assert_eq!(plain.headers().get(CACHE_CONTROL).unwrap(), "no-cache");
+    }
+
+    /// The bundle is served from a plain http origin, so the browser must take
+    /// the declared type for granted — otherwise a file that a bundler
+    /// mislabelled could execute as a document.
+    #[tokio::test]
+    async fn nothing_the_shell_serves_may_be_sniffed() {
+        if built() {
+            for response in [serve_console("/", "en"), serve_console("/trace", "en")] {
+                assert_eq!(
+                    response.headers().get(X_CONTENT_TYPE_OPTIONS).map(|v| v.to_str().unwrap()),
+                    Some("nosniff"),
+                );
+            }
+        }
+        let shell = shell_page("connect", &crate::config::AppConfig::default());
+        assert_eq!(
+            shell.headers().get(X_CONTENT_TYPE_OPTIONS).map(|v| v.to_str().unwrap()),
+            Some("nosniff"),
+        );
     }
 
     /// The shell page carries the boot object the connection page reads, and it

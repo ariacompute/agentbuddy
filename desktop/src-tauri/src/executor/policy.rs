@@ -8,7 +8,9 @@
 //! * a command must be an exact entry of the whitelist, given as a bare name, so
 //!   the OS resolves it through `PATH` and never through a relative path;
 //! * a shell is never allowed, even if somebody lists it, because a shell turns
-//!   one allowed command into an unbounded one;
+//!   one allowed command into an unbounded one — and neither is anything whose
+//!   job is to run another program (`env`, `xargs`, `timeout`, `sudo`, …), for
+//!   exactly the same reason;
 //! * a directory must resolve inside the configured root, after symlinks;
 //! * the environment starts empty and only allow-listed names may be added.
 
@@ -30,9 +32,54 @@ pub const ENV_ALLOW: &[&str] = &["PATH", "HOME", "LANG", "LC_ALL", "TZ", "TERM",
 
 /// Shells are refused even when listed. A whitelist that admits `sh` admits every
 /// command the whitelist was meant to exclude.
+///
+/// The entries are **stems**: [`is_forbidden_name`] strips a trailing `.exe`
+/// before comparing, so `bash`, `bash.exe` and `BASH.EXE` are one refusal rather
+/// than three list entries that can drift apart.
 const SHELLS: &[&str] = &[
-    "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh", "fish", "ash", "busybox", "cmd", "cmd.exe",
-    "powershell", "powershell.exe", "pwsh", "pwsh.exe", "wsl", "wsl.exe",
+    "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh", "fish", "ash", "busybox", "cmd",
+    "powershell", "pwsh", "wsl", "wslhost", "posh",
+];
+
+/// Programs whose only job is to run the program named in their arguments, or to
+/// run one from a file the job controls.
+///
+/// They are refused for the same reason as a shell: allowing `env` does not allow
+/// `env`, it allows `env sh -c '…'`, and the whitelist stops meaning anything the
+/// moment one of these is on it. Nothing here is a leaf command — an operator
+/// who lists `docker` wants containers, and a node that runs containers is not a
+/// node bounded by a directory.
+const LAUNCHERS: &[&str] = &[
+    "env",
+    "sudo",
+    "doas",
+    "su",
+    "runuser",
+    "setpriv",
+    "xargs",
+    "timeout",
+    "setsid",
+    "nohup",
+    "nice",
+    "ionice",
+    "stdbuf",
+    "chroot",
+    "unshare",
+    "nsenter",
+    "script",
+    "watch",
+    "flock",
+    "ssh",
+    "sshpass",
+    "docker",
+    "podman",
+    "nerdctl",
+    "buildah",
+    "make",
+    "cmake",
+    "ninja",
+    "gdb",
+    "expect",
 ];
 
 /// Why a job was refused before it started.
@@ -94,12 +141,20 @@ impl Policy {
         if !root.is_dir() {
             return Err(PolicyError::RootUnusable);
         }
+        // A filesystem root is not a boundary: `canonicalize` leaves `/` and
+        // `C:\` as they are, so "within the root" would mean "anywhere on this
+        // machine" — the one configuration a node must not accept, however
+        // deliberately it was typed.
+        if root.parent().is_none() {
+            return Err(PolicyError::RootUnusable);
+        }
         let mut allow_clean = Vec::new();
         for raw in allow {
             let name = raw.trim();
-            if name.is_empty() || is_path(name) || is_shell(name) || name.chars().any(char::is_whitespace) {
-                // A path, a shell or a name with spaces in it is a configuration
-                // mistake worth surfacing rather than silently dropping.
+            if unusable_name(name) {
+                // A path, a shell, a launcher or a name with spaces in it is a
+                // configuration mistake worth surfacing rather than silently
+                // dropping.
                 return Err(PolicyError::CommandNotAllowed);
             }
             if !allow_clean.iter().any(|existing| existing == name) {
@@ -123,7 +178,10 @@ impl Policy {
     /// running, and a job in flight must not keep an old permission.
     pub fn authorize(&self, command: &str) -> Result<(), PolicyError> {
         let command = command.trim();
-        if command.is_empty() || is_path(command) || is_shell(command) {
+        // Re-checked on every job, not just when the policy was built: an
+        // allowlist persisted by an older build (or hand-edited into
+        // `config.json`) never gets the benefit of the doubt.
+        if command.is_empty() || is_path(command) || is_forbidden_name(command) {
             return Err(PolicyError::CommandNotAllowed);
         }
         if !self.allow.iter().any(|allowed| allowed == command) {
@@ -196,9 +254,24 @@ fn is_path(command: &str) -> bool {
     command.contains('/') || command.contains('\\')
 }
 
-fn is_shell(command: &str) -> bool {
-    let lowered = command.to_ascii_lowercase();
-    SHELLS.contains(&lowered.as_str())
+/// True for a shell or a launcher, i.e. for a name that would turn the whitelist
+/// inside out. The comparison is case-insensitive and ignores one trailing
+/// `.exe`, which is the spelling Windows users and their documentation use.
+pub fn is_forbidden_name(command: &str) -> bool {
+    let lowered = command.trim().to_ascii_lowercase();
+    let stem = lowered.strip_suffix(".exe").unwrap_or(&lowered);
+    SHELLS.contains(&stem) || LAUNCHERS.contains(&stem)
+}
+
+/// Why a whitelist entry cannot be stored: anything that is not a bare, leaf
+/// command name.
+fn unusable_name(name: &str) -> bool {
+    name.is_empty()
+        || is_path(name)
+        || is_forbidden_name(name)
+        // A space would split into two arguments the day anything ever joins
+        // them, and a control character is not a name at all.
+        || name.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 
 #[cfg(test)]
@@ -238,7 +311,39 @@ mod tests {
     fn a_whitelist_entry_that_is_a_path_or_a_shell_is_refused() {
         let root = root();
         let path = root.to_str().unwrap();
-        for bad in ["/usr/bin/git", "./git", "sh", "bash", "powershell.exe", "my tool"] {
+        for bad in [
+            "/usr/bin/git",
+            "./git",
+            "..\\git",
+            "sh",
+            "bash",
+            "powershell.exe",
+            "cmd.EXE",
+            "my tool",
+            "git\u{0}",
+            "git\tstatus",
+        ] {
+            let allow = vec![bad.to_string()];
+            assert_eq!(
+                Policy::new(path, &allow).unwrap_err(),
+                PolicyError::CommandNotAllowed,
+                "{bad:?} must not become a whitelist entry"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Allowing `env` does not allow `env`; it allows `env sh -c '…'` and every
+    /// command the whitelist exists to exclude.
+    #[test]
+    fn a_launcher_is_refused_however_it_is_spelled() {
+        let root = root();
+        let path = root.to_str().unwrap();
+        for bad in [
+            "env", "ENV", "env.exe", "sudo", "xargs", "timeout", "setsid", "nohup", "nice",
+            "stdbuf", "chroot", "unshare", "nsenter", "script", "watch", "ssh", "sshpass",
+            "docker", "podman", "make", "gdb",
+        ] {
             let allow = vec![bad.to_string()];
             assert_eq!(
                 Policy::new(path, &allow).unwrap_err(),
@@ -247,6 +352,50 @@ mod tests {
             );
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A stored allowlist can predate this check (or be hand-edited into
+    /// `config.json`), so `authorize` refuses again on every job.
+    #[test]
+    fn a_launcher_already_in_the_allowlist_still_cannot_run() {
+        let root = root();
+        let policy = Policy {
+            root: root.clone(),
+            allow: vec!["env".to_string(), "git".to_string(), "timeout.exe".to_string()],
+            env_allow: Vec::new(),
+        };
+        assert_eq!(policy.authorize("env").unwrap_err(), PolicyError::CommandNotAllowed);
+        assert_eq!(policy.authorize("timeout.exe").unwrap_err(), PolicyError::CommandNotAllowed);
+        // The leaf command next to them keeps working: the point is to refuse
+        // launchers, not to break the node.
+        assert!(policy.authorize("git").is_ok());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// `.exe` is a spelling, not a different program: the refusal has to survive
+    /// both of them, in any case.
+    #[test]
+    fn the_exe_suffix_and_the_case_do_not_change_a_refusal() {
+        for name in ["powershell", "powershell.exe", "PowerShell.EXE", "CMD.EXE", "Bash.Exe"] {
+            assert!(is_forbidden_name(name), "{name} must be refused");
+        }
+        for name in ["git", "node", "python3", "git.exe", "echo", "rg"] {
+            assert!(!is_forbidden_name(name), "{name} must be allowed");
+        }
+    }
+
+    /// A root of `/` (or `C:\`) means "anywhere", so it is not a root.
+    #[test]
+    fn a_filesystem_root_is_not_a_boundary() {
+        let filesystem_root = std::path::Path::new(if cfg!(windows) { "C:\\" } else { "/" });
+        assert!(filesystem_root.parent().is_none(), "the test assumed a filesystem root");
+        let allow: Vec<String> = Vec::new();
+        if filesystem_root.exists() {
+            assert_eq!(
+                Policy::new(filesystem_root.to_str().unwrap(), &allow).unwrap_err(),
+                PolicyError::RootUnusable
+            );
+        }
     }
 
     #[test]

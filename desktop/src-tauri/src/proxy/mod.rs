@@ -203,6 +203,14 @@ async fn dispatch(State(state): State<ProxyState>, req: Request) -> Response {
     let config = state.config.read().await.clone();
 
     if is_remote_path(&path) {
+        // A path the console could never have asked for is refused here rather
+        // than normalised somewhere behind three layers: `..` would walk out of
+        // the mount prefix and reach endpoints this proxy was pointed at for a
+        // different reason, and `//` or a backslash is how a normalising server
+        // ends up somewhere else again.
+        if path_is_unsafe(&path) {
+            return refusal(StatusCode::BAD_REQUEST, "invalid_target");
+        }
         return forward::forward(&state, req).await;
     }
     // Before the user has pointed the shell at a server, the workbench would be
@@ -227,6 +235,22 @@ pub fn is_remote_path(path: &str) -> bool {
         || path == "/healthz"
         || path == "/.well-known"
         || path.starts_with("/.well-known/")
+}
+
+/// True when a path that is about to be forwarded carries something that changes
+/// where it lands once a server (or a proxy in front of it) normalises it.
+///
+/// The check runs on the *raw* path, before percent-decoding is anybody's
+/// problem: `%2e%2e%2f` is the same traversal as `../`, and a server that decodes
+/// before it routes would see the one and not the other. A legitimate agenthub
+/// route never contains a dot segment, a doubled slash, a backslash or an
+/// encoded separator, so refusing them costs nothing.
+pub fn path_is_unsafe(path: &str) -> bool {
+    if path.contains("..") || path.contains('\\') || path.contains("//") {
+        return true;
+    }
+    let lower = path.to_ascii_lowercase();
+    ["%2e", "%2f", "%5c", "%00"].iter().any(|needle| lower.contains(*needle))
 }
 
 /// What the console gets when it calls an endpoint with no server configured.
@@ -298,6 +322,40 @@ mod tests {
         assert!(!is_remote_path("/a2a-live"));
     }
 
+    /// Every route the console really uses stays forwardable: the traversal
+    /// check must not cost a legitimate request.
+    #[test]
+    fn accepts_the_paths_the_console_actually_asks_for() {
+        for path in [
+            "/api",
+            "/api/resources",
+            "/api/tasks/42/artifacts/1",
+            "/api/files/7/content",
+            "/api/threads/9/audio?a=1",
+            "/a2a",
+            "/healthz",
+            "/.well-known/agent.json",
+        ] {
+            assert!(!path_is_unsafe(path), "{path} must be forwarded");
+        }
+    }
+
+    #[test]
+    fn refuses_a_path_that_would_land_somewhere_else() {
+        for path in [
+            "/api/../__shell/config",   // walks out of the prefix
+            "/api/tasks/../../admin",   // the same, deeper
+            "/api/%2e%2e/secret",       // the encoded spelling
+            "/api\\..\\secret",         // a backslash normalises to a separator
+            "/api//internal",           // a doubled slash is a different URL server-side
+            "/api/x%2fy",               // encoded separator
+            "/api/x%5Cy",               // encoded backslash
+            "/api/x%00y",               // encoded NUL truncates in C parsers
+        ] {
+            assert!(path_is_unsafe(path), "{path} must be refused");
+        }
+    }
+
     // ---- end to end: a real proxy, a real (fake) server, real HTTP ----
 
     use crate::config::AppConfig;
@@ -365,6 +423,22 @@ mod tests {
         let (status, code) = code_of(dispatch(State(state), request("GET", "/", &[])).await).await;
         assert_eq!(status, 401);
         assert_eq!(code, "proxy_unauthorized");
+    }
+
+    /// A traversal is refused at the gate, with a machine code, before any
+    /// upstream connection is even considered.
+    #[tokio::test]
+    async fn refuses_a_traversing_path_before_it_can_be_forwarded() {
+        let (state, auth) = state_with_auth().await;
+        let cookie = format!("{}={}", auth::COOKIE_NAME, auth.token());
+        for path in ["/api/../__shell/config", "/api/%2e%2e/x", "/api//x"] {
+            let (status, code) = code_of(
+                dispatch(State(state.clone()), request("GET", path, &[("cookie", &cookie)])).await,
+            )
+            .await;
+            assert_eq!(status, 400, "{path} must be a client error");
+            assert_eq!(code, "invalid_target", "{path}");
+        }
     }
 
     #[tokio::test]

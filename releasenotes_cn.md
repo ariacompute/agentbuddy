@@ -55,6 +55,13 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
   Windows 凭据管理器（DPAPI）、macOS 钥匙串、Linux Secret Service。没有任何凭据库响应时
   （无头机器、钥匙串已锁）回退为仅属主可读的 `session.json` 并把这件事写进日志，
   `/__shell/config` 以 `sessionBackend` 报告当前后端；已有的明文会话在首次读取时迁入并删除。
+- **代理不再被上游放宽**：环回代理是进入控制台的唯一通道，因此这条通道的边界不由对端决定——
+  上游 `Set-Cookie` 若名为 `ab_proxy`（或带 `__Host-` / `__Secure-` 前缀），整条丢弃，改不掉外壳
+  自己的准入 Cookie；`Location` 按 **origin**（scheme + host + port）比对而非字符串前缀，
+  `hub.example.com.evil.test` 这类伪装主机不再被改写到环回源上；转发路径含 `..`、`\`、`//` 或它们的
+  百分号编码写法时，在抵达可能做归一化的服务端之前就以 `400 invalid_target` 拒绝；每个
+  `/__shell/*` 响应与外壳自造的每个 JSON 错误都带 `Cache-Control: no-store` 与
+  `X-Content-Type-Options: nosniff`。
 
 ## 三、工作台
 
@@ -121,8 +128,12 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
 设置页新增**执行节点**区块，默认关闭。开启前必须先确认，因为这会让服务端以你的身份在这台机器上
 执行命令。它**不做**什么与它做什么同样重要：
 
-- **没有 shell**——参数直接 exec；只接受白名单里的精确命令名，`sh` / `bash` / `cmd` 在构造上即被拒绝；
-- **单一根目录**——工作根目录必须是绝对路径，目录之外的读写与执行一律不可能；
+- **没有 shell**——参数直接 exec；只接受白名单里的精确命令名，`sh` / `bash` / `cmd` 在构造上即被拒绝，
+  **启动器**同样被拒（`env`、`sudo`、`xargs`、`timeout`、`setsid`、`chroot`、`ssh`、`docker`、`make`、
+  `gdb` …）：允许 `env` 等于允许 `env sh -c '…'`。判定忽略大小写与一个 `.exe` 后缀，且在**每个任务**
+  上重新执行，旧版本写下的白名单不给怀疑的余地；
+- **单一根目录**——工作根目录必须是绝对路径，且不能是文件系统根（`/`、`C:\`）——那只意味着「整台机器」；
+  目录之外的读写与执行一律不可能；
 - **有界**——超时会杀掉整个进程组，输出截断，并发有上限；
 - **可见**——节点 id、最近心跳与最近一次拒绝原因都显示在区块里，且由外壳返回的机器码本地化而来。
 
