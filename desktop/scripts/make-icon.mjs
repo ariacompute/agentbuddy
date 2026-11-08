@@ -16,8 +16,14 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { runAsEntry } from "./lib/entry.mjs";
 
-const OUT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../src-tauri/icons");
+// Both defaults are derived from this file, so `bun scripts/make-icon.mjs` writes
+// where tauri expects the icons regardless of the caller's cwd. `writeIconSet`
+// takes the directories as arguments so a test can rasterise into a temp dir
+// instead of the checkout.
+const DEFAULT_ICONS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../src-tauri/icons");
+const DEFAULT_ASSETS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../assets");
 
 // ---- minimal, dependency-free PNG encoder (8-bit RGBA, no compression frills) ----
 
@@ -59,7 +65,12 @@ function deflateStored(data) {
     const end = Math.min(i + max, data.length);
     const block = data.subarray(i, end);
     const last = end === data.length ? 1 : 0;
-    out.push((last << 7) | 0); // BFINAL + BTYPE=00 (stored)
+    // BFINAL is bit 0 of the block header, BTYPE=00 (stored) is bits 1-2, so the
+    // whole header byte is just BFINAL. Writing it as `last << 7` produced a
+    // "not final" block followed by the adler32 trailer, which every inflater
+    // rejects ("unexpected end of file"): the icons were valid PNG containers
+    // around an IDAT that could never be decoded.
+    out.push(last);
     out.push(block.length & 0xff, (block.length >> 8) & 0xff);
     out.push((~block.length & 0xff), (~block.length >> 8) & 0xff);
     for (const b of block) out.push(b);
@@ -207,16 +218,50 @@ function makeIcns() {
   return Buffer.concat([head, body]);
 }
 
-mkdirSync(OUT_DIR, { recursive: true });
-for (const [name, size] of [["32x32.png", 32], ["128x128.png", 128], ["128x128@2x.png", 256]]) {
-  writeFileSync(resolve(OUT_DIR, name), makeIcon(size));
-}
-writeFileSync(resolve(OUT_DIR, "icon.ico"), makeIco());
-writeFileSync(resolve(OUT_DIR, "icon.icns"), makeIcns());
+/**
+ * Write the whole icon set (three PNG sizes, .ico, .icns) plus the 1024px master
+ * `tauri icon` re-derives everything from. Returns the files it wrote, in order,
+ * so the caller (or a test) can assert the set without touching the filesystem.
+ */
+function writeIconSet({ iconsDir = DEFAULT_ICONS_DIR, assetsDir = DEFAULT_ASSETS_DIR } = {}) {
+  mkdirSync(iconsDir, { recursive: true });
+  const written = [];
+  for (const [name, size] of [["32x32.png", 32], ["128x128.png", 128], ["128x128@2x.png", 256]]) {
+    writeFileSync(resolve(iconsDir, name), makeIcon(size));
+    written.push(name);
+  }
+  writeFileSync(resolve(iconsDir, "icon.ico"), makeIco());
+  written.push("icon.ico");
+  writeFileSync(resolve(iconsDir, "icon.icns"), makeIcns());
+  written.push("icon.icns");
 
-// The 1024px source the `tauri icon` pipeline expects, written alongside the set
-// so `bun run icons` can re-derive everything from a single greyscale master.
-const ASSETS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../assets");
-mkdirSync(ASSETS_DIR, { recursive: true });
-writeFileSync(resolve(ASSETS_DIR, "app-icon.png"), makeIcon(1024));
-console.log("wrote monochrome icon set to", OUT_DIR);
+  // The 1024px source the `tauri icon` pipeline expects, written alongside the
+  // set so `bun run icons` can re-derive everything from a single greyscale master.
+  mkdirSync(assetsDir, { recursive: true });
+  writeFileSync(resolve(assetsDir, "app-icon.png"), makeIcon(1024));
+  written.push("app-icon.png");
+  return written;
+}
+
+function main(dirs = {}) {
+  writeIconSet(dirs);
+  console.log("wrote monochrome icon set to", dirs.iconsDir || DEFAULT_ICONS_DIR);
+  return 0;
+}
+
+runAsEntry(import.meta.url, main);
+
+export {
+  DEFAULT_ICONS_DIR,
+  DEFAULT_ASSETS_DIR,
+  adler32,
+  crc32,
+  deflateStored,
+  encodePng,
+  paint,
+  makeIcon,
+  makeIco,
+  makeIcns,
+  writeIconSet,
+  main,
+};

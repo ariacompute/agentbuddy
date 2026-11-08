@@ -11,10 +11,14 @@
     "build": "bun run make-icon && tauri build",
     "icons": "tauri icon ./assets/app-icon.png",
     "make-icon": "bun scripts/make-icon.mjs",
-    "stamp": "bun scripts/stamp.mjs"
+    "stamp": "bun scripts/stamp.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
-    "@tauri-apps/plugin-notification": "2.7.0"
+    "@tauri-apps/plugin-notification": "2.7.0",
+    "@vitest/coverage-v8": "2.1.9",
+    "vitest": "2.1.9"
   }
 }

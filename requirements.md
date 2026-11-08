@@ -265,6 +265,8 @@
 | N5 | **无障碍**：触控目标 ≥44px；焦点环 2px + 2px offset；`prefers-reduced-motion: reduce` 下禁全部动效 |
 | N6 | **SSE 真流式**：环回代理 `Body::from_stream`，强制 `accept-encoding: identity`，禁整体超时 |
 | N7 | 三平台：Linux（deb + 便携 tar.gz）、macOS（dmg + app 便携 tar.gz，aarch64）、Windows（msi + 便携 zip）；不产出 appimage，每次 release 恰好 9 个 assets |
+| N8 | **发布脚本可测**：`desktop/scripts/**`（stamp / make-icon / 签名 / latest-json）由 `desktop/` 自己的 Vitest 工程覆盖，四项 100%；脚本形态为「导出纯函数 + 无参 `main()` + 末尾一句 `runAsEntry(import.meta.url, main)`」，入口判定在 `scripts/lib/entry.mjs`，**不得**用 `exclude` 或 `/* v8 ignore */` 换取数字 |
+| N9 | **图标编码器产出的是真 PNG**：`make-icon.mjs` 生成的 PNG 其 IDAT 必须能被标准 inflater 解开（stored block 头为 `BFINAL`(bit0)｜`BTYPE=00`），`assets/app-icon.png` 与编码器输出一致 |
 
 ## 4. 服务端契约（本轮新增）
 
@@ -469,6 +471,12 @@
    或它们的 `.exe`、任意大小写写法在保存时即以 `command_not_allowed` 拒绝；已写入 `config.json`
    的同名条目在 `authorize` 处仍被拒，而同一列表里的 `git` 照常可跑；根目录填 `/` 或 `C:\` 以
    `root_unusable` 拒绝。
+42. 发布脚本闸门（N8）：`cd desktop && bun run test:coverage` 四项 **100%**（含 `scripts/lib/entry.mjs`
+    的入口判定）；脚本以导入方式被测，入口行为另由 `tests/cli.spec.js` 的真子进程钉住退出码；
+    配置里没有 `coverage.exclude`，脚本里没有 `/* v8 ignore */`。
+43. 图标容器（N9）：`make-icon.mjs` 生成的 PNG/ICO/ICNS 的 IDAT 用 `node:zlib` 的 `inflateSync`
+    可解、逐行 filter 字节为 0、块 CRC 与 `crc32(type+data)` 一致；`desktop/assets/app-icon.png`
+    由同一编码器生成（1024×1024，可解码）。
 
 ## 7. 自动更新（F19）
 

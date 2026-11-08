@@ -31,22 +31,10 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { runAsEntry } from './lib/entry.mjs'
 
 const OWNER = 'ariacompute'
 const REPO = 'agentbuddy'
-const PLATFORMS = new Set([
-  'windows-x86_64',
-  'windows-aarch64',
-  'windows-i686',
-  'darwin-x86_64',
-  'darwin-aarch64',
-  'linux-x86_64',
-  'linux-aarch64',
-  'linux-i686',
-  'linux-armv7',
-])
-
 // The three keys the release matrix actually publishes. A manifest with zero
 // platforms means "unsigned release"; anything else must be exactly this set.
 const PUBLISHED_PLATFORMS = ['linux-x86_64', 'darwin-aarch64', 'windows-x86_64']
@@ -66,6 +54,9 @@ const UPDATER_ASSET = {
   'linux-i686': /^agentbuddy-i386-.+\.deb$/,
   'linux-armv7': /^agentbuddy-armhf-.+\.deb$/,
 }
+
+/** Which platform keys this helper knows: exactly the keys of UPDATER_ASSET. */
+const isPlatform = (key) => Object.prototype.hasOwnProperty.call(UPDATER_ASSET, key)
 
 const DOWNLOAD = /^agentbuddy-[0-9A-Za-z._-]+\.(?:deb|dmg|msi|zip|tar\.gz)$/
 const SEMVER = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/
@@ -96,7 +87,10 @@ function expectedAssetNames(version) {
 }
 
 function assertSafeName(name, label) {
-  if (typeof name !== 'string' || !SAFE_NAME.test(name) || path.basename(name) !== name) {
+  // SAFE_NAME already refuses `/`, `\\` and anything that is not a bare file
+  // name, so it is the whole guard: a second basename() comparison could never
+  // be the deciding operand.
+  if (typeof name !== 'string' || !SAFE_NAME.test(name)) {
     throw new Error(`${label}: unsafe asset name ${name}`)
   }
 }
@@ -144,9 +138,8 @@ function signedVersion(signature) {
 }
 
 function collect(platformKey, assetsDir, metaDir) {
-  if (!PLATFORMS.has(platformKey)) throw new Error(`unknown platform key: ${platformKey}`)
+  if (!isPlatform(platformKey)) throw new Error(`unknown platform key: ${platformKey}`)
   const rule = UPDATER_ASSET[platformKey]
-  if (!rule) throw new Error(`no updater asset rule for ${platformKey}`)
   if (!fs.existsSync(assetsDir)) throw new Error(`asset directory ${assetsDir} does not exist`)
 
   const files = fs.readdirSync(assetsDir)
@@ -223,7 +216,7 @@ function manifest(assetsDir, metaDir, rawVersion) {
     for (const file of fs.readdirSync(metaDir).sort()) {
       if (!META_FILE.test(file)) continue
       const meta = JSON.parse(fs.readFileSync(path.join(metaDir, file), 'utf8'))
-      if (!PLATFORMS.has(meta.platform)) throw new Error(`${file}: unknown platform ${meta.platform}`)
+      if (!isPlatform(meta.platform)) throw new Error(`${file}: unknown platform ${meta.platform}`)
       if (metas.some((m) => m.platform === meta.platform)) {
         throw new Error(`${file}: duplicate platform ${meta.platform}`)
       }
@@ -303,8 +296,9 @@ function verifyManifest(body, name, version, host) {
     }
     validateSignature(entry.signature, `${name}:${key}`)
   }
+  // The set comparison above already proved these are exactly the six
+  // downloads, so the loop only has to prove each box is a signature.
   for (const [asset, signature] of Object.entries(signatures)) {
-    if (!downloads.includes(asset)) throw new Error(`${name}: signature for unpublished asset ${asset}`)
     validateSignature(signature, `${name}:${asset}`)
   }
 }
@@ -351,19 +345,26 @@ function run(argv) {
   else if (command === 'manifest' && args.length === 3) manifest(...args)
   else if (command === 'verify' && args.length === 2) verify(...args)
   else {
-    fail(
+    // A usage error is a failure like any other: throw so main() reports it with
+    // exit code 1 instead of leaving the run "successful" with nothing done.
+    throw new Error(
       'usage: latest-json.mjs collect <platform-key> <assets-dir> <meta-dir> | ' +
         'manifest <assets-dir> <meta-dir> <version> | verify <assets-dir> <version>',
     )
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+/** CLI wrapper: turn a thrown validation error into a `::error::` + exit 1. */
+function main(argv = process.argv.slice(2)) {
   try {
-    run(process.argv.slice(2))
+    run(argv)
+    return 0
   } catch (error) {
     fail(error.message)
+    return 1
   }
 }
 
-export { normalizeSignature, expectedAssetNames, versionOf, collect, manifest, verify }
+runAsEntry(import.meta.url, main)
+
+export { normalizeSignature, expectedAssetNames, versionOf, collect, manifest, verify, run, main }

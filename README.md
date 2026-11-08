@@ -65,9 +65,11 @@ bun run build                           # tauri build for the host platform
 ## Test
 
 ```bash
-make test                           # web Vitest + desktop cargo tests, fully offline
+make test                           # web Vitest + release-script Vitest + desktop cargo tests, fully offline
 cd web && bun run test              # Vitest: i18n completeness, monochrome guard, lib units
 cd web && bun run test:coverage     # same suite, plus a v8 coverage report
+cd desktop && bun run test          # release-time scripts: icons, stamp, signing, latest.json
+cd desktop && bun run test:coverage # same suite, plus a v8 coverage report over scripts/
 cd desktop/src-tauri && cargo test  # proxy / config / i18n units
 make smoke                          # both cross-process smoke tests (see below)
 ```

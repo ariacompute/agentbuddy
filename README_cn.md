@@ -60,9 +60,11 @@ bun run build                           # 针对当前平台执行 tauri build
 ## 测试
 
 ```bash
-make test                           # 前端 Vitest + 桌面 cargo 测试，全程离线
+make test                           # 前端 Vitest + 发布脚本 Vitest + 桌面 cargo 测试，全程离线
 cd web && bun run test              # Vitest：i18n 完整性、单色守卫、lib 单测
 cd web && bun run test:coverage     # 同一批用例 + v8 覆盖率报告
+cd desktop && bun run test          # 发布脚本：图标、版本戳、签名、latest.json
+cd desktop && bun run test:coverage # 同一批用例 + v8 覆盖率报告（scripts/）
 cd desktop/src-tauri && cargo test  # proxy / config / i18n 单测
 make smoke                          # 两条跨进程冒烟（见下）
 ```

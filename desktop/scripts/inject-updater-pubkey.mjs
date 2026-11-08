@@ -24,25 +24,20 @@
 // GITHUB_OUTPUT just prints the would-be outputs.
 
 import fs from 'node:fs'
+import path from 'node:path'
+import { runAsEntry } from './lib/entry.mjs'
 
 const MOD_RS = 'desktop/src-tauri/src/upgrade/mod.rs'
 const CONF = 'desktop/src-tauri/tauri.conf.json'
 const DECL = /(pub const UPDATER_PUBKEY: &str = )"[^"]*"(;)/
 const B64_LINE = /^[A-Za-z0-9+/]+={0,2}$/
 const SET_KEY_HINT = 'gh secret set UPDATER_PUBKEY < ~/.tauri/agentbuddy.key.pub'
-const key = (process.env.UPDATER_PUBKEY || '').replace(/\s+/g, '')
-const signing = Boolean((process.env.TAURI_SIGNING_PRIVATE_KEY || '').trim())
-const output = process.env.GITHUB_OUTPUT
 
-const emit = (name, value) => {
-  if (output) fs.appendFileSync(output, `${name}=${value}\n`)
-  else console.log(`output: ${name}=${value}`)
-}
 const notice = (message) => console.log(`::notice::${message}`)
 const warn = (message) => console.log(`::warning::${message}`)
-const fail = (message) => {
-  console.error(`::error::${message}`)
-  process.exit(1)
+const emit = (output, name, value) => {
+  if (output) fs.appendFileSync(output, `${name}=${value}\n`)
+  else console.log(`output: ${name}=${value}`)
 }
 
 // tauri-cli's `pub_key()` does `base64 decode -> utf8 -> PublicKeyBox::from_string`.
@@ -65,37 +60,69 @@ const isPublicKeyBox = (value) => {
   return Buffer.from(keyLine, 'base64').length === 42
 }
 
-if (signing && !key) {
-  fail(`TAURI_SIGNING_PRIVATE_KEY is set but UPDATER_PUBKEY is not; the client would refuse to verify any signed download. Set it with: ${SET_KEY_HINT}`)
-}
+/**
+ * Write `pubkey` into upgrade/mod.rs and tauri.conf.json under `root`, emitting
+ * the job outputs. Throws on every unusable input so the CLI can turn it into a
+ * `::error::` annotation with exit 1 (and a test can assert the message).
+ */
+function injectUpdaterPubkey({ root = process.cwd(), pubkey = '', signing = false, output = '' } = {}) {
+  const key = String(pubkey || '').replace(/\s+/g, '')
+  const modRs = path.resolve(root, MOD_RS)
+  const confPath = path.resolve(root, CONF)
 
-if (key) {
-  if (!isPublicKeyBox(key)) {
-    fail(`UPDATER_PUBKEY must be the single-line base64 contents of ~/.tauri/agentbuddy.key.pub, decoding to a two-line minisign public key box ("untrusted comment: ... public key" + key line). A bare key line, the plain two-line text, a secret key, a path or a double-encoded value will not work. Set it with: ${SET_KEY_HINT}`)
+  if (signing && !key) {
+    throw new Error(`TAURI_SIGNING_PRIVATE_KEY is set but UPDATER_PUBKEY is not; the client would refuse to verify any signed download. Set it with: ${SET_KEY_HINT}`)
   }
-  const source = fs.readFileSync(MOD_RS, 'utf8')
-  if (!DECL.test(source)) fail(`UPDATER_PUBKEY declaration not found in ${MOD_RS}`)
-  fs.writeFileSync(MOD_RS, source.replace(DECL, `$1"${key}"$2`))
 
-  const conf = JSON.parse(fs.readFileSync(CONF, 'utf8'))
-  if (!conf.plugins?.updater) fail(`plugins.updater not found in ${CONF}`)
-  conf.plugins.updater.pubkey = key
-  // Deliberately no `bundle.createUpdaterArtifacts`: the six published
-  // downloads are signed explicitly after `tauri build`.
-  fs.writeFileSync(CONF, `${JSON.stringify(conf, null, 2)}\n`)
-  console.log(`Injected UPDATER_PUBKEY (${key.length} chars) into ${MOD_RS} and ${CONF}`)
-  emit('pubkey', 'true')
-} else {
-  emit('pubkey', 'false')
-  notice('No UPDATER_PUBKEY secret; this binary will answer not_configured and offer manual download only')
+  if (key) {
+    if (!isPublicKeyBox(key)) {
+      throw new Error(`UPDATER_PUBKEY must be the single-line base64 contents of ~/.tauri/agentbuddy.key.pub, decoding to a two-line minisign public key box ("untrusted comment: ... public key" + key line). A bare key line, the plain two-line text, a secret key, a path or a double-encoded value will not work. Set it with: ${SET_KEY_HINT}`)
+    }
+    const source = fs.readFileSync(modRs, 'utf8')
+    if (!DECL.test(source)) throw new Error(`UPDATER_PUBKEY declaration not found in ${MOD_RS}`)
+    fs.writeFileSync(modRs, source.replace(DECL, `$1"${key}"$2`))
+
+    const conf = JSON.parse(fs.readFileSync(confPath, 'utf8'))
+    if (!conf.plugins?.updater) throw new Error(`plugins.updater not found in ${CONF}`)
+    conf.plugins.updater.pubkey = key
+    // Deliberately no `bundle.createUpdaterArtifacts`: the six published
+    // downloads are signed explicitly after `tauri build`.
+    fs.writeFileSync(confPath, `${JSON.stringify(conf, null, 2)}\n`)
+    console.log(`Injected UPDATER_PUBKEY (${key.length} chars) into ${MOD_RS} and ${CONF}`)
+    emit(output, 'pubkey', 'true')
+  } else {
+    emit(output, 'pubkey', 'false')
+    notice('No UPDATER_PUBKEY secret; this binary will answer not_configured and offer manual download only')
+  }
+
+  if (signing) {
+    // Gates `bun run tauri signer sign` in the packaging steps; `tauri build`
+    // itself still produces plain bundles.
+    emit(output, 'enabled', 'true')
+  } else {
+    emit(output, 'enabled', 'false')
+    notice('No TAURI_SIGNING_PRIVATE_KEY; publishing the six downloads unsigned, clients offer manual download')
+    if (key) warn('UPDATER_PUBKEY is set but no signing key; this release will have no signatures')
+  }
+
+  return { pubkey: Boolean(key), enabled: Boolean(signing) }
 }
 
-if (signing) {
-  // Gates `bun run tauri signer sign` in the packaging steps; `tauri build`
-  // itself still produces plain bundles.
-  emit('enabled', 'true')
-} else {
-  emit('enabled', 'false')
-  notice('No TAURI_SIGNING_PRIVATE_KEY; publishing the six downloads unsigned, clients offer manual download')
-  if (key) warn('UPDATER_PUBKEY is set but no signing key; this release will have no signatures')
+function main(env = process.env, root = process.cwd()) {
+  try {
+    injectUpdaterPubkey({
+      root,
+      pubkey: env.UPDATER_PUBKEY,
+      signing: Boolean((env.TAURI_SIGNING_PRIVATE_KEY || '').trim()),
+      output: env.GITHUB_OUTPUT,
+    })
+    return 0
+  } catch (error) {
+    console.error(`::error::${error.message}`)
+    return 1
+  }
 }
+
+runAsEntry(import.meta.url, main)
+
+export { MOD_RS, CONF, isPublicKeyBox, injectUpdaterPubkey, main }

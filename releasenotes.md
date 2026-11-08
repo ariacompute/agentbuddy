@@ -216,6 +216,27 @@ The node lives in the Rust process. The web view only reads its state through
   step refuses to publish unless the set is exactly these nine files. Without
   the signing key the same nine files ship with empty `platforms`/`signatures`
   and clients fall back to manual download.
+- **The generated icons were not decodable PNGs.** The icon encoder wrote
+  `BFINAL` into bit 7 of the stored-block header instead of bit 0, so every file
+  it produced — the three PNG sizes and the ICO/ICNS wrapped around one — was a
+  valid container holding an IDAT no inflater can read (`unexpected end of file`).
+  The header is `BFINAL | BTYPE=00` now, the committed `assets/app-icon.png` is
+  regenerated from the fixed encoder, and the suite inflates every size, checks
+  the per-scanline filter byte and recomputes each chunk CRC.
+- **A truncated `verify` no longer passes.** `latest-json.mjs` answered a usage
+  error with exit code 0 — it set `process.exitCode` but still returned 0 — so a
+  release step that had lost an argument counted as success. It exits 1 now.
+- **Release tooling is tested like code**: the five scripts under
+  `desktop/scripts/` (version stamp, icon encoder, public-key injection, signing
+  secrets, `latest.json` assembly) run on three CI hosts and on the release job's
+  own files, yet only `latest-json.mjs` had tests, and those were subprocess cases
+  the coverage tool cannot see. They now have their own Vitest project
+  (`desktop/vitest.config.js`), a CI job that needs no Rust toolchain, and
+  **100%** statements, lines, branches and functions over `scripts/**` with no
+  file excluded.
+- `vitest` and `@vitest/coverage-v8` are pinned to the same version (2.1.9) in
+  both packages: mixed versions print "Running mixed versions is not supported"
+  and quietly make the percentages meaningless.
 - Building from source on Linux also needs `libdbus-1-dev` and `pkg-config`: the
   session lives in the Secret Service, which is reached over D-Bus. Windows and
   macOS need nothing extra — Credential Manager and Keychain are part of the OS.
@@ -238,10 +259,23 @@ The node lives in the Rust process. The web view only reads its state through
   every status machine code and the no-shell path). A final pass calls the
   handlers behind disabled controls directly (early returns, empty bodies,
   unknown machine codes) and server-renders the no-`window` setup branch.
-  **32 spec files, 785 cases**, all offline.
+  **32 spec files, 773 cases**, all offline.
 - `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements,
-  lines, branches and functions (10989 statements, 1804 branches, 433 functions).
+  lines, branches and functions (10491 statements, 1808 branches, 433 functions).
   No defensive arm is left untested and no file is excluded from the report.
+- `cd desktop && bun run test` (or `test:coverage`) covers the release-time scripts instead
+  of trusting them: **7 spec files, 103 cases** over the icon encoder, the version
+  stamp, both signing scripts, the `latest.json` assembly (collect / manifest /
+  verify, every rejection included) and the entry-point helper — **100%** of
+  statements, lines, branches and functions (862 / 862 / 267 / 50), again with no
+  exclusion. It needs no Rust toolchain, so CI runs it as its own job.
+- The scripts are importable rather than shell-only: pure functions plus an
+  argument-free `main()`, with directories, roots, environment and argv injected
+  through defaulted parameters, failures turned into `::error::` and exit code 1.
+  The entry decision lives in `scripts/lib/entry.mjs`, so "am I the process that
+  was started?" is an ordinary function the suite can call — which is why the gate
+  reaches 100% without an `exclude` or an `/* v8 ignore */` marker. `cli.spec.js`
+  still spawns the real scripts to pin argv parsing and process exit codes.
 - `cargo test` covers the proxy (admission control, the nonce handshake, cookie
   rewriting, streaming, the origin gate), config (language fallback, per-server
   session storage, the plaintext migration), i18n (every locale carries every key

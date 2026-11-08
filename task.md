@@ -1273,3 +1273,73 @@ v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的
 - `bun run test:coverage`：33 spec / 788 用例全绿，语句/行/分支/函数四项 **100%**
   （11008 语句、1808 分支、433 函数），`main.js` 单独一行也是 100%，且配置里已无 exclude。
 - `bun run build` 仍通过；`AGENTS.md` 的基线数字同步更新。
+
+## M32 — 发布脚本纳入覆盖率闸门；图标编码器修真（2026-11-08）
+
+`desktop/scripts/` 的五个脚本跑在三个 CI 主机与 release job 自己的文件上（版本戳、图标、
+签名密钥、`latest.json`），但只有 `latest-json.mjs` 有用例，而且是 `web/tests` 里的黑盒
+子进程跑法——v8 看不到它们，等于零覆盖率。本轮把它们拉进一个可测量的闸门。
+
+### 1. 问题
+
+1. **四个脚本零测试**：`stamp.mjs` / `make-icon.mjs` / `inject-updater-pubkey.mjs` /
+   `prepare-updater-secrets.mjs` 写错一个字段、公钥少写一处、密钥没规范化，都要等到
+   release 才暴露；而它们各自把目录写死在 `import.meta.url` 旁，测试也无从下手。
+2. **图标编码器产出的是坏 PNG**：`deflateStored` 把 BFINAL 写在 bit 7（`last << 7`），
+   zlib 流因此是「非最后块 + adler32 尾巴」，`inflateSync` 直接报
+   `unexpected end of file`。容器看着是 PNG，IDAT 永远解不出来；受版本管理的
+   `desktop/assets/app-icon.png` 也是同一份坏字节。
+3. **web 的 vitest 混版本**：`vitest@2.1.9` + `@vitest/coverage-v8@2.1.8`，每次跑都打印
+   "Running mixed versions is not supported"，数字不可信。
+4. **`latest-json.mjs` 用法错误返回 0**：`run()` 走 `fail()` 只设 `exitCode`，`main` 却
+   返回 0；`verify` 缺参数时进程退出码仍是 0。
+5. **两处恒不可达的判定**：`assertSafeName` 的 `path.basename(name) !== name`（`SAFE_NAME`
+   已排除 `/`、`\`）、`verifyManifest` 的「signature for unpublished asset」（前一条集合
+   比较已经保证了名字集合相同）。它们永远为假，分支覆盖永远到不了 100%。
+
+### 2. 收口
+
+- **`desktop/` 自成一个 Vitest 工程**：`desktop/vitest.config.js` 的
+  `coverage.include` 就是 `scripts/**/*.mjs`，与 `web/` 的 `src/**` 闸门互不相干；
+  `desktop/package.json` 增加 `test` / `test:coverage`，`vitest` 与 `@vitest/coverage-v8`
+  都锁 **2.1.9**（web 同步锁同版本）。
+- **脚本改成可导入**（沿用 `latest-json.mjs` 已有的形态）：
+  - 导出纯函数 + 一个**无参** `main()`，`process.argv` / `process.env` / `process.cwd()`
+    一律走默认参数，测试可注入 `(tauriDir, argv)`、`{iconsDir, assetsDir}`、
+    `{root, pubkey, signing, output}`、`{rawKey, rawPassword, envFile, output}`；
+  - 失败**抛异常**，由 `main` 统一转成 `::error::` + 返回 1（CLI 再落到 `process.exitCode`）；
+  - 末尾统一一句 `runAsEntry(import.meta.url, main)`。
+- **新增 `scripts/lib/entry.mjs`**：`isMain(url, argv1)` + `runAsEntry(url, main, {exit})`。
+  入口判定从「只有子进程能走到的三行」变成普通函数，`tests/entry.spec.js` 直接注入
+  `exit` 桩读回退出码，两条分支（导入 / 是入口）都真实覆盖——**不用 `exclude`，也不用
+  `/* v8 ignore */`**（验收 #36 明令禁止）。`main` 刻意不接参数：`runAsEntry` 若传 argv，
+  每个脚本里就多出一个只有子进程才走得到的箭头函数体。
+- **`make-icon.mjs` 修真**：stored block 头改为 `out.push(last)`（`BFINAL`(bit0) |
+  `BTYPE=00`），并用修好的编码器重新生成 `desktop/assets/app-icon.png`（1024×1024，
+  IDAT 可 inflate）。`writeIconSet({iconsDir, assetsDir})` 让测试渲染到临时目录。
+- **`latest-json.mjs` 收尾**：`run()` 的用法错误改为 `throw`（此前 `main` 会返回 0）；
+  平台表收敛为 `UPDATER_ASSET` 单一来源（`isPlatform()` 查它的键，删掉平行的 `PLATFORMS`
+  集合与 `no updater asset rule` 死分支）；删掉上面第 5 条的两处恒假判定，并在注释里
+  说明为什么原来那条比较已经足够；新增 `main(argv)` 包装与 `run` 导出。
+- **用例搬迁**：`web/tests/release-assets.spec.js`（338 行黑盒子进程）升级为
+  `desktop/tests/latest-json.spec.js`，改为**进程内**调用 `collect` / `manifest` / `verify`，
+  场景不减（9 个资产、双镜像、未签名发布、版本绑定、重复签名、脏 URL、篡改签名、
+  畸形 SHA256SUMS、缺失 `platforms`/`signatures` 等），并补齐到分支 100%。
+  CLI 入口另由 `desktop/tests/cli.spec.js` 用真子进程钉住 argv / 退出码。
+- **接线**：`Makefile` 新增 `desktop-scripts-test` / `desktop-scripts-coverage`，
+  `make test` 串上；CI 新增 `scripts` job（ubuntu、bun、无需 Rust）。
+- **文档**：`AGENTS.md`（新「发布脚本」小节 + 基线数字 + 命令）、`requirements.md`
+  （N8 / N9 与验收 42 / 43）、`README.md` / `README_cn.md`（测试命令）。
+
+### 3. 验证
+
+- `cd desktop && bun run test:coverage`：**7 spec / 103 用例全绿**，语句/行/分支/函数
+  **四项 100%**（862 语句、267 分支、50 函数），`scripts/lib/entry.mjs` 也在闸门内；
+  配置里没有 `coverage.exclude`，脚本里没有 `/* v8 ignore */`。
+- `cd web && bun run test:coverage`：**32 spec / 773 用例全绿**，四项 **100%**
+  （10491 语句、1808 分支、433 函数），混版本告警消失。
+- 图标回归：`tests/make-icon.spec.js` 用 `node:zlib` 的 `inflateSync` 解开 32 / 128 / 1024
+  三档，逐行校验 filter 字节为 0，并校验每个块的 CRC 等于 `crc32(type+data)`；
+  `desktop/assets/app-icon.png` 解出 4195328 字节，正好等于 `(1024*4+1)*1024`。
+- `tests/cli.spec.js`：`stamp` / `latest-json` 缺参数 → 退出码 1 + `usage:`；两个签名脚本
+  空环境 → `::notice::` + 退出码 0；非法密钥 → `::error::` + 退出码 1。

@@ -68,6 +68,14 @@ desktop-test-report: desktop-install icons ## Same run, plus a pasteable summary
 		grep -E '^(running [0-9]+ tests|test result:)' desktop-test.log || true; \
 		echo '```'; }
 
+.PHONY: desktop-scripts-test
+desktop-scripts-test: desktop-install ## Vitest for the release-time scripts (stamp / icons / signing / manifests).
+	cd $(DESK) && $(BUN) run test
+
+.PHONY: desktop-scripts-coverage
+desktop-scripts-coverage: desktop-install ## Same suite plus the v8 gate over desktop/scripts.
+	cd $(DESK) && $(BUN) run test:coverage
+
 .PHONY: desktop-check
 desktop-check: desktop-install icons ## cargo check without bundling (fast feedback in CI).
 	cd $(DESK)/src-tauri && cargo check --all-targets
@@ -90,7 +98,7 @@ stamp: desktop-install ## Write $(VERSION) into Cargo.toml + tauri.conf.json.
 smoke: web-smoke desktop-smoke ## Both cross-process smoke tests (loopback only, no network).
 
 .PHONY: test
-test: web-test desktop-test ## Everything that runs offline.
+test: web-test desktop-scripts-test desktop-test ## Everything that runs offline.
 
 .PHONY: build
 build: web-build ## Console + a host-platform installer.

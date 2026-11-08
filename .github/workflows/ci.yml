@@ -1,8 +1,11 @@
 # agentbuddy — continuous integration.
 #
-# Two jobs, mirroring the offline `make test` targets:
+# Three jobs, mirroring the offline `make test` targets:
 #   • web      → Vitest suite (bun) under web/  (tests/style.spec.js monochrome
 #                guard, copy-fallback 13-language completeness, smoke.e2e.spec.js)
+#   • scripts  → Vitest suite (bun) under desktop/ for the release-time scripts
+#                (icon encoder, version stamp, signing secrets, latest.json) —
+#                no Rust toolchain needed, so it stays a one-minute job
 #   • desktop  → `cargo test` under desktop/src-tauri
 #
 # The desktop crate embeds the console via rust-embed and calls
@@ -52,6 +55,30 @@ jobs:
         run: bun run test
 
       - name: Vitest coverage (v8 text report)
+        run: bun run test:coverage
+
+  # ------------------------------------------- desktop scripts (Vitest, no Rust)
+  scripts:
+    name: desktop scripts — vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Vitest (icon set, version stamp, signing secrets, release manifests)
+        run: bun run test
+
+      - name: Vitest coverage (v8 text report over scripts/)
         run: bun run test:coverage
 
   # -------------------------------------------------------------- desktop (cargo)

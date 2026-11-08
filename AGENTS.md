@@ -52,6 +52,9 @@ web/                        Vue 3 工作台（bun + vite）
                             api-usage 导出引用守卫、round4 六面接线回归；
                             smoke.e2e.spec.js 用真 socket + node:http 桩跑真客户端）
 desktop/
+  scripts/                  发布期 Node 脚本（stamp / make-icon / 签名 / latest-json）
+  tests/                    Vitest：上述脚本的**进程内**用例 + cli.spec.js 的真子进程入口用例
+  vitest.config.js          仅覆盖 scripts/**，与 web 的 src 闸门互不相干
   src-tauri/src/            Rust：config / session / proxy / executor / tray / notify / i18n
   src-tauri/assets/         shell.html（连接页 + 关于页）
   frontend-stub/            启动占位页（tauri.conf.json 的 frontendDist）
@@ -76,10 +79,16 @@ desktop/
 - **错误**：store 只存 `error.code`；文案经 `errors.js` + `copy/errors-copy.js` 本地化。
   新增错误码须登记三处（服务端 `httputil.Code*`、前端 `CODE_KEYS`、`errors-copy.js` 13 语）。
 - **测试**：`cd web && bun run test`（Vitest）。**勿用裸 `bun test`**（Bun 原生 runner 不加载
-  `vitest.config.js`，无 jsdom 环境）。新增功能须补**正常 + 异常**双路径用例。
+  `vitest.config.js`，无 jsdom 环境）。**vitest 必须由 Node 启动**：`bun run` 只是用 bun 起
+  script，`node_modules/.bin/vitest` 的 shebang 是 `#!/usr/bin/env node`；PATH 里没有 node 时
+  bun 会退用自己的 runtime 跑 vitest，`vi.mock` 的自动 mock 全部失效（本地实测 424 条报
+  `xxx.mockResolvedValue is not a function`，而同一份代码用 node 跑 773 条全绿）。
+  新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线（33 个 spec、**788** 条用例）：
-  语句/行 **100%**、分支 **100%**、函数 **100%**（11008 条语句、1808 个分支、433 个函数）；
+  `text-summary` + `text`，不写报告目录），当前基线（32 个 spec、**773** 条用例）：
+  语句/行 **100%**、分支 **100%**、函数 **100%**（10491 条语句、1808 个分支、433 个函数）；
+  `vitest` 与 `@vitest/coverage-v8` **版本必须完全一致**（当前同为 `2.1.9`，写死不用 `^`）：
+  混版本会打印 "Running mixed versions is not supported"，且覆盖率数字不可信；
   **四项须保持 100%**，回落时先看报告里的未覆盖行再补用例，`test.coverage` **没有 exclude**，
   统计范围就是整个 `src/**`（含入口 `src/main.js`，由 `tests/main-bootstrap.spec.js` 覆盖）。
   界面上按钮 disabled 因而点不到的守卫，用 `wrapper.vm` 直接调用处理函数覆盖；
@@ -103,6 +112,33 @@ desktop/
   **计数留在进程里**，`refresh`（语言切换重建菜单）后重新套用，否则切语言会把角标抹掉；
   文案走 `badge_text(lang, count)` 纯函数（13 语 `trayUnread`），因此无窗口可单测。0 表示全读，
   此时角标清空、tooltip 回落产品名。
+
+### 发布脚本（desktop/scripts/）
+
+- **五个脚本，一个闸门**：`stamp.mjs`（版本号落到 `Cargo.toml` + `tauri.conf.json`）、
+  `make-icon.mjs`（纯 Node 生成单色图标集）、`inject-updater-pubkey.mjs`（公钥写进
+  `upgrade/mod.rs` 与 `tauri.conf.json` 两处）、`prepare-updater-secrets.mjs`（签名密钥规范化后
+  经 `GITHUB_ENV` 传递）、`latest-json.mjs`（三腿 collect → manifest → verify，产出恰好 9 个资产）。
+  它们跑在三个 CI 主机与 release job 自己的文件上，**工作台测不到**，因此 `desktop/` 自成一个
+  Vitest 工程：`vitest.config.js` 的 `coverage.include` 就是 `scripts/**/*.mjs`，四项 **100%**
+  （7 spec / **103** 用例、862 语句、267 分支、50 函数），`bun run test:coverage` 验，
+  CI 的 `scripts` job 不需要 Rust 工具链。
+- **进程内可测是脚本的形态要求**：每个脚本导出纯函数 + 一个 `main()`，末尾只有一句
+  `runAsEntry(import.meta.url, main)`（`scripts/lib/entry.mjs`）。
+  目录 / 根路径 / 环境变量 / argv 一律走 `main` 的**默认参数**注入
+  （`stamp(tauriDir, argv)`、`writeIconSet({iconsDir, assetsDir})`、
+  `injectUpdaterPubkey({root, pubkey, signing, output})`、`prepareUpdaterSecrets({...})`），
+  失败**抛异常**由 `main` 转成 `::error::` + 退出码 1。
+  `main` 刻意**不接参数**：若 `runAsEntry` 传 argv，脚本里就多出一个只有子进程才走得到的
+  箭头函数体，闸门又得靠 ignore。新增脚本照此写。
+- **入口判定自己也是被测代码**：`isMain(url, argv1)` 与 `runAsEntry(url, main, {exit})` 都在
+  `scripts/lib/entry.mjs`，`tests/entry.spec.js` 直接注入 `exit` 桩读回退出码、覆盖
+  「导入（什么都不做）/ 是入口（跑 main 并写退出码）」两条路径；`tests/cli.spec.js` 再 spawn
+  真脚本钉住 argv 解析与进程退出码。**禁止 `coverage.exclude` 与 `/* v8 ignore */`**（验收 #36）。
+- **图标编码器必须是真 PNG**：`deflateStored` 的块头是 `BFINAL`(bit0) | `BTYPE=00`，
+  写成 `last << 7` 会产出「非最后块 + adler32」的残流，任何 inflater 都报
+  "unexpected end of file"——容器看着是 PNG，IDAT 永远解不出来。`tests/make-icon.spec.js`
+  用 `node:zlib` 的 `inflateSync` 解整幅并逐行校验 filter 字节，回归会直接红。
 
 ### 桌面外壳（desktop/）
 
@@ -160,7 +196,8 @@ desktop/
   时降级为直接子进程 `start_kill`。Windows 无进程组语义，如实退回直接子进程终止（不伪装已支持）。
   状态与开关只经 `GET|POST /__shell/executor` 暴露，**网页视图不获得任何文件系统或命令执行权限**；
   拒绝原因是机器码（`root_unusable` / `command_not_allowed` / …），由工作台 13 语本地化。
-- **测试**：`cd desktop/src-tauri && cargo test`。本机（Windows）测试二进制因 Tauri 原生依赖
+- **测试**：脚本走 `cd desktop && bun run test`（Vitest，无需 Rust 工具链，CI 的 `scripts` job）；
+  Rust 走 `cd desktop/src-tauri && cargo test`。本机（Windows）测试二进制因 Tauri 原生依赖
   入口缺失无法启动，只能 `cargo test --no-run` 做编译校验；纯逻辑用例（i18n 表、托盘映射、
   会话存取、执行节点的白名单/根目录/超时/截断、通知深链的入队/取用/转义）不依赖 AppHandle，
   在 CI 上一跑即知。`i18n/copy.rs` 用 `include_str!` 读 `web/src/lib/languages.js` 钉住 13 语代码集，
@@ -246,7 +283,9 @@ make web-install      # bun install
 make web-dev          # vite dev（:5173，代理 /api 到 localhost:3500）
 make web-build        # 产出 web/dist（外壳内嵌它）
 make web-test         # vitest
-make web-coverage     # vitest + v8 覆盖率
+make web-coverage     # vitest + v8 覆盖率（src/**）
+make desktop-scripts-test      # 发布脚本 vitest（desktop/tests）
+make desktop-scripts-coverage  # 同上 + v8 覆盖率（scripts/**）
 make desktop-install  # @tauri-apps/cli
 make desktop-dev      # web-build + tauri dev
 make desktop-build    # web-build + tauri build（宿主平台安装包）
@@ -258,7 +297,7 @@ make desktop-smoke    # 真上游 + 真 axum 代理（bootstrap → 转发 → �
 make smoke            # 上面两条
 make icons            # 从 assets/app-icon.png 派生全部尺寸
 make stamp VERSION=x  # 同步版本号到 Cargo.toml / tauri.conf.json
-make test             # web-test + desktop-test
+make test             # web-test + desktop-scripts-test + desktop-test
 make clean
 ```
 

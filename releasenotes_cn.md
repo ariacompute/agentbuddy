@@ -161,6 +161,21 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
   `latest.json`；每份清单只指向自己那一源。发布前的 `verify` 步骤会拒绝任何不等于这 9 个
   文件的集合。未配置密钥时同样发布这 9 个文件，但 `platforms`/`signatures` 为空，
   客户端自动降级为手动下载。
+- **生成的图标其实不是能解码的 PNG。** 图标编码器把 `BFINAL` 写进了 stored block 头的
+  bit 7（应为 bit 0），于是它产出的每个文件——三档 PNG 以及包着 PNG 的 ICO / ICNS——都是
+  「容器合法、IDAT 谁也解不出来」的坏图（inflater 报 `unexpected end of file`）。现在头部是
+  `BFINAL | BTYPE=00`，受版本管理的 `assets/app-icon.png` 已按修好的编码器重新生成；
+  用例会对每一档真实 inflate、逐行校验 filter 字节并重算每个块的 CRC。
+- **缺参数的 `verify` 不再「成功」。** `latest-json.mjs` 的用法错误原来返回退出码 0
+  （设了 `process.exitCode` 却仍 `return 0`），release 里少传一个参数的步骤会被算作通过；
+  现在抛错并以退出码 1 结束。
+- **发布脚本本身也进了测试。** `desktop/scripts/` 下五个脚本（版本戳、图标编码、公钥注入、
+  签名密钥规范化、`latest.json` 组装）跑在三个 CI 主机与 release job 自己的文件上，但此前
+  只有 `latest-json.mjs` 有测试，还是覆盖率工具看不见的子进程跑法。现在它们有独立的
+  Vitest 工程（`desktop/vitest.config.js`）与一个不需要 Rust 工具链的 CI job，
+  `scripts/**` 的语句、行、分支、函数四项 **100%**，没有任何文件被排除。
+- 两个包里的 `vitest` 与 `@vitest/coverage-v8` 版本对齐到 `2.1.9`（混版本会打印
+  "Running mixed versions is not supported"，百分比随之失去意义）。
 - Linux 上从源码构建还需 `libdbus-1-dev` 与 `pkg-config`：会话存在 Secret Service 里，
   经 D-Bus 访问。Windows 与 macOS 无额外依赖——凭据管理器与钥匙串是系统自带的。
 
@@ -176,10 +191,19 @@ agentbuddy 是 agenthub 的 Tauri v2 桌面客户端。它把 agenthub 工作台
   外加更新卡片的三条外壳路由、每种状态机器码与「无外壳」路径；最后再补一轮
   「按钮 disabled 时点不到的守卫」——直接调用处理函数覆盖提前返回、空响应体与未知机器码，
   并用服务端渲染覆盖无 `window` 的 setup 分支）。
-  **共 32 个 spec、785 条用例**，全程离线。
+  **共 32 个 spec、773 条用例**，全程离线。
 - `bun run test:coverage`（v8，对应 `make web-coverage`）报告：语句、行、分支、函数四项
-  均 **100%**（10989 条语句、1804 个分支、433 个函数）。没有未覆盖的防御分支，
+  均 **100%**（10491 条语句、1808 个分支、433 个函数）。没有未覆盖的防御分支，
   也没有从报告里排除任何文件。
+- `cd desktop && bun run test`（或 `test:coverage`）让发布脚本不再只是「相信它」：**7 个 spec、103 条用例**
+  覆盖图标编码器、版本戳、两个签名脚本、`latest.json` 组装（collect / manifest / verify，
+  连每条拒绝路径都算上）与入口判定助手——语句、行、分支、函数四项 **100%**
+  （862 / 862 / 267 / 50），同样没有排除项。它不需要 Rust 工具链，CI 单列一个 job 跑。
+- 脚本改成可导入而非只能在 shell 里跑：导出纯函数 + 无参 `main()`，目录、根路径、环境变量与
+  argv 一律经默认参数注入，失败转成 `::error::` 与退出码 1；入口判定收在
+  `scripts/lib/entry.mjs`，「我是不是那个被启动的进程」因此是套件能直接调用的普通函数——
+  这也是闸门不用 `exclude`、不用 `/* v8 ignore */` 就能到 100% 的原因。`cli.spec.js`
+  仍用真子进程跑脚本，钉住 argv 解析与进程退出码。
 - `cargo test` 覆盖代理（准入控制、nonce 握手、Cookie 重写、流式转发、来源闸、角标端点）、
   配置（语言回落、按服务器隔离的会话存储、明文迁移）、i18n（13 语键集与英文顺序完全一致、
   语言代码编译期对齐 `web/src/lib/languages.js`）与托盘映射；本轮另加升级模块的纯逻辑用例
