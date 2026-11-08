@@ -29,9 +29,6 @@ public static class Composition
     private static long _lastRefreshMs;
     private static int _windowVisible = 1;
     private static bool IsWindowVisible => Volatile.Read(ref _windowVisible) != 0;
-    private static readonly object ShutdownGate = new();
-    private static Task? _shutdown;
-    private static Action<string>? _entityStreamHook;
 
     public static Task InitializeAsync(CancellationToken ct = default) => InitializeAsync(new AppPaths(), ct);
 
@@ -122,9 +119,8 @@ public static class Composition
 
         Realtime = new RealtimeService(Hub, () => IsWindowVisible);
         Realtime.EventReceived += OnRealtimeEvent;
-        _entityStreamHook = path =>
+        Navigation.EntityStreamChanged += path =>
             FireAndForget(Realtime?.SwitchEntityStreamAsync(path) ?? Task.CompletedTask);
-        Navigation.EntityStreamChanged += _entityStreamHook;
         await Realtime.StartAsync(ct).ConfigureAwait(false);
         Initialized = true;
     }
@@ -160,7 +156,11 @@ public static class Composition
             Avalonia.Threading.Dispatcher.UIThread.Post(window.Hide);
             return Task.CompletedTask;
         };
-        Services.Quit = () => QuitAsync(desktop);
+        Services.Quit = () =>
+        {
+            desktop.Shutdown();
+            return Task.CompletedTask;
+        };
         NotifierImpl.SetInAppHandler((title, body, link) =>
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() => Shell.AddNotification(title, body, link));
@@ -213,57 +213,10 @@ public static class Composition
         };
     }
 
-    /// <summary>
-    /// The only exit sequence: tear the session down, then let the lifetime stop. The tray's
-    /// quit item and the window's close (background=false) both come through here, so the
-    /// loopback host and the SSE pumps are released while the dispatcher still pumps —
-    /// calling desktop.Shutdown() first would stop the loop and truncate the teardown.
-    /// </summary>
-    public static async Task QuitAsync(
-        Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime? desktop)
+    public static async Task ShutdownAsync()
     {
-        try { await ShutdownAsync().ConfigureAwait(true); }
-        finally { desktop?.Shutdown(); }
-    }
-
-    /// <summary>
-    /// Teardown is single-flight: every caller gets the same task, so a stray extra
-    /// shutdown (window Closed after a tray quit, or two quits in a row) cannot dispose
-    /// the gateway, the poller and the stream pumps twice.
-    /// </summary>
-    public static Task ShutdownAsync()
-    {
-        var started = Volatile.Read(ref _shutdown);
-        if (started is not null) return started;
-        lock (ShutdownGate) return _shutdown ??= ShutdownCoreAsync();
-    }
-
-    private static async Task ShutdownCoreAsync()
-    {
-        // Detach the UI hooks first: a navigation or an event arriving mid-teardown must not
-        // re-open a stream on a client that is about to be disposed.
-        if (Realtime is not null)
-        {
-            Realtime.EventReceived -= OnRealtimeEvent;
-            if (_entityStreamHook is not null && Initialized)
-                Navigation.EntityStreamChanged -= _entityStreamHook;
-        }
-
-        await StopAsync(Realtime).ConfigureAwait(false);
-        await StopAsync(Monitor).ConfigureAwait(false);
-        // Only a completed initialization owns a started gateway; a failure before that
-        // point leaves the static property unassigned.
-        await StopAsync(Initialized ? GatewayHost : null).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Best-effort: one failing pump must not keep the loopback host (or the process) alive,
-    /// and a partially initialized composition has nothing to stop at all.
-    /// </summary>
-    private static async Task StopAsync(IAsyncDisposable? target)
-    {
-        if (target is null) return;
-        try { await target.DisposeAsync().ConfigureAwait(false); }
-        catch (Exception) { /* teardown keeps going: the next step still has to run */ }
+        if (Realtime is not null) await Realtime.DisposeAsync().ConfigureAwait(false);
+        if (Monitor is not null) await Monitor.DisposeAsync().ConfigureAwait(false);
+        await GatewayHost.DisposeAsync().ConfigureAwait(false);
     }
 }

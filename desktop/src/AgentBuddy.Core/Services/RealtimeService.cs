@@ -87,13 +87,9 @@ public sealed class RealtimeService : IAsyncDisposable
     public Task StartAsync(CancellationToken ct = default)
     {
         if (_stop is not null) return Task.CompletedTask;
-        var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _stop = stop;
-        // Capture the token here, not inside the lambda: StopAsync clears the field before
-        // the pumps are awaited, so reading _stop on the pool thread would race the teardown.
-        var token = stop.Token;
+        _stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _pumps = Endpoints.GlobalStreams
-            .Select(path => Task.Run(() => PumpAsync(path, token), CancellationToken.None))
+            .Select(path => Task.Run(() => PumpAsync(path, _stop.Token), CancellationToken.None))
             .ToArray();
         return Task.CompletedTask;
     }
@@ -207,20 +203,18 @@ public sealed class RealtimeService : IAsyncDisposable
 
     public async Task StopAsync()
     {
-        // Claim the token before the first await: two concurrent stops must not cancel and
-        // dispose the same CancellationTokenSource.
-        var stop = Interlocked.Exchange(ref _stop, null);
-        if (stop is null) return;
-        stop.Cancel();
-        var pumps = Interlocked.Exchange(ref _pumps, []);
-        foreach (var pump in pumps)
+        if (_stop is null) return;
+        _stop.Cancel();
+        foreach (var pump in _pumps)
         {
             try { await pump.ConfigureAwait(false); }
             catch (OperationCanceledException) { }
         }
+        _pumps = [];
         foreach (var entity in _entityPumps.Keys.ToArray())
             await UntrackAsync(entity).ConfigureAwait(false);
-        stop.Dispose();
+        _stop.Dispose();
+        _stop = null;
     }
 
     public async ValueTask DisposeAsync() => await StopAsync().ConfigureAwait(false);

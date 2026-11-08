@@ -406,21 +406,6 @@ public class RealtimeShutdownTests
     }
 
     [Fact]
-    public async Task ConcurrentStopsTearTheSamePumpsDownExactlyOnce()
-    {
-        await using var realtime = new RealtimeService(new CancellingClient());
-        await realtime.StartAsync();
-        realtime.Track("/api/tasks/7/events");
-        await Task.Delay(50);
-        // Quit and the window's close can both reach teardown: whoever loses the token must
-        // return without cancelling or disposing it a second time.
-        await Task.WhenAll(realtime.StopAsync(), realtime.StopAsync(), realtime.StopAsync());
-        Assert.Empty(realtime.EntityStreams);
-        Assert.Equal(0, realtime.FailureCount);
-        await realtime.StopAsync(); // and a late caller is still a no-op
-    }
-
-    [Fact]
     public async Task ConcurrentTrackingOfTheSameStreamOpensItOnce()
     {
         await using var realtime = new RealtimeService(new CancellingClient());

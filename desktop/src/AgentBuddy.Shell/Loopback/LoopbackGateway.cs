@@ -71,12 +71,10 @@ public sealed class LoopbackGateway(ShellServices services, ILogger? logger = nu
 
     public async Task StopAsync(CancellationToken ct = default)
     {
-        // Claim the host atomically: two concurrent stops would otherwise race on the
-        // same Kestrel instance and the loser would observe an already-disposed server.
-        var app = Interlocked.Exchange(ref _app, null);
-        if (app is null) return;
-        try { await app.StopAsync(ct).ConfigureAwait(false); }
-        finally { await app.DisposeAsync().ConfigureAwait(false); }
+        if (_app is null) return;
+        await _app.StopAsync(ct).ConfigureAwait(false);
+        await _app.DisposeAsync().ConfigureAwait(false);
+        _app = null;
     }
 
     private HttpClient CreateUpstreamClient()
