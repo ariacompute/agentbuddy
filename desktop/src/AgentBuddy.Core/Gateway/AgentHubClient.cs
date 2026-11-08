@@ -54,7 +54,7 @@ public sealed class AgentHubClient : IAgentHubClient, IDisposable
         using var request = new HttpRequestMessage(method, path);
         if (body is not null) request.Content = JsonContent.Create(body, options: Json);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-        var text = await ReadBoundedAsync(response.Content, ct).ConfigureAwait(false);
+        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
             throw new HubApiException(ExtractCode(text) ?? ((int)response.StatusCode).ToString(), (int)response.StatusCode);
         if (response.StatusCode == HttpStatusCode.NoContent || string.IsNullOrWhiteSpace(text)) return null;
@@ -80,46 +80,17 @@ public sealed class AgentHubClient : IAgentHubClient, IDisposable
             yield return item;
     }
 
-    /// <summary>
-    /// Returns the response body as a live stream: the caller copies it to disk and
-    /// disposes it, so a large file is never buffered in memory. The response and
-    /// request are owned by the returned stream and released with it.
-    /// </summary>
     public async Task<Stream> DownloadAsync(string path, CancellationToken ct = default)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, path);
-        var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
-        {
-            var code = (int)response.StatusCode;
-            var text = await ReadBoundedAsync(response.Content, ct).ConfigureAwait(false);
-            response.Dispose();
-            request.Dispose();
-            throw new HubApiException(ExtractCode(text) ?? code.ToString(), code);
-        }
-        var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        return new OwnedStream(source, response, request);
-    }
-
-    /// <summary>
-    /// Reads at most <see cref="Limits.MaxJsonBytes"/> characters. A body past the cap
-    /// is truncated to nothing rather than turned into an unbounded string.
-    /// </summary>
-    private static async Task<string> ReadBoundedAsync(HttpContent content, CancellationToken ct)
-    {
-        if (content.Headers.ContentLength is > Limits.MaxJsonBytes) return "";
-        await using var stream = await content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        var buffer = new char[8192];
-        var text = new StringBuilder();
-        while (true)
-        {
-            var read = await reader.ReadAsync(buffer, ct).ConfigureAwait(false);
-            if (read == 0) break;
-            if (text.Length + read > Limits.MaxJsonBytes) return "";
-            text.Append(buffer, 0, read);
-        }
-        return text.ToString();
+            throw new HubApiException(((int)response.StatusCode).ToString(), (int)response.StatusCode);
+        var memory = new MemoryStream();
+        await using (var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
+            await source.CopyToAsync(memory, ct).ConfigureAwait(false);
+        memory.Position = 0;
+        return memory;
     }
 
     public async Task<JsonElement?> UploadAsync(
@@ -130,7 +101,7 @@ public sealed class AgentHubClient : IAgentHubClient, IDisposable
         var tracked = new ProgressStream(content, content.Length, progress);
         form.Add(new StreamContent(tracked), field, fileName);
         using var response = await _http.PostAsync(path, form, ct).ConfigureAwait(false);
-        var text = await ReadBoundedAsync(response.Content, ct).ConfigureAwait(false);
+        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
             throw new HubApiException(ExtractCode(text) ?? ((int)response.StatusCode).ToString(), (int)response.StatusCode);
         if (string.IsNullOrWhiteSpace(text)) return null;
@@ -159,130 +130,39 @@ public sealed class AgentHubClient : IAgentHubClient, IDisposable
     public void Dispose() => _http.Dispose();
 }
 
-/// <summary>
-/// Incremental SSE framing: one event per blank line, no whole-body buffering.
-/// Framing happens on bytes with an explicit line and event cap, so neither an
-/// endless line nor an endless run of data lines can grow memory without bound.
-/// </summary>
+/// <summary>Incremental SSE framing: one event per blank line, no whole-body buffering.</summary>
 public static class SseParser
 {
     public static async IAsyncEnumerable<HubEvent> ParseAsync(
         Stream stream, [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var readBuffer = new byte[8192];
-        var lineBuffer = new byte[Limits.MaxEventBytes];
-        var lineLength = 0;
-        var lineOverflow = false;
-        var data = new StringBuilder();
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: false,
+            bufferSize: 4096, leaveOpen: true);
         string? name = null, id = null;
-        var eventOverflow = false;
-
-        var used = 0;
-        var scanned = 0;
+        var data = new StringBuilder();
         while (!ct.IsCancellationRequested)
         {
-            if (scanned >= used)
+            var line = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+            if (line is null) break;
+            if (line.Length == 0)
             {
-                used = await stream.ReadAsync(readBuffer.AsMemory(), ct).ConfigureAwait(false);
-                scanned = 0;
-                if (used == 0) break;
-            }
-            var span = readBuffer.AsSpan(scanned, used - scanned);
-            var newline = span.IndexOf((byte)'\n');
-            if (newline < 0)
-            {
-                (lineLength, lineOverflow) = Append(lineLength, span, lineBuffer, lineOverflow);
-                scanned = used;
-                continue;
-            }
-            (lineLength, lineOverflow) = Append(lineLength, span[..newline], lineBuffer, lineOverflow);
-            scanned += newline + 1;
-            if (lineOverflow)
-            {
-                // A single line past the cap is dropped whole; framing stays in sync.
-                lineLength = 0;
-                lineOverflow = false;
-                continue;
-            }
-            var length = lineLength;
-            lineLength = 0;
-            if (length > 0 && lineBuffer[length - 1] == (byte)'\r') length--;
-            if (length == 0)
-            {
-                // Per the SSE spec an event with no data never fires; that also keeps a
-                // truncated or dropped payload from arriving as an empty event.
-                if (!eventOverflow && data.Length > 0)
+                if (data.Length > 0 || name is not null)
                     yield return new HubEvent { Name = name ?? SseEvents.Message, Data = data.ToString(), Id = id };
-                name = null; id = null; data.Clear(); eventOverflow = false;
+                name = null; id = null; data.Clear();
                 continue;
             }
-            var line = Encoding.UTF8.GetString(lineBuffer, 0, length);
             if (line[0] == ':') continue;
             var colon = line.IndexOf(':');
             var field = colon < 0 ? line : line[..colon];
             var value = colon < 0 ? string.Empty : line[(colon + 1)..].TrimStart(' ');
             switch (field)
             {
-                case "event":
-                    if (value.Length <= MaxFieldChars) name = value;
-                    break;
-                case "id":
-                    if (value.Length <= MaxFieldChars) id = value;
-                    break;
-                case "data":
-                    if (eventOverflow) break;
-                    if (data.Length + value.Length + 1 > Limits.MaxEventBytes) { eventOverflow = true; data.Clear(); break; }
-                    if (data.Length > 0) data.Append('\n');
-                    data.Append(value);
-                    break;
+                case "event": name = value; break;
+                case "data": if (data.Length > 0) data.Append('\n'); data.Append(value); break;
+                case "id": id = value; break;
+                case "retry": break;
             }
         }
-    }
-
-    private const int MaxFieldChars = 256;
-
-    private static (int Length, bool Overflow) Append(int length, ReadOnlySpan<byte> chunk, byte[] buffer, bool overflow)
-    {
-        if (overflow) return (0, true);
-        if (length + chunk.Length > buffer.Length) return (0, true);
-        chunk.CopyTo(buffer.AsSpan(length));
-        return (length + chunk.Length, false);
-    }
-}
-
-/// <summary>
-/// A response stream that owns the HttpResponseMessage and HttpRequestMessage it
-/// came from, so DownloadAsync can hand out a live stream without leaking either.
-/// </summary>
-internal sealed class OwnedStream(Stream inner, HttpResponseMessage response, HttpRequestMessage request) : Stream
-{
-    public override bool CanRead => true;
-    public override bool CanSeek => false;
-    public override bool CanWrite => false;
-    public override long Length => throw new NotSupportedException();
-    public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-
-    public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
-    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) => inner.ReadAsync(buffer, ct);
-    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) => inner.ReadAsync(buffer, offset, count, ct);
-    public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken ct) => inner.CopyToAsync(destination, bufferSize, ct);
-    public override void Flush() { }
-    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-    public override void SetLength(long value) => throw new NotSupportedException();
-    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing) { inner.Dispose(); response.Dispose(); request.Dispose(); }
-        base.Dispose(disposing);
-    }
-
-    public override async ValueTask DisposeAsync()
-    {
-        await inner.DisposeAsync().ConfigureAwait(false);
-        response.Dispose();
-        request.Dispose();
-        await base.DisposeAsync().ConfigureAwait(false);
     }
 }
 

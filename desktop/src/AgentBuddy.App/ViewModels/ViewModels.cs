@@ -435,10 +435,9 @@ public sealed class FilesViewModel : ScreenViewModel
         if (string.IsNullOrEmpty(SelectedId)) { ErrorCode = ErrorCodes.NotFound; return; }
         try
         {
-            // The stream is the live response body: it must be released even when the
-            // user cancels the save dialog, or the connection stays open.
-            await using var stream = await DownloadAsync(SelectedId).ConfigureAwait(false);
+            var stream = await DownloadAsync(SelectedId).ConfigureAwait(false);
             if (SaveFileAsync is not null) await SaveFileAsync(SelectedId, stream).ConfigureAwait(false);
+            else await stream.DisposeAsync().ConfigureAwait(false);
         }
         catch (HubApiException error) { ErrorCode = error.Code; }
         catch (Exception) { ErrorCode = ErrorCodes.NetworkError; }

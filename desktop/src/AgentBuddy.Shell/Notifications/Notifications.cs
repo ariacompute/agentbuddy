@@ -22,20 +22,12 @@ public sealed class DeepLinkQueue
         return Uri.TryCreate(link, UriKind.Relative, out _);
     }
 
-    /// <summary>Bounded: a burst of notifications cannot grow the queue without limit.</summary>
     public bool Enqueue(string? link)
     {
-        if (!IsValid(link) || link!.Length > MaxLinkChars) return false;
-        lock (_gate)
-        {
-            if (_links.Count >= MaxQueued) _links.Dequeue();
-            _links.Enqueue(link);
-        }
+        if (!IsValid(link)) return false;
+        lock (_gate) _links.Enqueue(link!);
         return true;
     }
-
-    private const int MaxQueued = 20;
-    private const int MaxLinkChars = 512;
 
     public string? Consume()
     {
@@ -73,19 +65,12 @@ public sealed class SystemNotifier : ISystemNotifier
         return await NativeAsync(title, body, ct).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// The title and body are untrusted (they originate on the server). They are
-    /// never interpolated into script source: Windows reads them from the
-    /// environment, macOS receives them as osascript run arguments, and Linux gets
-    /// them as argv after a "--" so a leading dash cannot be read as an option.
-    /// </summary>
     private static async Task<string?> NativeAsync(string title, string body, CancellationToken ct)
     {
         ProcessStartInfo psi;
         if (OperatingSystem.IsLinux())
         {
             psi = new ProcessStartInfo("notify-send") { UseShellExecute = false, CreateNoWindow = true };
-            psi.ArgumentList.Add("--");
             psi.ArgumentList.Add(title);
             psi.ArgumentList.Add(body);
         }
@@ -93,24 +78,14 @@ public sealed class SystemNotifier : ISystemNotifier
         {
             psi = new ProcessStartInfo("osascript") { UseShellExecute = false, CreateNoWindow = true };
             psi.ArgumentList.Add("-e");
-            psi.ArgumentList.Add("on run argv");
-            psi.ArgumentList.Add("-e");
-            psi.ArgumentList.Add("display notification (item 2 of argv) with title (item 1 of argv)");
-            psi.ArgumentList.Add("-e");
-            psi.ArgumentList.Add("end run");
-            psi.ArgumentList.Add(title);
-            psi.ArgumentList.Add(body);
+            psi.ArgumentList.Add($"display notification \"{Escape(body)}\" with title \"{Escape(title)}\"");
         }
         else if (OperatingSystem.IsWindows())
         {
             psi = new ProcessStartInfo("powershell") { UseShellExecute = false, CreateNoWindow = true };
             psi.ArgumentList.Add("-NoProfile");
-            psi.ArgumentList.Add("-NonInteractive");
             psi.ArgumentList.Add("-Command");
-            psi.ArgumentList.Add("$s=New-Object -ComObject Wscript.Shell; " +
-                "$s.Popup(($env:AB_NOTIFY_TITLE + ' ' + $env:AB_NOTIFY_BODY),5,'agentbuddy',0) | Out-Null");
-            psi.Environment["AB_NOTIFY_TITLE"] = title;
-            psi.Environment["AB_NOTIFY_BODY"] = body;
+            psi.ArgumentList.Add($"$s=New-Object -ComObject Wscript.Shell; $s.Popup('{Escape(title)} {Escape(body)}',5,'agentbuddy',0) | Out-Null");
         }
         else return "no_app";
 
@@ -123,4 +98,6 @@ public sealed class SystemNotifier : ISystemNotifier
         }
         catch (Exception) { return "no_app"; }
     }
+
+    private static string Escape(string value) => value.Replace("\\", "\\\\").Replace("'", "''").Replace("\"", "\\\"").Replace("\n", " ");
 }

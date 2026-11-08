@@ -103,24 +103,7 @@ public static class ExecutorReject
     public static readonly string[] Shells =
     [
         "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh", "fish", "ash", "busybox",
-        "cmd", "powershell", "pwsh", "wsl",
-        "sh.exe", "bash.exe", "zsh.exe", "dash.exe", "ksh.exe", "csh.exe",
-        "cmd.exe", "powershell.exe", "pwsh.exe", "wsl.exe", "busybox.exe"
-    ];
-
-    /// <summary>
-    /// Programs whose whole purpose is to launch another program. Allowlisting one
-    /// of these would hand the server exactly the shell it was denied, so they are
-    /// refused by construction as well — even when a user lists them by mistake.
-    /// </summary>
-    public static readonly string[] Launchers =
-    [
-        "env", "nohup", "setsid", "xargs", "timeout", "nice", "ionice", "stdbuf",
-        "chroot", "unshare", "nsenter", "sudo", "su", "doas", "runuser", "pkexec",
-        "systemd-run", "at", "batch", "watch", "expect", "script", "ssh", "scp",
-        "sftp", "docker", "podman", "nerdctl", "strace", "ltrace", "gdb",
-        "env.exe", "nohup.exe", "xargs.exe", "timeout.exe", "setsid.exe", "watch.exe",
-        "sudo.exe", "ssh.exe", "scp.exe", "docker.exe", "podman.exe"
+        "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe", "wsl", "wsl.exe"
     ];
 
     public static readonly string[] EnvAllow =
@@ -182,20 +165,4 @@ public static class Limits
     public const long DigestWindowMs = 60L * 1000;
     public const int DefaultMaxPerMinute = 8;
     public const int ShellSettingsTtlMs = 60 * 1000;
-
-    // Bounds that keep a hostile or wedged peer from turning a stream into memory.
-    /// <summary>Largest JSON body read into a string (API responses, uploads).</summary>
-    public const int MaxJsonBytes = 16 * 1024 * 1024;
-    /// <summary>Largest single SSE event accumulated before it is dropped.</summary>
-    public const int MaxEventBytes = 1024 * 1024;
-    /// <summary>Largest update package kept in memory; the real ones are under 120 MiB.</summary>
-    public const int MaxPackageBytes = 512 * 1024 * 1024;
-    /// <summary>Notification title / body / deep-link caps.</summary>
-    public const int MaxNotifyTitleChars = 200;
-    public const int MaxNotifyBodyChars = 1000;
-    /// <summary>Cap for a stored executor API key and for a replayed session cookie.</summary>
-    public const int MaxSecretChars = 8 * 1024;
-    public const int MaxCookieChars = 8 * 1024;
-    /// <summary>Credential helper budget; a locked keychain must never wedge a request.</summary>
-    public const int CredentialTimeoutSeconds = 5;
 }

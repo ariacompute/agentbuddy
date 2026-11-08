@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyCopyrightAttribute("Copyright (c) 2026 Aria Compute")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+59975770353fd40600f019b0d2b11137d9f2efbb")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+cc87ecddee6c17fcc5bae25441eaecee5b7a9874")]
 [assembly: System.Reflection.AssemblyProductAttribute("agentbuddy")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AgentBuddy.Core")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.1.0.0")]
