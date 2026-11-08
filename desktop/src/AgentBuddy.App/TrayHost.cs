@@ -66,7 +66,7 @@ public static class TrayHost
                 window.Show();
                 break;
             case TrayService.IdQuit:
-                desktop.Shutdown(); // the only path that always exits
+                _ = Composition.QuitAsync(desktop); // teardown first, then the lifetime stops
                 break;
         }
     }
