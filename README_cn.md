@@ -11,8 +11,6 @@
   工作台始终以同源方式通信。
 - Agent、会话线程、任务追踪、审批（HITL 挂起/恢复）、通道（Slack / Teams / Telegram / SMS
   webhook）、连接器（按策略放行的动作），以及语音（录音 → 转写 → 委派）。
-- 实时更新按需订阅：只有沙盒与路由两路全程常开，线程或任务详情各自订阅自己的实体流、
-  离开即关——同一实体只开一条，模板路径永不订阅。
 - 自动更新：并发探测 GitHub 与 Gitee，取可用且最快的一源，失败自动切到另一源；启动即查、
   此后每天一次，按本地操作系统与 CPU 架构匹配签名安装包，一键验签升级后重启。设置里可关闭
   自动检查，也可跳过某个版本。
@@ -71,20 +69,16 @@ make dotnet-coverage  # 四个测试项目的 Cobertura 覆盖率
 make dotnet-smoke     # 真 socket 环回网关冒烟，只连回环地址
 ```
 
-共 394 条用例（Core 143 / Shell 207 / App 33 / Guards 11），34 个源文件上行覆盖
-98.97%、分支 90.21%；仍未覆盖的都是平台独占或防御分支。
-
 四个 xUnit 项目取代旧的前端/桌面双套测试：
 
-- `AgentBuddy.Core.Tests`——13 语兜底、端点契约、配置、SSE 分帧与字节上限、
-  `MonitorService` 与 `RealtimeService` 的正常/异常双路径，含实体流生命周期：
-  并发认领只开一条、已认领未发布时返回成功且不开流、pump 被取消后 untrack 不抛。
+- `AgentBuddy.Core.Tests`——13 语兜底、端点契约、配置、SSE 分帧、
+  `MonitorService` 与 `RealtimeService` 的正常/异常双路径。
 - `AgentBuddy.Shell.Tests`——bootstrap 准入、`Set-Cookie`/`Location` 改写、流式转发、
   凭据回退、执行节点策略、升级选源/验签失败、通知深链与托盘角标。
   `GatewaySmokeTests` 用真实 Kestrel 环回网关与上游 HTTP 桩跑真 socket，
   不出 `127.0.0.1`。
-- `AgentBuddy.App.Tests`——Avalonia.Headless 下的 ViewModel、路由守卫、文件传输、
-  语音、通知深链，以及一遍完整装配：在独立 UI 线程上拉起真实窗口、托盘与组合根。
+- `AgentBuddy.App.Tests`——Avalonia.Headless 下的 ViewModel、路由守卫、
+  文件传输、语音与通知深链。
 - `AgentBuddy.Guards`——静态扫描：13 语键集、单色 `.axaml`、模板无硬编码文案、
   冻结端点常量全部可达、主题字典成对、构建/发布只用 .NET。
 
@@ -105,10 +99,9 @@ make dotnet-smoke     # 真 socket 环回网关冒烟，只连回环地址
 ### 签名更新（一次性配置）
 
 签名是 minisign 兼容的 Ed25519 key box，由 `ab-tool` 生成与验证，
-不依赖 Tauri signer 或任何更新插件。可用任意 minisign 工具（例如 `minisign -G`），
-或用 `ab-tool sign` 配合 74 字节的私钥盒生成密钥对；私钥盒为 74 字节
-（`Ed` + 8 字节 key id + 32 字节种子 + 32 字节公钥），公钥盒为 42 字节
-（`Ed` + key id + 32 字节公钥），客户端构建时内嵌的正是这个公钥盒。
+不依赖 Tauri signer 或任何更新插件。可用任意 minisign 工具（例如 `minisign -G`）生成密钥对；
+私钥盒为 74 字节（`Ed` + 8 字节 key id + 32 字节种子 + 32 字节公钥），
+公钥盒为 42 字节（`Ed` + key id + 32 字节公钥）。
 
 两个仓库 secret 原样保存 key box —— 两行文本盒或它的 base64 包装，**不要二次 base64**：
 
