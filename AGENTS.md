@@ -191,6 +191,11 @@ desktop/
   `DescribeInstall(os)` / `InputDevice(os)`、`ReducedMotionService.Detect(value, isWindows)`、
   `TrayHost.Handle`、`Composition.InitializeAsync(paths)`、`Composition.OnRealtimeEvent`。
   三平台契约因此能在任意宿主上断言，而不是只在对应系统上碰运气。
+- **替身进程必须按 OS 分支**：假的 ffmpeg / 播放器 / 安装器 / 通知端 / 执行命令只能选各系统
+  都有的工具（Unix 用 `/bin/echo`、`/bin/cat`、`/bin/sleep`、`/usr/bin/false`；Windows 用
+  `cmd /c echo`、`findstr.exe`、`ping.exe`），**禁止**在无分支处直接拿 `where.exe` 这类只在
+  Windows 存在的命令充当替身——CI 在 macOS / Linux 上会以 `speech_disabled`、`no_app`、
+  `denied` 之类的机器码假失败（Shell 侧唯一入口是 `tests/AgentBuddy.Shell.Tests/TestProbe.cs`）。
 - **覆盖率基线**（`make dotnet-coverage` 口径，34 个源文件）：行 **98.97%**、分支 **90.21%**。
   余下未命中都是平台独占或防御分支（`UnixCreateMode`、钥匙串助手、`IsWindows` 三元、
   两处 `while` 回边、`Program` 入口）；基线只降要写清理由，不能靠过滤器抹平。

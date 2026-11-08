@@ -333,13 +333,7 @@ public class AppShellTests(HeadlessAppFixture fixture)
             FfmpegAudioService.StartProcess = psi =>
             {
                 seen = psi;
-                return Process.Start(new ProcessStartInfo("where.exe")
-                {
-                    ArgumentList = { "where" },
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true
-                });
+                return StartAudioProbe(readsStdin: false);
             };
             var clip = await new FfmpegAudioService().RecordAsync(TimeSpan.FromSeconds(3));
             Assert.NotEmpty(clip);
@@ -348,14 +342,7 @@ public class AppShellTests(HeadlessAppFixture fixture)
             Assert.Contains("3", seen.ArgumentList);
             Assert.Contains("pipe:1", seen.ArgumentList);
 
-            FfmpegAudioService.StartProcess = _ => Process.Start(new ProcessStartInfo("findstr.exe")
-            {
-                ArgumentList = { "hit" },
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true
-            });
+            FfmpegAudioService.StartProcess = _ => StartAudioProbe(readsStdin: true);
             await new FfmpegAudioService().PlayAsync(new MemoryStream("hit\n"u8.ToArray()));
 
             // A failed spawn is reported as speech_disabled, not as a raw exception.
@@ -375,6 +362,30 @@ public class AppShellTests(HeadlessAppFixture fixture)
             finally { Environment.SetEnvironmentVariable("AGENTBUDDY_AUDIO_DEVICE", previous); }
         }
         finally { FfmpegAudioService.StartProcess = original; }
+    }
+
+    /// <summary>
+    /// ffmpeg/ffplay are replaced by a tool every supported OS ships: echo emits
+    /// bytes and exits 0, cat/findstr drains stdin. Neither branch turns the argv
+    /// under test into a shell string. Windows-only substitutes (where.exe,
+    /// findstr.exe) made this test fail on macOS and Linux, where the spawn threw
+    /// and the service reported speech_disabled instead of a successful capture.
+    /// </summary>
+    private static Process StartAudioProbe(bool readsStdin)
+    {
+        var psi = OperatingSystem.IsWindows()
+            ? readsStdin
+                ? new ProcessStartInfo("findstr.exe") { ArgumentList = { "hit" } }
+                : new ProcessStartInfo("cmd.exe") { ArgumentList = { "/c", "echo", "hit" } }
+            : readsStdin
+                ? new ProcessStartInfo("/bin/cat")
+                : new ProcessStartInfo("/bin/echo") { ArgumentList = { "hit" } };
+        psi.UseShellExecute = false;
+        psi.CreateNoWindow = true;
+        psi.RedirectStandardInput = readsStdin;
+        psi.RedirectStandardOutput = true;
+        psi.RedirectStandardError = true;
+        return Process.Start(psi) ?? throw new InvalidOperationException($"could not start {psi.FileName}");
     }
 
     private static async Task WaitForStreamAsync(string? expected)
