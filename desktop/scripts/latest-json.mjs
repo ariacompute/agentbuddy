@@ -44,21 +44,21 @@ const PUBLISHED_PLATFORMS = ['linux-x86_64', 'darwin-aarch64', 'windows-x86_64']
 // point at the .msi. Linux: a deb-installed app runs `dpkg -i` on the .deb.
 // macOS: the plugin always unpacks a gz tar whose root entry is the .app.
 const UPDATER_ASSET = {
-  'windows-x86_64': /^agentbuddy-x64-.+\.msi$/,
-  'windows-aarch64': /^agentbuddy-arm64-.+\.msi$/,
-  'windows-i686': /^agentbuddy-x86-.+\.msi$/,
-  'darwin-x86_64': /^agentbuddy-macos-x86_64-.+\.tar\.gz$/,
-  'darwin-aarch64': /^agentbuddy-macos-aarch64-.+\.tar\.gz$/,
-  'linux-x86_64': /^agentbuddy-amd64-.+\.deb$/,
-  'linux-aarch64': /^agentbuddy-arm64-.+\.deb$/,
-  'linux-i686': /^agentbuddy-i386-.+\.deb$/,
-  'linux-armv7': /^agentbuddy-armhf-.+\.deb$/,
+  'windows-x86_64': /^AgentBuddy-x64-.+\.msi$/,
+  'windows-aarch64': /^AgentBuddy-arm64-.+\.msi$/,
+  'windows-i686': /^AgentBuddy-x86-.+\.msi$/,
+  'darwin-x86_64': /^AgentBuddy-macos-x86_64-.+\.tar\.gz$/,
+  'darwin-aarch64': /^AgentBuddy-macos-aarch64-.+\.tar\.gz$/,
+  'linux-x86_64': /^AgentBuddy-amd64-.+\.deb$/,
+  'linux-aarch64': /^AgentBuddy-arm64-.+\.deb$/,
+  'linux-i686': /^AgentBuddy-i386-.+\.deb$/,
+  'linux-armv7': /^AgentBuddy-armhf-.+\.deb$/,
 }
 
 /** Which platform keys this helper knows: exactly the keys of UPDATER_ASSET. */
 const isPlatform = (key) => Object.prototype.hasOwnProperty.call(UPDATER_ASSET, key)
 
-const DOWNLOAD = /^agentbuddy-[0-9A-Za-z._-]+\.(?:deb|dmg|msi|zip|tar\.gz)$/
+const DOWNLOAD = /^AgentBuddy-[0-9A-Za-z._-]+\.(?:deb|dmg|msi|zip|tar\.gz)$/
 const SEMVER = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/
 const B64 = /^[A-Za-z0-9+/]+={0,2}$/
 const SAFE_NAME = /^[0-9A-Za-z._-]+$/
@@ -77,12 +77,12 @@ function versionOf(raw) {
 
 function expectedAssetNames(version) {
   return [
-    `agentbuddy-amd64-${version}.deb`,
-    `agentbuddy-linux-x86_64-${version}.tar.gz`,
-    `agentbuddy-aarch64-${version}.dmg`,
-    `agentbuddy-macos-aarch64-${version}.tar.gz`,
-    `agentbuddy-x64-${version}.msi`,
-    `agentbuddy-windows-x86_64-${version}.zip`,
+    `AgentBuddy-amd64-${version}.deb`,
+    `AgentBuddy-linux-x86_64-${version}.tar.gz`,
+    `AgentBuddy-aarch64-${version}.dmg`,
+    `AgentBuddy-macos-aarch64-${version}.tar.gz`,
+    `AgentBuddy-x64-${version}.msi`,
+    `AgentBuddy-windows-x86_64-${version}.zip`,
   ]
 }
 

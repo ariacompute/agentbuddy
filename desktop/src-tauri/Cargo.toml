@@ -1,10 +1,10 @@
 [package]
 # The package name is what the produced binary is called (Tauri v2 has no
-# separate mainBinaryName), so it is the plain product name: agentbuddy.exe in the
-# Windows portable archive, agentbuddy in the Linux one.
-name = "agentbuddy"
+# separate mainBinaryName), so it is the plain product name: AgentBuddy.exe in the
+# Windows portable archive, AgentBuddy in the Linux one.
+name = "AgentBuddy"
 version = "0.1.0"
-description = "Desktop shell for the agentbuddy workbench: connects to an agenthub server, opens the console"
+description = "Desktop shell for the AgentBuddy workbench: connects to an agenthub server, opens the console"
 authors = ["ariacompute"]
 edition = "2021"
 rust-version = "1.77"

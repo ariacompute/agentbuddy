@@ -37,15 +37,15 @@ const VERSION = '1.4.0'
 const LEGS = [
   {
     key: 'linux-x86_64',
-    assets: ['agentbuddy-amd64-1.4.0.deb', 'agentbuddy-linux-x86_64-1.4.0.tar.gz'],
+    assets: ['AgentBuddy-amd64-1.4.0.deb', 'AgentBuddy-linux-x86_64-1.4.0.tar.gz'],
   },
   {
     key: 'darwin-aarch64',
-    assets: ['agentbuddy-aarch64-1.4.0.dmg', 'agentbuddy-macos-aarch64-1.4.0.tar.gz'],
+    assets: ['AgentBuddy-aarch64-1.4.0.dmg', 'AgentBuddy-macos-aarch64-1.4.0.tar.gz'],
   },
   {
     key: 'windows-x86_64',
-    assets: ['agentbuddy-x64-1.4.0.msi', 'agentbuddy-windows-x86_64-1.4.0.zip'],
+    assets: ['AgentBuddy-x64-1.4.0.msi', 'AgentBuddy-windows-x86_64-1.4.0.zip'],
   },
 ]
 const ALL_DOWNLOADS = LEGS.flatMap((leg) => leg.assets)
@@ -178,7 +178,7 @@ describe('collect', () => {
       expect(existsSync(join(out, `${asset}.sig`))).toBe(false)
     }
     expect(console.log).toHaveBeenCalledWith(
-      'latest-json: collected linux-x86_64 -> agentbuddy-amd64-1.4.0.deb (2 signed assets)',
+      'latest-json: collected linux-x86_64 -> AgentBuddy-amd64-1.4.0.deb (2 signed assets)',
     )
   })
 
@@ -238,7 +238,7 @@ describe('collect', () => {
     const two = workspace()
     const out = join(two.root, 'out')
     mkdirSync(out)
-    const deb = ['agentbuddy-amd64-1.4.0.deb', 'agentbuddy-amd64-1.4.1.deb']
+    const deb = ['AgentBuddy-amd64-1.4.0.deb', 'AgentBuddy-amd64-1.4.1.deb']
     for (const asset of deb) {
       writeFileSync(join(out, asset), 'fixture')
       writeFileSync(join(out, `${asset}.sig`), signatureFile(VERSION, asset))
@@ -249,10 +249,10 @@ describe('collect', () => {
     const none = workspace()
     const onlyTar = join(none.root, 'out')
     mkdirSync(onlyTar)
-    writeFileSync(join(onlyTar, 'agentbuddy-linux-x86_64-1.4.0.tar.gz'), 'fixture')
+    writeFileSync(join(onlyTar, 'AgentBuddy-linux-x86_64-1.4.0.tar.gz'), 'fixture')
     writeFileSync(
-      join(onlyTar, 'agentbuddy-linux-x86_64-1.4.0.tar.gz.sig'),
-      signatureFile(VERSION, 'agentbuddy-linux-x86_64-1.4.0.tar.gz'),
+      join(onlyTar, 'AgentBuddy-linux-x86_64-1.4.0.tar.gz.sig'),
+      signatureFile(VERSION, 'AgentBuddy-linux-x86_64-1.4.0.tar.gz'),
     )
     expectThrows(() => collect('linux-x86_64', onlyTar, none.meta), /found 0/)
   })
@@ -272,11 +272,11 @@ describe('manifest', () => {
       )
       expect(Object.keys(body.signatures).sort()).toEqual(ALL_DOWNLOADS.slice().sort())
       const base = `https://${host}/ariacompute/agentbuddy/releases/download/v${VERSION}`
-      expect(body.platforms['linux-x86_64'].url).toBe(`${base}/agentbuddy-amd64-1.4.0.deb`)
+      expect(body.platforms['linux-x86_64'].url).toBe(`${base}/AgentBuddy-amd64-1.4.0.deb`)
       expect(body.platforms['darwin-aarch64'].url).toBe(
-        `${base}/agentbuddy-macos-aarch64-1.4.0.tar.gz`,
+        `${base}/AgentBuddy-macos-aarch64-1.4.0.tar.gz`,
       )
-      expect(body.platforms['windows-x86_64'].url).toBe(`${base}/agentbuddy-x64-1.4.0.msi`)
+      expect(body.platforms['windows-x86_64'].url).toBe(`${base}/AgentBuddy-x64-1.4.0.msi`)
       for (const [key, entry] of Object.entries(body.platforms)) {
         const asset = entry.url.slice(base.length + 1)
         expect(body.signatures[asset], `${file}:${key}`).toBe(entry.signature)
@@ -354,7 +354,7 @@ describe('manifest', () => {
 
     writeFileSync(
       metaPath,
-      JSON.stringify({ ...clean, signatures: { 'agentbuddy-arm64-1.4.0.deb': clean.signature } }),
+      JSON.stringify({ ...clean, signatures: { 'AgentBuddy-arm64-1.4.0.deb': clean.signature } }),
     )
     expectThrows(() => manifest(ws.assets, ws.meta, VERSION), /is not published/)
 
@@ -367,7 +367,7 @@ describe('manifest', () => {
     )
     expectThrows(() => manifest(ws.assets, ws.meta, VERSION), /not a minisign signature box/)
 
-    writeFileSync(metaPath, JSON.stringify({ ...clean, updaterAsset: 'agentbuddy-arm64-1.4.0.deb' }))
+    writeFileSync(metaPath, JSON.stringify({ ...clean, updaterAsset: 'AgentBuddy-arm64-1.4.0.deb' }))
     expectThrows(() => manifest(ws.assets, ws.meta, VERSION), /updater asset .* is not published/)
 
     writeFileSync(metaPath, JSON.stringify({ ...clean, signature: 'YWJjZA==' }))
@@ -468,19 +468,19 @@ describe('verify', () => {
     expectThrows(() => verify(extra.assets, VERSION), /unexpected release assets/)
 
     const missing = buildRelease()
-    rmSync(join(missing.assets, 'agentbuddy-x64-1.4.0.msi'))
+    rmSync(join(missing.assets, 'AgentBuddy-x64-1.4.0.msi'))
     expectThrows(() => verify(missing.assets, VERSION), /unexpected release assets/)
   })
 
   it('rejects malformed and incomplete checksums', () => {
     const malformed = buildRelease()
-    writeFileSync(join(malformed.assets, 'SHA256SUMS'), 'deadbeef  agentbuddy-x64-1.4.0.msi\n')
+    writeFileSync(join(malformed.assets, 'SHA256SUMS'), 'deadbeef  AgentBuddy-x64-1.4.0.msi\n')
     expectThrows(() => verify(malformed.assets, VERSION), /malformed SHA256SUMS line/)
 
     const short = buildRelease()
     writeFileSync(
       join(short.assets, 'SHA256SUMS'),
-      `${'0'.repeat(64)}  agentbuddy-x64-1.4.0.msi\n`,
+      `${'0'.repeat(64)}  AgentBuddy-x64-1.4.0.msi\n`,
     )
     expectThrows(() => verify(short.assets, VERSION), /must cover exactly the six downloads/)
   })
@@ -514,15 +514,15 @@ describe('verify', () => {
     const unknown = buildRelease()
     tamper(unknown, 'latest.json', (body) => {
       body.platforms['linux-x86_64'].url = body.platforms['linux-x86_64'].url.replace(
-        'agentbuddy-amd64-1.4.0.deb',
-        'agentbuddy-arm64-1.4.0.deb',
+        'AgentBuddy-amd64-1.4.0.deb',
+        'AgentBuddy-arm64-1.4.0.deb',
       )
     })
     expectThrows(() => verify(unknown.assets, VERSION), /unknown asset/)
 
     const unpublished = buildRelease()
     tamper(unpublished, 'latest.json', (body) => {
-      body.signatures['agentbuddy-arm64-1.4.0.deb'] = signatureFile()
+      body.signatures['AgentBuddy-arm64-1.4.0.deb'] = signatureFile()
     })
     expectThrows(() => verify(unpublished.assets, VERSION), /expected signatures for all six/)
   })
@@ -536,7 +536,7 @@ describe('verify', () => {
 
     const unsigned = buildRelease({ signed: false })
     tamper(unsigned, 'latest.json', (body) => {
-      body.signatures['agentbuddy-amd64-1.4.0.deb'] = signatureFile()
+      body.signatures['AgentBuddy-amd64-1.4.0.deb'] = signatureFile()
     })
     expectThrows(() => verify(unsigned.assets, VERSION), /signatures without any updater platform/)
   })
@@ -547,14 +547,14 @@ describe('verify', () => {
     const notBase64 = buildRelease()
     tamper(notBase64, 'latest.json', (body) => {
       body.platforms['linux-x86_64'].signature = 'YmFkZ'
-      body.signatures['agentbuddy-amd64-1.4.0.deb'] = 'YmFkZ'
+      body.signatures['AgentBuddy-amd64-1.4.0.deb'] = 'YmFkZ'
     })
     expectThrows(() => verify(notBase64.assets, VERSION), /signature is not base64/)
 
     // An asset that is not installable still has to carry a real signature box.
     const notABox = buildRelease()
     tamper(notABox, 'latest.json', (body) => {
-      body.signatures['agentbuddy-windows-x86_64-1.4.0.zip'] = Buffer.from('hello').toString(
+      body.signatures['AgentBuddy-windows-x86_64-1.4.0.zip'] = Buffer.from('hello').toString(
         'base64',
       )
     })

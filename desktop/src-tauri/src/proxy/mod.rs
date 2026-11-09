@@ -582,7 +582,7 @@ mod tests {
         let body = resp.text().await.unwrap();
         // The Rust copy is injected, so the page has no strings of its own.
         assert!(body.contains("window.__SHELL__"), "the boot object is missing");
-        assert!(body.contains("Connect to agentbuddy"));
+        assert!(body.contains("Connect to AgentBuddy"));
     }
 
     #[tokio::test]

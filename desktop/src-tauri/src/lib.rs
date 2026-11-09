@@ -193,7 +193,7 @@ pub fn run() {
 /// browser and still denies the WebView a window it could not manage.
 fn main_window(app: &tauri::App) -> tauri::Result<()> {
     tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-        .title("agentbuddy")
+        .title("AgentBuddy")
         .inner_size(1280.0, 820.0)
         .min_inner_size(960.0, 600.0)
         .resizable(true)

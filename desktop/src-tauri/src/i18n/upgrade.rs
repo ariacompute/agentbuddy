@@ -18,7 +18,7 @@ pub const EN: &[(&str, &str)] = &[
     ("upgradeUnsupported", "No installer for this system."),
     ("upgradeBusy", "Installing…"),
     ("upgradeFailed", "Update unavailable."),
-    ("upgradeNotifyTitle", "agentbuddy update"),
+    ("upgradeNotifyTitle", "AgentBuddy update"),
     ("upgradeNotifyBody", "Version {v} is available. Open settings to upgrade."),
 ];
 
@@ -34,7 +34,7 @@ pub const ZH: &[(&str, &str)] = &[
     ("upgradeUnsupported", "当前系统暂无安装包。"),
     ("upgradeBusy", "正在安装…"),
     ("upgradeFailed", "更新暂不可用。"),
-    ("upgradeNotifyTitle", "agentbuddy 更新"),
+    ("upgradeNotifyTitle", "AgentBuddy 更新"),
     ("upgradeNotifyBody", "新版本 {v} 已发布，打开设置即可升级。"),
 ];
 
@@ -50,7 +50,7 @@ pub const ZH_TW: &[(&str, &str)] = &[
     ("upgradeUnsupported", "此系統尚無安裝包。"),
     ("upgradeBusy", "正在安裝…"),
     ("upgradeFailed", "目前無法更新。"),
-    ("upgradeNotifyTitle", "agentbuddy 更新"),
+    ("upgradeNotifyTitle", "AgentBuddy 更新"),
     ("upgradeNotifyBody", "新版本 {v} 已推出，開啟設定即可升級。"),
 ];
 
@@ -66,7 +66,7 @@ pub const ES: &[(&str, &str)] = &[
     ("upgradeUnsupported", "No hay instalador para este sistema."),
     ("upgradeBusy", "Instalando…"),
     ("upgradeFailed", "Actualización no disponible."),
-    ("upgradeNotifyTitle", "Actualización de agentbuddy"),
+    ("upgradeNotifyTitle", "Actualización de AgentBuddy"),
     ("upgradeNotifyBody", "La versión {v} está lista. Abre Ajustes para actualizar."),
 ];
 
@@ -82,7 +82,7 @@ pub const FR: &[(&str, &str)] = &[
     ("upgradeUnsupported", "Aucun programme d'installation pour ce système."),
     ("upgradeBusy", "Installation…"),
     ("upgradeFailed", "Mise à jour indisponible."),
-    ("upgradeNotifyTitle", "Mise à jour d'agentbuddy"),
+    ("upgradeNotifyTitle", "Mise à jour d'AgentBuddy"),
     ("upgradeNotifyBody", "La version {v} est prête. Ouvrez les paramètres pour mettre à jour."),
 ];
 
@@ -98,7 +98,7 @@ pub const DE: &[(&str, &str)] = &[
     ("upgradeUnsupported", "Für dieses System gibt es kein Installationspaket."),
     ("upgradeBusy", "Wird installiert…"),
     ("upgradeFailed", "Update nicht verfügbar."),
-    ("upgradeNotifyTitle", "agentbuddy-Update"),
+    ("upgradeNotifyTitle", "AgentBuddy-Update"),
     ("upgradeNotifyBody", "Version {v} ist bereit. Öffnen Sie die Einstellungen zum Aktualisieren."),
 ];
 
@@ -114,7 +114,7 @@ pub const IT: &[(&str, &str)] = &[
     ("upgradeUnsupported", "Nessun programma di installazione per questo sistema."),
     ("upgradeBusy", "Installazione…"),
     ("upgradeFailed", "Aggiornamento non disponibile."),
-    ("upgradeNotifyTitle", "Aggiornamento di agentbuddy"),
+    ("upgradeNotifyTitle", "Aggiornamento di AgentBuddy"),
     ("upgradeNotifyBody", "La versione {v} è pronta. Apri le impostazioni per aggiornare."),
 ];
 
@@ -130,7 +130,7 @@ pub const RU: &[(&str, &str)] = &[
     ("upgradeUnsupported", "Для этой системы нет установочного пакета."),
     ("upgradeBusy", "Установка…"),
     ("upgradeFailed", "Обновление недоступно."),
-    ("upgradeNotifyTitle", "Обновление agentbuddy"),
+    ("upgradeNotifyTitle", "Обновление AgentBuddy"),
     ("upgradeNotifyBody", "Готова версия {v}. Откройте настройки для обновления."),
 ];
 
@@ -146,7 +146,7 @@ pub const JA: &[(&str, &str)] = &[
     ("upgradeUnsupported", "このシステム用のインストーラーはありません。"),
     ("upgradeBusy", "インストール中…"),
     ("upgradeFailed", "更新を利用できません。"),
-    ("upgradeNotifyTitle", "agentbuddy の更新"),
+    ("upgradeNotifyTitle", "AgentBuddy の更新"),
     ("upgradeNotifyBody", "バージョン {v} が利用できます。設定を開いて更新してください。"),
 ];
 
@@ -162,7 +162,7 @@ pub const KO: &[(&str, &str)] = &[
     ("upgradeUnsupported", "이 시스템용 설치 프로그램이 없습니다."),
     ("upgradeBusy", "설치 중…"),
     ("upgradeFailed", "업데이트를 사용할 수 없습니다."),
-    ("upgradeNotifyTitle", "agentbuddy 업데이트"),
+    ("upgradeNotifyTitle", "AgentBuddy 업데이트"),
     ("upgradeNotifyBody", "버전 {v}이 준비되었습니다. 설정에서 업그레이드하세요."),
 ];
 
@@ -178,7 +178,7 @@ pub const PT: &[(&str, &str)] = &[
     ("upgradeUnsupported", "Não há instalador para este sistema."),
     ("upgradeBusy", "A instalar…"),
     ("upgradeFailed", "Atualização indisponível."),
-    ("upgradeNotifyTitle", "Atualização do agentbuddy"),
+    ("upgradeNotifyTitle", "Atualização do AgentBuddy"),
     ("upgradeNotifyBody", "A versão {v} está pronta. Abra as definições para atualizar."),
 ];
 
@@ -194,7 +194,7 @@ pub const AR: &[(&str, &str)] = &[
     ("upgradeUnsupported", "لا توجد حزمة تثبيت لهذا النظام."),
     ("upgradeBusy", "جارٍ التثبيت…"),
     ("upgradeFailed", "التحديث غير متاح."),
-    ("upgradeNotifyTitle", "تحديث agentbuddy"),
+    ("upgradeNotifyTitle", "تحديث AgentBuddy"),
     ("upgradeNotifyBody", "الإصدار {v} جاهز. افتح الإعدادات للترقية."),
 ];
 
@@ -210,7 +210,7 @@ pub const HI: &[(&str, &str)] = &[
     ("upgradeUnsupported", "इस सिस्टम के लिए इंस्टॉलर नहीं है।"),
     ("upgradeBusy", "इंस्टॉल हो रहा है…"),
     ("upgradeFailed", "अपडेट उपलब्ध नहीं है।"),
-    ("upgradeNotifyTitle", "agentbuddy अपडेट"),
+    ("upgradeNotifyTitle", "AgentBuddy अपडेट"),
     ("upgradeNotifyBody", "संस्करण {v} तैयार है। अपग्रेड करने के लिए सेटिंग्स खोलें।"),
 ];
 

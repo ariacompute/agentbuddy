@@ -33,7 +33,7 @@ pub const EN: &[(&str, &str)] = &[
     ("trayQuit", "Quit"),
     // {n} is the unread count; the tray shows this as its tooltip and title.
     ("trayUnread", "{n} unread"),
-    ("connectTitle", "Connect to agentbuddy"),
+    ("connectTitle", "Connect to AgentBuddy"),
     ("fieldServer", "Server address"),
     ("fieldInsecure", "Ignore self-signed certificates"),
     (
@@ -62,7 +62,7 @@ pub const EN: &[(&str, &str)] = &[
     ("settingsBackground", "Keep running in the tray"),
     (
         "settingsBackgroundNote",
-        "Closing the window keeps agentbuddy connected and ready to notify you.",
+        "Closing the window keeps AgentBuddy connected and ready to notify you.",
     ),
     ("settingsNotify", "System notifications"),
     (
@@ -82,7 +82,7 @@ pub const ZH: &[(&str, &str)] = &[
     ("trayAbout", "关于"),
     ("trayQuit", "退出"),
     ("trayUnread", "{n} 条未读"),
-    ("connectTitle", "连接到 agentbuddy"),
+    ("connectTitle", "连接到 AgentBuddy"),
     ("fieldServer", "服务端地址"),
     ("fieldInsecure", "忽略自签证书"),
     ("fieldInsecureNote", "仅用于你自己网络中的服务端：开启后应用不再校验对方身份。"),
@@ -103,7 +103,7 @@ pub const ZH: &[(&str, &str)] = &[
     ("aboutServer", "服务端"),
     ("consoleMissing", "缺少工作台产物：请先构建前端。"),
     ("settingsBackground", "保留在托盘运行"),
-    ("settingsBackgroundNote", "关闭窗口后 agentbuddy 仍保持连接，随时向你推送通知。"),
+    ("settingsBackgroundNote", "关闭窗口后 AgentBuddy 仍保持连接，随时向你推送通知。"),
     ("settingsNotify", "系统通知"),
     ("settingsNotifyNote", "窗口隐藏时，结果与审批会以系统通知弹出。"),
     ("settingsQuiet", "安静时长（分钟）"),
@@ -116,7 +116,7 @@ pub const ZH_TW: &[(&str, &str)] = &[
     ("trayAbout", "關於"),
     ("trayQuit", "結束"),
     ("trayUnread", "{n} 則未讀"),
-    ("connectTitle", "連線到 agentbuddy"),
+    ("connectTitle", "連線到 AgentBuddy"),
     ("fieldServer", "伺服器位址"),
     ("fieldInsecure", "忽略自簽憑證"),
     ("fieldInsecureNote", "僅適用於你自己網路中的伺服器：開啟後應用不再驗證對方身分。"),
@@ -137,7 +137,7 @@ pub const ZH_TW: &[(&str, &str)] = &[
     ("aboutServer", "伺服器"),
     ("consoleMissing", "缺少工作台產物：請先建置前端。"),
     ("settingsBackground", "保留在系統列運行"),
-    ("settingsBackgroundNote", "關閉視窗後 agentbuddy 仍保持連線，隨時向你推送通知。"),
+    ("settingsBackgroundNote", "關閉視窗後 AgentBuddy 仍保持連線，隨時向你推送通知。"),
     ("settingsNotify", "系統通知"),
     ("settingsNotifyNote", "視窗隱藏時，結果與審批會以系統通知彈出。"),
     ("settingsQuiet", "安靜時長（分鐘）"),
@@ -150,7 +150,7 @@ pub const ES: &[(&str, &str)] = &[
     ("trayAbout", "Acerca de"),
     ("trayQuit", "Salir"),
     ("trayUnread", "{n} sin leer"),
-    ("connectTitle", "Conectarse a agentbuddy"),
+    ("connectTitle", "Conectarse a AgentBuddy"),
     ("fieldServer", "Dirección del servidor"),
     ("fieldInsecure", "Ignorar certificados autofirmados"),
     (
@@ -179,7 +179,7 @@ pub const ES: &[(&str, &str)] = &[
     ("settingsBackground", "Seguir en la bandeja"),
     (
         "settingsBackgroundNote",
-        "Cerrar la ventana mantiene agentbuddy conectado y listo para avisarte.",
+        "Cerrar la ventana mantiene AgentBuddy conectado y listo para avisarte.",
     ),
     ("settingsNotify", "Notificaciones del sistema"),
     (
@@ -196,7 +196,7 @@ pub const FR: &[(&str, &str)] = &[
     ("trayAbout", "À propos"),
     ("trayQuit", "Quitter"),
     ("trayUnread", "{n} non lus"),
-    ("connectTitle", "Se connecter à agentbuddy"),
+    ("connectTitle", "Se connecter à AgentBuddy"),
     ("fieldServer", "Adresse du serveur"),
     ("fieldInsecure", "Ignorer les certificats auto-signés"),
     (
@@ -228,7 +228,7 @@ pub const FR: &[(&str, &str)] = &[
     ("settingsBackground", "Rester dans la zone de notification"),
     (
         "settingsBackgroundNote",
-        "Fermer la fenêtre laisse agentbuddy connecté, prêt à vous notifier.",
+        "Fermer la fenêtre laisse AgentBuddy connecté, prêt à vous notifier.",
     ),
     ("settingsNotify", "Notifications système"),
     (
@@ -245,7 +245,7 @@ pub const DE: &[(&str, &str)] = &[
     ("trayAbout", "Über"),
     ("trayQuit", "Beenden"),
     ("trayUnread", "{n} ungelesen"),
-    ("connectTitle", "Mit agentbuddy verbinden"),
+    ("connectTitle", "Mit AgentBuddy verbinden"),
     ("fieldServer", "Serveradresse"),
     ("fieldInsecure", "Selbstsignierte Zertifikate ignorieren"),
     (
@@ -274,7 +274,7 @@ pub const DE: &[(&str, &str)] = &[
     ("settingsBackground", "Im Tray weiterlaufen"),
     (
         "settingsBackgroundNote",
-        "Das Schließen des Fensters hält agentbuddy verbunden und bereit zu benachrichtigen.",
+        "Das Schließen des Fensters hält AgentBuddy verbunden und bereit zu benachrichtigen.",
     ),
     ("settingsNotify", "Systembenachrichtigungen"),
     (
@@ -294,7 +294,7 @@ pub const IT: &[(&str, &str)] = &[
     ("trayAbout", "Informazioni"),
     ("trayQuit", "Esci"),
     ("trayUnread", "{n} non letti"),
-    ("connectTitle", "Connettersi ad agentbuddy"),
+    ("connectTitle", "Connettersi ad AgentBuddy"),
     ("fieldServer", "Indirizzo del server"),
     ("fieldInsecure", "Ignora i certificati autofirmati"),
     (
@@ -323,7 +323,7 @@ pub const IT: &[(&str, &str)] = &[
     ("settingsBackground", "Continua nella tray"),
     (
         "settingsBackgroundNote",
-        "Chiudere la finestra lascia agentbuddy connesso e pronto a notificarti.",
+        "Chiudere la finestra lascia AgentBuddy connesso e pronto a notificarti.",
     ),
     ("settingsNotify", "Notifiche di sistema"),
     (
@@ -340,7 +340,7 @@ pub const RU: &[(&str, &str)] = &[
     ("trayAbout", "О программе"),
     ("trayQuit", "Выйти"),
     ("trayUnread", "{n} непрочитанных"),
-    ("connectTitle", "Подключиться к agentbuddy"),
+    ("connectTitle", "Подключиться к AgentBuddy"),
     ("fieldServer", "Адрес сервера"),
     ("fieldInsecure", "Игнорировать самоподписанные сертификаты"),
     (
@@ -369,7 +369,7 @@ pub const RU: &[(&str, &str)] = &[
     ("settingsBackground", "Продолжить в трее"),
     (
         "settingsBackgroundNote",
-        "Закрытие окна оставляет agentbuddy подключённым и готовым уведомить вас.",
+        "Закрытие окна оставляет AgentBuddy подключённым и готовым уведомить вас.",
     ),
     ("settingsNotify", "Системные уведомления"),
     (
@@ -389,7 +389,7 @@ pub const JA: &[(&str, &str)] = &[
     ("trayAbout", "このアプリについて"),
     ("trayQuit", "終了"),
     ("trayUnread", "未読 {n} 件"),
-    ("connectTitle", "agentbuddy に接続"),
+    ("connectTitle", "AgentBuddy に接続"),
     ("fieldServer", "サーバーアドレス"),
     ("fieldInsecure", "自己署名証明書を無視する"),
     (
@@ -418,7 +418,7 @@ pub const JA: &[(&str, &str)] = &[
     ("settingsBackground", "トレイで常駐する"),
     (
         "settingsBackgroundNote",
-        "ウィンドウを閉じても agentbuddy は接続を維持し、通知の準備をします。",
+        "ウィンドウを閉じても AgentBuddy は接続を維持し、通知の準備をします。",
     ),
     ("settingsNotify", "システム通知"),
     (
@@ -435,7 +435,7 @@ pub const KO: &[(&str, &str)] = &[
     ("trayAbout", "정보"),
     ("trayQuit", "종료"),
     ("trayUnread", "읽지 않음 {n}개"),
-    ("connectTitle", "agentbuddy에 연결"),
+    ("connectTitle", "AgentBuddy에 연결"),
     ("fieldServer", "서버 주소"),
     ("fieldInsecure", "자체 서명 인증서 무시"),
     (
@@ -462,7 +462,7 @@ pub const KO: &[(&str, &str)] = &[
     ("aboutServer", "서버"),
     ("consoleMissing", "작업 공간 번들이 없습니다. 먼저 웹 앱을 빌드하세요."),
     ("settingsBackground", "트레이에서 계속 실행"),
-    ("settingsBackgroundNote", "창을 닫아도 agentbuddy는 연결을 유지하고 알림을 준비합니다."),
+    ("settingsBackgroundNote", "창을 닫아도 AgentBuddy는 연결을 유지하고 알림을 준비합니다."),
     ("settingsNotify", "시스템 알림"),
     ("settingsNotifyNote", "창이 숨겨져 있을 때 결과와 승인이 OS 알림으로 표시됩니다."),
     ("settingsQuiet", "조용한 시간(분)"),
@@ -475,7 +475,7 @@ pub const PT: &[(&str, &str)] = &[
     ("trayAbout", "Sobre"),
     ("trayQuit", "Sair"),
     ("trayUnread", "{n} não lidos"),
-    ("connectTitle", "Ligar ao agentbuddy"),
+    ("connectTitle", "Ligar ao AgentBuddy"),
     ("fieldServer", "Endereço do servidor"),
     ("fieldInsecure", "Ignorar certificados autoassinados"),
     (
@@ -504,7 +504,7 @@ pub const PT: &[(&str, &str)] = &[
     ("settingsBackground", "Continuar na bandeja"),
     (
         "settingsBackgroundNote",
-        "Fechar a janela mantém o agentbuddy ligado e pronto a notificar.",
+        "Fechar a janela mantém o AgentBuddy ligado e pronto a notificar.",
     ),
     ("settingsNotify", "Notificações do sistema"),
     (
@@ -521,7 +521,7 @@ pub const AR: &[(&str, &str)] = &[
     ("trayAbout", "حول"),
     ("trayQuit", "خروج"),
     ("trayUnread", "{n} غير مقروء"),
-    ("connectTitle", "الاتصال بـ agentbuddy"),
+    ("connectTitle", "الاتصال بـ AgentBuddy"),
     ("fieldServer", "عنوان الخادم"),
     ("fieldInsecure", "تجاهل الشهادات الموقّعة ذاتيًا"),
     (
@@ -548,7 +548,7 @@ pub const AR: &[(&str, &str)] = &[
     ("aboutServer", "الخادم"),
     ("consoleMissing", "حزمة مساحة العمل مفقودة: ابدأ ببناء تطبيق الويب."),
     ("settingsBackground", "الاستمرار في علبة النظام"),
-    ("settingsBackgroundNote", "إغلاق النافذة يبقي agentbuddy متصلاً ومستعداً لإشعارك."),
+    ("settingsBackgroundNote", "إغلاق النافذة يبقي AgentBuddy متصلاً ومستعداً لإشعارك."),
     ("settingsNotify", "إشعارات النظام"),
     ("settingsNotifyNote", "تظهر النتائج والموافقات كإشعارات نظام عند إخفاء النافذة."),
     ("settingsQuiet", "دقائق صمت"),
@@ -561,7 +561,7 @@ pub const HI: &[(&str, &str)] = &[
     ("trayAbout", "परिचय"),
     ("trayQuit", "बंद करें"),
     ("trayUnread", "{n} अपठित"),
-    ("connectTitle", "agentbuddy से कनेक्ट करें"),
+    ("connectTitle", "AgentBuddy से कनेक्ट करें"),
     ("fieldServer", "सर्वर पता"),
     ("fieldInsecure", "स्व-हस्ताक्षरित प्रमाणपत्र अनदेखा करें"),
     (
@@ -590,7 +590,7 @@ pub const HI: &[(&str, &str)] = &[
     ("settingsBackground", "ट्रे में चलता रहे"),
     (
         "settingsBackgroundNote",
-        "विंडो बंद करने पर भी agentbuddy कनेक्ट रहता है और आपको सूचित करने को तैयार रहता है।",
+        "विंडो बंद करने पर भी AgentBuddy कनेक्ट रहता है और आपको सूचित करने को तैयार रहता है।",
     ),
     ("settingsNotify", "सिस्टम सूचनाएँ"),
     (

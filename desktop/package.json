@@ -2,7 +2,7 @@
   "name": "agentbuddy-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Tauri v2 desktop shell for agentbuddy: connects to an agenthub server and opens the workbench.",
+  "description": "Tauri v2 desktop shell for AgentBuddy: connects to an agenthub server and opens the workbench.",
   "engines": {
     "bun": ">=1.4.4"
   },

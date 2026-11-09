@@ -7,12 +7,12 @@
 # no-install download.
 #
 # Resulting release assets (per version V) — exactly nine files:
-#   agentbuddy-amd64-V.deb                native installer, x86_64 Linux
-#   agentbuddy-linux-x86_64-V.tar.gz      portable, x86_64 Linux
-#   agentbuddy-aarch64-V.dmg              native installer, Apple Silicon macOS
-#   agentbuddy-macos-aarch64-V.tar.gz     portable, Apple Silicon macOS (.app)
-#   agentbuddy-x64-V.msi                  native installer, x86_64 Windows
-#   agentbuddy-windows-x86_64-V.zip       portable, x86_64 Windows
+#   AgentBuddy-amd64-V.deb                native installer, x86_64 Linux
+#   AgentBuddy-linux-x86_64-V.tar.gz      portable, x86_64 Linux
+#   AgentBuddy-aarch64-V.dmg              native installer, Apple Silicon macOS
+#   AgentBuddy-macos-aarch64-V.tar.gz     portable, Apple Silicon macOS (.app)
+#   AgentBuddy-x64-V.msi                  native installer, x86_64 Windows
+#   AgentBuddy-windows-x86_64-V.zip       portable, x86_64 Windows
 #   latest.json / latest-gitee.json       updater manifests
 #   SHA256SUMS                            checksums for the six downloads
 #
@@ -148,12 +148,12 @@ jobs:
           set -euo pipefail
           OUT="$GITHUB_WORKSPACE/out"; META="$GITHUB_WORKSPACE/meta"
           mkdir -p "$OUT" "$META"
-          BIN="desktop/src-tauri/target/release/agentbuddy"
+          BIN="desktop/src-tauri/target/release/AgentBuddy"
           DEB=$(ls desktop/src-tauri/target/release/bundle/deb/*.deb | head -n1)
-          cp "$DEB" "$OUT/agentbuddy-amd64-${VERSION}.deb"
-          tar -czf "$OUT/agentbuddy-linux-x86_64-${VERSION}.tar.gz" -C "$(dirname "$BIN")" agentbuddy
+          cp "$DEB" "$OUT/AgentBuddy-amd64-${VERSION}.deb"
+          tar -czf "$OUT/AgentBuddy-linux-x86_64-${VERSION}.tar.gz" -C "$(dirname "$BIN")" AgentBuddy
           if [ "${{ steps.updater.outputs.enabled }}" = "true" ]; then
-            for asset in "$OUT"/agentbuddy-*; do
+            for asset in "$OUT"/AgentBuddy-*; do
               (cd desktop && bun run tauri signer sign "$asset" --app-version "$VERSION")
             done
           fi
@@ -168,10 +168,10 @@ jobs:
           mkdir -p "$OUT" "$META"
           APP=$(ls -d desktop/src-tauri/target/release/bundle/macos/*.app | head -n1)
           DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -n1)
-          cp "$DMG" "$OUT/agentbuddy-aarch64-${VERSION}.dmg"
-          tar -czf "$OUT/agentbuddy-macos-aarch64-${VERSION}.tar.gz" -C "$(dirname "$APP")" "$(basename "$APP")"
+          cp "$DMG" "$OUT/AgentBuddy-aarch64-${VERSION}.dmg"
+          tar -czf "$OUT/AgentBuddy-macos-aarch64-${VERSION}.tar.gz" -C "$(dirname "$APP")" "$(basename "$APP")"
           if [ "${{ steps.updater.outputs.enabled }}" = "true" ]; then
-            for asset in "$OUT"/agentbuddy-*; do
+            for asset in "$OUT"/AgentBuddy-*; do
               (cd desktop && bun run tauri signer sign "$asset" --app-version "$VERSION")
             done
           fi
@@ -185,12 +185,12 @@ jobs:
           $OUT = "$env:GITHUB_WORKSPACE/out"
           $META = "$env:GITHUB_WORKSPACE/meta"
           New-Item -ItemType Directory -Force -Path $OUT, $META | Out-Null
-          $EXE = "desktop/src-tauri/target/release/agentbuddy.exe"
+          $EXE = "desktop/src-tauri/target/release/AgentBuddy.exe"
           $MSI = (Get-ChildItem desktop/src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1).FullName
-          Copy-Item $MSI "$OUT/agentbuddy-x64-${env:VERSION}.msi"
-          Compress-Archive -Path $EXE -DestinationPath "$OUT/agentbuddy-windows-x86_64-${env:VERSION}.zip"
+          Copy-Item $MSI "$OUT/AgentBuddy-x64-${env:VERSION}.msi"
+          Compress-Archive -Path $EXE -DestinationPath "$OUT/AgentBuddy-windows-x86_64-${env:VERSION}.zip"
           if ("${{ steps.updater.outputs.enabled }}" -eq "true") {
-            Get-ChildItem "$OUT/agentbuddy-*" | ForEach-Object {
+            Get-ChildItem "$OUT/AgentBuddy-*" | ForEach-Object {
               Push-Location desktop
               try { bun run tauri signer sign $_.FullName --app-version $env:VERSION }
               finally { Pop-Location }
@@ -249,11 +249,11 @@ jobs:
             echo "::warning::Gitee release $TAG is missing or unreachable; mirror it manually."
           fi
           echo "### Gitee mirror" >> "$GITHUB_STEP_SUMMARY"
-          echo "Upload the six \`agentbuddy-*\` downloads and \`latest-gitee.json\` renamed to \`latest.json\` to the Gitee release for $TAG. Signatures are embedded in the manifest; no \`.sig\` files are needed." >> "$GITHUB_STEP_SUMMARY"
+          echo "Upload the six \`AgentBuddy-*\` downloads and \`latest-gitee.json\` renamed to \`latest.json\` to the Gitee release for $TAG. Signatures are embedded in the manifest; no \`.sig\` files are needed." >> "$GITHUB_STEP_SUMMARY"
       - name: Generate checksums
         run: |
           cd release-assets
-          sha256sum agentbuddy-* > SHA256SUMS
+          sha256sum AgentBuddy-* > SHA256SUMS
           cat SHA256SUMS
       - name: Verify release assets
         shell: bash
@@ -269,12 +269,12 @@ jobs:
           # An explicit allowlist on top of the verify step above: even a stray
           # file in release-assets/ can never become a release asset.
           files: |
-            release-assets/agentbuddy-amd64-*.deb
-            release-assets/agentbuddy-linux-x86_64-*.tar.gz
-            release-assets/agentbuddy-aarch64-*.dmg
-            release-assets/agentbuddy-macos-aarch64-*.tar.gz
-            release-assets/agentbuddy-x64-*.msi
-            release-assets/agentbuddy-windows-x86_64-*.zip
+            release-assets/AgentBuddy-amd64-*.deb
+            release-assets/AgentBuddy-linux-x86_64-*.tar.gz
+            release-assets/AgentBuddy-aarch64-*.dmg
+            release-assets/AgentBuddy-macos-aarch64-*.tar.gz
+            release-assets/AgentBuddy-x64-*.msi
+            release-assets/AgentBuddy-windows-x86_64-*.zip
             release-assets/latest.json
             release-assets/latest-gitee.json
             release-assets/SHA256SUMS

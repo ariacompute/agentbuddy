@@ -69,7 +69,7 @@ fn apply_badge(app: &AppHandle, lang: &str, count: u32) {
 
 /// The tooltip an idle tray carries. It is the product name, which is a proper
 /// noun and therefore the same in every language.
-const APP_NAME: &str = "agentbuddy";
+const APP_NAME: &str = "AgentBuddy";
 
 const ID_OPEN: &str = "shell.open";
 const ID_SETTINGS: &str = "shell.settings";
