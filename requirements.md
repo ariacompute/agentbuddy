@@ -62,6 +62,7 @@
 | F3.3 | 实时：打开会话时保持 `GET /api/threads/{id}/events` 长连接，增量追加 |
 | F3.4 | 消息来源标记：`origin` ∈ 空（文本）/ `voice` / 通道类型，以文本标签呈现 |
 | F3.5 | 右侧任务面板：本会话关联的 A2A 任务，可展开状态 / 产物 / 追踪 |
+| F3.6 | **会话删除（单选 / 多选）**：列表每张卡片一个复选框 + 一个「全选」，另有单卡删除按钮；勾选 1 个或 N 个走同一套二次确认（`BaseDialog`，单数 / 复数文案分别带 `{count}` 占位），确认后逐个 `DELETE /api/threads/{id}`，全部结束再 `GET /api/threads` 重拉列表。**不做乐观删除**。选中集始终与服务端最新列表求交：后台刷新删掉的 id 不再计数、不再发送；删除失败的行保留选中以便重试，并在页内 banner 显示本地化机器码。13 语全量文案（`copy/thread-copy.js`），触控目标 ≥44px、逻辑属性、单色令牌；取消 / 关闭确认框或重复点击确认不得发出第二个请求 |
 
 ### F4 任务与产物追踪
 
@@ -290,6 +291,7 @@
 | GET | `/api/connectors/{id}/actions` | `resources:read` | 动作历史 |
 | POST | `/api/connectors/{id}/actions` | `resources:write` | 执行动作（ask → park） |
 | POST | `/api/threads/{id}/audio` | `tasks:write` | 语音上传（multipart） |
+| DELETE | `/api/threads/{id}` | `tasks:write` | 删除自有会话（含消息历史）：204 空体；不存在 / 非本人 → 404 `not_found`（F3.6，多选时客户端逐 id 调用） |
 | GET | `/api/computers` | `resources:read` | Agent 计算机会话列表（F11） |
 | POST | `/api/computers` | `resources:write` | 新建计算机会话（browser/shell/screen） |
 | GET | `/api/computers/{id}` | `resources:read` | 计算机会话详情 + 最近动作回显 |
@@ -348,10 +350,13 @@
 `sandbox_timeout`、`sandbox_node_offline`、`sandbox_lease_lost`、`sandbox_limit_reached`。
 外壳（F18）：`proxy_unauthorized`、`proxy_origin_refused` 由代理直接返回，不进错误码表与文案表。
 
-**删除的幂等语义（F6 / F11 / F13 / F19）**：`DELETE` 不由服务端用状态码替客户端保证幂等——对调用方
-看不见的 id 一律回 404 并带对应的 `channel_not_found` / `computer_not_found` / `schedule_not_found` /
-`file_not_found`。通道、计算机、调度与文件四屏把该码读作「已经没了」：关掉确认框、重拉列表、不弹拒绝；
-其余失败仍就地显示本地化文案且行不消失。
+**删除的幂等语义（F3 / F6 / F11 / F13 / F19）**：`DELETE` 不由服务端用状态码替客户端保证幂等——对调用方
+看不见的 id 一律回 404 并带对应的 `not_found`（会话）/ `channel_not_found` / `computer_not_found` /
+`schedule_not_found` / `file_not_found`。会话、通道、计算机、调度与文件各屏把该码读作「已经没了」：关掉确认框、
+重拉列表、不弹拒绝；其余失败仍就地显示本地化文案且行不消失。会话批量删除用 `Promise.allSettled`：
+单个 404 不影响同批其它 id，首个真实拒绝码交给 `errors.js` 本地化。服务端若没有删除端点而只回
+裸状态码（`404` / `405` / `403` / `503`），客户端先翻译成对应机器码，其中裸 `404` 不算「已经没了」，
+以免点了删除却静默无事发生。
 
 登记三处：`internal/httputil/json.go` 的 `Code*` 常量、agentbuddy `web/src/lib/errors.js` 的
 `CODE_KEYS`、`web/src/lib/copy/errors-copy.js` 的 13 语（调度器文案集中在

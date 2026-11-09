@@ -1,0 +1,309 @@
+// @vitest-environment jsdom
+// The Threads list owns one deletion flow for both cases: one checked card is a
+// single delete, several checked cards (or Select all) are a batch delete. These
+// cases drive the screen with the real workbench store and a mocked API, so they
+// prove the checkbox → confirmation → endpoint → reload wiring, not just a
+// helper in isolation.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
+import { mountWith } from './helpers/vue-utils.js'
+import { setLang, useCopy } from '../src/lib/use-copy.js'
+import { LANG_CODES } from '../src/lib/languages.js'
+import { errorMessage } from '../src/lib/errors.js'
+
+vi.mock('../src/lib/api.js')
+
+import { listThreads, createThread, deleteThread } from '../src/lib/api.js'
+import ThreadListView from '../src/views/ThreadListView.vue'
+
+const THREADS = [
+  { ID: 'th-1', Title: 'Alpha', Participants: ['a1'] },
+  { ID: 'th-2', Title: 'Beta', Participants: [] },
+  { ID: 'th-3', Title: 'Gamma', Participants: [] },
+]
+const rows = () => THREADS.map((t) => ({ ...t }))
+
+// BaseDialog teleports into document.body. Leaving a mounted view behind while
+// the next test clears the body makes Vue patch a detached tree.
+const mounted = []
+function mountView() {
+  const result = mountWith(ThreadListView)
+  mounted.push(result.wrapper)
+  return result
+}
+
+function findButton(wrapper, text) {
+  return wrapper.findAll('button').find((b) => b.text().includes(text))
+}
+
+async function clickDialogButton(text) {
+  await nextTick()
+  const btn = Array.from(document.querySelectorAll('.dialog-foot button'))
+    .find((b) => (b.textContent || '').trim().includes(text))
+  expect(btn, `dialog button ${text}`).toBeTruthy()
+  btn.click()
+  await flushPromises()
+}
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
+  window.localStorage.clear()
+  setLang('en')
+  listThreads.mockResolvedValue({ threads: rows() })
+  createThread.mockResolvedValue({ ID: 'new' })
+  deleteThread.mockResolvedValue(null)
+})
+
+afterEach(() => {
+  // Unmount before touching the DOM or the language: a live teleported dialog
+  // would otherwise be patched against a detached tree.
+  for (const wrapper of mounted.splice(0)) wrapper.unmount()
+  // setLang pushes the preference to the shell, so keep the fetch stub in place
+  // until after the reset.
+  setLang('en')
+  vi.unstubAllGlobals()
+  vi.clearAllMocks()
+  document.body.innerHTML = ''
+})
+
+describe('ThreadListView — selection', () => {
+  it('offers a checkbox per card and a select-all control', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    expect(wrapper.findAll('.thread-check')).toHaveLength(3)
+    expect(wrapper.find('.thread-checkall input').exists()).toBe(true)
+    expect(wrapper.find('.thread-checkall').text()).toContain('Select all')
+    // Nothing is checked, so no destructive action is offered yet.
+    expect(findButton(wrapper, 'Delete selected')).toBeUndefined()
+  })
+
+  it('opens a thread from the card, but not from its checkbox or delete button', async () => {
+    const { wrapper, router } = mountView()
+    await flushPromises()
+
+    await wrapper.find('.thread-check-label').trigger('click')
+    await wrapper.find('.thread-delete').trigger('click')
+    expect(router.currentRoute.value.fullPath).toBe('/')
+    expect(deleteThread).not.toHaveBeenCalled()
+
+    await wrapper.find('.thread-card').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/threads/th-1')
+  })
+
+  it('selects all, shows the count and clears the selection again', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    await wrapper.find('.thread-checkall input').setValue(true)
+    expect(wrapper.vm.selected).toEqual(['th-1', 'th-2', 'th-3'])
+    expect(wrapper.text()).toContain('3 selected')
+    expect(findButton(wrapper, 'Delete selected').text()).toContain('(3)')
+    expect(wrapper.find('.thread-checkall input').element.checked).toBe(true)
+
+    await findButton(wrapper, 'Clear selection').trigger('click')
+    expect(wrapper.vm.selected).toEqual([])
+    expect(findButton(wrapper, 'Delete selected')).toBeUndefined()
+  })
+
+  it('deselects all through the same select-all control', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    await wrapper.find('.thread-checkall input').setValue(true)
+    await wrapper.find('.thread-checkall input').setValue(false)
+    expect(wrapper.vm.selected).toEqual([])
+    expect(wrapper.text()).toContain('0 selected')
+  })
+
+  it('keeps the selection in step with a list the server has changed', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    await wrapper.findAll('.thread-check')[0].setValue(true)
+    // A background refresh drops the selected thread without any click.
+    listThreads.mockResolvedValueOnce({ threads: rows().slice(1) })
+    await wrapper.vm.workbench.refreshThreads()
+    await nextTick()
+
+    expect(wrapper.vm.selectedIds).toEqual([])
+    expect(findButton(wrapper, 'Delete selected')).toBeUndefined()
+  })
+
+  it('renders no selection toolbar for an empty list', async () => {
+    listThreads.mockResolvedValue({ threads: [] })
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('.thread-toolbar').exists()).toBe(false)
+    expect(wrapper.text()).toContain('No threads yet.')
+  })
+
+  it('falls back to the id when a thread has no title', async () => {
+    listThreads.mockResolvedValue({ threads: [{ ID: 'th-untitled' }] })
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('.thread-card').text()).toContain('th-untitled')
+  })
+})
+
+describe('ThreadListView — deleting', () => {
+  it('deletes one thread after a singular confirmation', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    await wrapper.find('.thread-delete').trigger('click')
+    expect(deleteThread).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('Delete this thread?')
+
+    listThreads.mockResolvedValueOnce({ threads: rows().slice(1) })
+    await clickDialogButton('Delete')
+
+    expect(deleteThread).toHaveBeenCalledTimes(1)
+    expect(deleteThread).toHaveBeenCalledWith('th-1')
+    expect(listThreads).toHaveBeenCalledTimes(2)
+    expect(document.querySelector('.dialog-backdrop')).toBeNull()
+  })
+
+  it('deletes every selected thread with a plural confirmation', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    await wrapper.find('.thread-checkall input').setValue(true)
+    await findButton(wrapper, 'Delete selected').trigger('click')
+    expect(document.body.textContent).toContain('Delete 3 selected threads?')
+
+    listThreads.mockResolvedValueOnce({ threads: [] })
+    await clickDialogButton('Delete')
+
+    expect(deleteThread.mock.calls.map(([id]) => id)).toEqual(['th-1', 'th-2', 'th-3'])
+    expect(wrapper.vm.selected).toEqual([])
+    expect(wrapper.text()).toContain('No threads yet.')
+  })
+
+  it('backs out of the confirmation without deleting anything', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    await wrapper.find('.thread-delete').trigger('click')
+    await clickDialogButton('Cancel')
+
+    expect(deleteThread).not.toHaveBeenCalled()
+    expect(document.querySelector('.dialog-backdrop')).toBeNull()
+  })
+
+  it('lets the dialog close itself through its own v-model', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    await wrapper.find('.thread-delete').trigger('click')
+    await nextTick()
+    document.querySelector('.dialog-close').click()
+    await flushPromises()
+
+    expect(wrapper.vm.showConfirm).toBe(false)
+    expect(document.querySelector('.dialog-backdrop')).toBeNull()
+    expect(deleteThread).not.toHaveBeenCalled()
+  })
+
+  it('keeps the surviving selection and shows the refusal', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    deleteThread.mockReset()
+      .mockRejectedValueOnce({ code: 'forbidden' })
+      .mockResolvedValueOnce(null)
+    await wrapper.findAll('.thread-check')[0].setValue(true)
+    await wrapper.findAll('.thread-check')[2].setValue(true)
+    await findButton(wrapper, 'Delete selected').trigger('click')
+    await clickDialogButton('Delete')
+
+    expect(wrapper.find('.banner-error').text()).toContain(errorMessage('forbidden'))
+    // The dialog stays open and the selection survives for a retry.
+    expect(document.querySelector('.dialog-backdrop')).not.toBeNull()
+    expect(wrapper.vm.selected).toEqual(['th-1', 'th-3'])
+  })
+
+  it('explains a server that has no delete endpoint instead of doing nothing', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    deleteThread.mockRejectedValue({ code: '405', status: 405 })
+    await wrapper.findAll('.thread-check')[0].setValue(true)
+    await findButton(wrapper, 'Delete selected').trigger('click')
+    await clickDialogButton('Delete')
+
+    expect(wrapper.find('.banner-error').text()).toContain(errorMessage('method_not_allowed'))
+    expect(wrapper.vm.selected).toEqual(['th-1'])
+  })
+
+  it('treats a thread the server cannot see as already gone', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    deleteThread.mockRejectedValue({ code: 'not_found' })
+    listThreads.mockResolvedValueOnce({ threads: rows().slice(1) })
+    await wrapper.findAll('.thread-check')[0].setValue(true)
+    await findButton(wrapper, 'Delete selected').trigger('click')
+    await clickDialogButton('Delete')
+
+    expect(wrapper.find('.banner-error').exists()).toBe(false)
+    expect(document.querySelector('.dialog-backdrop')).toBeNull()
+    expect(wrapper.vm.selected).toEqual([])
+  })
+
+  it('does not send the same batch twice while a delete is in flight', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    let release
+    deleteThread.mockReturnValue(new Promise((resolve) => { release = resolve }))
+    await wrapper.findAll('.thread-check')[0].setValue(true)
+    await findButton(wrapper, 'Delete selected').trigger('click')
+    await nextTick()
+
+    const first = wrapper.vm.confirmDelete()
+    await wrapper.vm.confirmDelete()
+    expect(deleteThread).toHaveBeenCalledTimes(1)
+
+    release(null)
+    await first
+    await flushPromises()
+    expect(deleteThread).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ThreadListView — all 13 languages', () => {
+  it('translates every selection and deletion key', () => {
+    for (const lang of LANG_CODES) {
+      setLang(lang)
+      const { t } = useCopy('thread')
+      for (const key of ['deleteTitle', 'deleteSelected', 'selectAll', 'selectThread', 'selectedCount', 'clearSelection']) {
+        expect(t(key), `${lang}.${key} missing`).toBeTruthy()
+      }
+      expect(t('deleteSelectedConfirm')).toContain('{count}')
+      if (lang !== 'en') {
+        expect(t('deleteSelected'), `${lang}.deleteSelected equals English`).not.toBe('Delete selected')
+        expect(t('selectAll'), `${lang}.selectAll equals English`).not.toBe('Select all')
+      }
+    }
+  })
+
+  it('renders the controls in the chosen language', async () => {
+    setLang('zh')
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    await wrapper.find('.thread-checkall input').setValue(true)
+    expect(findButton(wrapper, '删除所选').text()).toContain('(3)')
+    expect(wrapper.find('.thread-checkall').text()).toContain('全选')
+    expect(wrapper.text()).toContain('已选 3 个')
+
+    await findButton(wrapper, '删除所选').trigger('click')
+    expect(document.body.textContent).toContain('删除选中的 3 个会话？')
+    expect(document.body.textContent).toContain('删除会话')
+  })
+})

@@ -106,6 +106,8 @@ export const getWorkspace = () => get('/api/workspace')
 export const listThreads = () => get('/api/threads')
 export const createThread = (title) => post('/api/threads', { title })
 export const getThread = (id) => get(`/api/threads/${id}`)
+/** Deletes one owned thread; a batch delete sends one of these per selected id. */
+export const deleteThread = (id) => del(`/api/threads/${id}`)
 export const postThreadMessage = (id, body, mentions) =>
   post(`/api/threads/${id}/messages`, { body, mentions })
 

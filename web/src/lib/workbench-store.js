@@ -4,7 +4,7 @@
 // stay in sync — without ever holding a timer or DOM reference itself.
 import { defineStore } from 'pinia'
 import {
-  getWorkspace, listThreads, listTasks, listChannels, listConnectors, getDeliveries,
+  getWorkspace, listThreads, deleteThread, listTasks, listChannels, listConnectors, getDeliveries,
   resumeTask, cancelTask, isAuthError, notifyShell, setTrayBadge,
 } from './api.js'
 import { decide, markSeen, pruneSeen } from './notifications.js'
@@ -35,6 +35,26 @@ function asList(data, key) {
 // turn into an error the user sees.
 function pushTrayBadge(count) {
   Promise.resolve(setTrayBadge(count)).catch(() => {})
+}
+
+// A domain 404 for one id of a batch means that thread is already gone: the
+// intent of "delete these" is satisfied, so it must not turn a partly
+// successful batch into a refusal. A bare "404" is the mux's answer for a route
+// that does not exist though — that server cannot delete anything, so report it.
+function threadAlreadyGone(reason) {
+  if (reason?.code === '404') return false
+  return reason?.code === 'not_found' ||
+    reason?.code === 'thread_not_found' ||
+    reason?.status === 404
+}
+
+// When a server answers without a JSON body, request() falls back to the raw
+// status string. Translate the common ones so the banner stays localised.
+const STATUS_CODES = {
+  403: 'forbidden',
+  404: 'not_found',
+  405: 'method_not_allowed',
+  503: 'feature_unavailable',
 }
 
 // A receipt arrives with `createdAt` / `error`; every other row in the app is
@@ -105,6 +125,27 @@ export const useWorkbenchStore = defineStore('workbench', {
         console.error('agentbuddy: threads refresh failed', error)
         this.errorCode = error.code
       }
+    },
+
+    /**
+     * Deletes one or many threads, then re-reads the list from the server. The
+     * batch is deliberately all-settled: a refusal on one id must not stop the
+     * others. Returns the first machine code that refused (or null when every
+     * id is gone), so the screen can localise it through errors.js.
+     */
+    async deleteThreads(ids) {
+      const results = await Promise.allSettled(ids.map((id) => deleteThread(id)))
+      let failure = null
+      for (const result of results) {
+        if (result.status === 'fulfilled' || threadAlreadyGone(result.reason)) continue
+        const reason = result.reason || {}
+        if (!failure) {
+          const code = reason.code || reason.message || 'internal_error'
+          failure = STATUS_CODES[code] || code
+        }
+      }
+      await this.refreshThreads()
+      return failure
     },
 
     async refreshTasks() {

@@ -1436,3 +1436,44 @@ v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的
 - 待实机复核（本地无桌面会话，未跑起打包后的窗口）：Windows 上切 light / dark 主题与执行节点
   跑一条命令时都不再出现控制台窗口，且 `config.json` 的 ACL 仍被收紧（`icacls` 的调用、参数与
   退出码分支均未改动，本项只是「窗口不再存在」）。
+
+## M35 — Threads 单选 / 多选删除（2026-11-09）
+
+列表此前只有「新建」：会话一旦建错或聊完，界面上没有任何删除入口。本轮补 F3.6，
+只动 `web/`，外壳零改动（`/api` 前缀代理本就覆盖新增的 DELETE）。
+
+### 1. 收口
+
+- `api.js`：新增 `deleteThread(id)` → `DELETE /api/threads/{id}`（204 空体走 `del` 的
+  「无 body 即 null」分支）；`api-usage.spec.js` 由 store 的引用接住，白名单仍为空。
+- `workbench-store.js`：`deleteThreads(ids)` 用 `Promise.allSettled` 逐 id 删除、**只重拉一次**列表，
+  返回首个真实拒绝码；`not_found` / `thread_not_found` 视为「已经没了」，一个 id 的
+  404 不牵连同批其它 id（与 F19 文件的幂等语义一致）。裸状态码（`404` / `405` / `403` / `503`）
+  翻译成 `not_found` / `method_not_allowed` / `forbidden` / `feature_unavailable` 再本地化；
+  其中裸 `404` 是 mux 的「没有这条路由」，**不**当作已删除，避免点了删除却静默无事发生。
+- `ThreadListView.vue`：每卡复选框 + 单卡删除按钮 + 全选 / 清除 / 计数，二次确认复用 `BaseDialog`；
+  单数用既有 `deleteConfirm`，复数用带 `{count}` 的新文案。选中集是 `selectedIds` computed
+  （与服务端最新列表求交），成功后按刷新结果裁剪、失败时保留未删掉的行以便重试；
+  `deleting` 挡住重复提交，拒绝码走 `errors.js` 本地化后显示在页内 banner。
+- `copy/thread-copy.js`：13 语各补 7 键（`deleteTitle` / `deleteSelected` /
+  `deleteSelectedConfirm` / `selectAll` / `selectThread` / `selectedCount` / `clearSelection`）；
+  取消 / 关闭 / 删除按钮复用 `shell-copy.js` 的既有键，不新增机器码。
+- `style.css`：复选框 / 工具栏 / 选中态只用已有令牌，label 撑到 44px 触控目标，
+  焦点环 2px + 2px offset，RTL 用 `inline-size` / `margin-inline-start`，无新增色值。
+
+### 2. 服务端契约
+
+删除是服务端动作，客户端不做乐观删除也不伪造本地状态：`DELETE /api/threads/{id}` 需 `tasks:write`，
+成功 204、不存在或非本人 404 `not_found`（消息历史随外键级联）。契约已写入 `requirements.md` §4.1；
+`agenthub` 已同步实现该端点（见其 `requirements.md` §13 / `task.md` M20），无数据库实例时回
+503 `feature_unavailable`，客户端按裸状态码翻译后本地化显示。
+
+### 3. 验证
+
+- 新增 `tests/thread-delete.spec.js`（17 条）：单选 / 全选 / 取消 / 对话框自身 v-model 关闭 /
+  标题缺省 / 空列表 / 后台刷新后选中集收敛 / 单个与批量删除 / 拒绝与 404 / 端点缺失 /
+  重复提交防护 / 13 语键与中文渲染。`api.spec.js` 补 204 + 403，`workbench-store.spec.js` 补批量的
+  全成功 / 三种已删除 / 首个拒绝 / 裸状态码 / message 与缺省码回退 / 空选集。
+- `bun run test`：**34 spec / 803 用例全绿**；`bun run test:coverage`：语句 / 行 / 分支 / 函数
+  **四项 100%**（11314 语句、1876 分支、448 函数），配置无 exclude、无 `v8 ignore`。
+- `bun run build` 通过（只有既有的 chunk 体积提示）。

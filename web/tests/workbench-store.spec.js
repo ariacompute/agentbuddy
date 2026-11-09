@@ -4,6 +4,7 @@ import { setActivePinia, createPinia } from 'pinia'
 vi.mock('../src/lib/api.js', () => ({
   getWorkspace: vi.fn(),
   listThreads: vi.fn(),
+  deleteThread: vi.fn(),
   listTasks: vi.fn(),
   listChannels: vi.fn(),
   listConnectors: vi.fn(),
@@ -18,7 +19,7 @@ vi.mock('../src/lib/api.js', () => ({
 
 import { useWorkbenchStore } from '../src/lib/workbench-store.js'
 import {
-  getWorkspace, listThreads, listTasks, listChannels, listConnectors, getDeliveries,
+  getWorkspace, listThreads, deleteThread, listTasks, listChannels, listConnectors, getDeliveries,
   resumeTask, cancelTask, isAuthError, notifyShell, setTrayBadge, getShellConfig,
 } from '../src/lib/api.js'
 import { resetShellNotifySettings } from '../src/lib/shell-settings.js'
@@ -449,6 +450,70 @@ describe('workbench-store', () => {
       expect(note).toBeTruthy()
       expect(note.link).toBe('/tasks/task-null-settings')
       expect(note.system).toBe(true)
+    })
+  })
+
+  describe('deleteThreads', () => {
+    beforeEach(() => {
+      listThreads.mockResolvedValue({ threads: [{ ID: 'th-1' }] })
+      deleteThread.mockResolvedValue(null)
+    })
+
+    it('deletes every id and re-reads the list', async () => {
+      const s = useWorkbenchStore()
+      expect(await s.deleteThreads(['th-1', 'th-2'])).toBeNull()
+      expect(deleteThread).toHaveBeenNthCalledWith(1, 'th-1')
+      expect(deleteThread).toHaveBeenNthCalledWith(2, 'th-2')
+      expect(listThreads).toHaveBeenCalledTimes(1)
+      expect(s.threads).toEqual([{ ID: 'th-1' }])
+    })
+
+    it('treats every flavour of an already-gone thread as success', async () => {
+      const s = useWorkbenchStore()
+      deleteThread.mockReset()
+        .mockRejectedValueOnce({ code: 'not_found' })
+        .mockRejectedValueOnce({ code: 'thread_not_found' })
+        .mockRejectedValueOnce({ status: 404 })
+      expect(await s.deleteThreads(['a', 'b', 'c'])).toBeNull()
+      expect(listThreads).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports the first real refusal without stopping the batch', async () => {
+      const s = useWorkbenchStore()
+      deleteThread.mockReset()
+        .mockResolvedValueOnce(null)
+        .mockRejectedValueOnce({ code: 'forbidden' })
+        .mockRejectedValueOnce({ code: 'service_unavailable' })
+      expect(await s.deleteThreads(['a', 'b', 'c'])).toBe('forbidden')
+      expect(deleteThread).toHaveBeenCalledTimes(3)
+      expect(listThreads).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not mistake a missing endpoint for an already-gone thread', async () => {
+      const s = useWorkbenchStore()
+      deleteThread.mockReset()
+        .mockRejectedValueOnce({ code: '405', status: 405 })
+        .mockRejectedValueOnce({ code: '404', status: 404 })
+        .mockRejectedValueOnce({ code: '403', status: 403 })
+      expect(await s.deleteThreads(['a'])).toBe('method_not_allowed')
+      expect(await s.deleteThreads(['b'])).toBe('not_found')
+      expect(await s.deleteThreads(['c'])).toBe('forbidden')
+    })
+
+    it('falls back to the error message, then to a generic code', async () => {
+      const s = useWorkbenchStore()
+      deleteThread.mockReset().mockRejectedValueOnce(new Error('offline'))
+      expect(await s.deleteThreads(['a'])).toBe('offline')
+
+      deleteThread.mockRejectedValueOnce(undefined)
+      expect(await s.deleteThreads(['b'])).toBe('internal_error')
+    })
+
+    it('does nothing but refresh for an empty selection', async () => {
+      const s = useWorkbenchStore()
+      expect(await s.deleteThreads([])).toBeNull()
+      expect(deleteThread).not.toHaveBeenCalled()
+      expect(listThreads).toHaveBeenCalledTimes(1)
     })
   })
 })

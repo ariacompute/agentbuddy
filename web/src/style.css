@@ -2115,3 +2115,52 @@ audio {
   .upgrade-progress > span { animation: none; inline-size: 38%; }
   .upgrade-banner:hover { transform: none; }
 }
+
+/* ---- Thread selection & deletion ---------------------------------------- */
+/* Tokens only: the same greys in light and dark, no second declaration. */
+.thread-toolbar {
+  flex-wrap: wrap;
+  gap: 12px;
+  min-height: var(--touch-min);
+}
+
+.thread-checkall {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--touch-min);
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.thread-checkall input,
+.thread-check {
+  inline-size: 18px;
+  block-size: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* The visible box is small; the label is the 44px touch target. */
+.thread-check-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  inline-size: var(--touch-min);
+  block-size: var(--touch-min);
+  cursor: pointer;
+}
+
+.thread-card.is-selected { border-color: var(--stroke-3); }
+.thread-card .card-head { gap: 10px; }
+.thread-delete { margin-inline-start: auto; }
+
+.thread-checkall input:focus-visible,
+.thread-check:focus-visible,
+.thread-delete:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

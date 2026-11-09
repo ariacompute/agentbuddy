@@ -18,6 +18,7 @@ import {
   listThreads,
   createThread,
   getThread,
+  deleteThread,
   postThreadMessage,
   listTasks,
   getTask,
@@ -292,6 +293,23 @@ describe('api endpoint helpers', () => {
     await postThreadMessage('t1', 'hi', ['a1'])
     expect(lastCall()[0]).toBe('/api/threads/t1/messages')
     expect(JSON.parse(lastCall()[1].body)).toEqual({ body: 'hi', mentions: ['a1'] })
+  })
+
+  it('deletes a thread by id with a bodyless 204', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 204, text: async () => '' })
+    await deleteThread('t1')
+    const [url, opts] = lastCall()
+    expect(url).toBe('/api/threads/t1')
+    expect(opts.method).toBe('DELETE')
+  })
+
+  it('surfaces a refused thread delete as a machine code', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ code: 'forbidden' }),
+    })
+    await expect(deleteThread('t2')).rejects.toMatchObject({ code: 'forbidden', status: 403 })
   })
 
   it('task helpers build paths', async () => {
