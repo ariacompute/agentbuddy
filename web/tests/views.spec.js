@@ -226,30 +226,31 @@ describe('TaskTraceView', () => {
 })
 
 describe('ThreadListView', () => {
-  it('opens the new-thread dialog and creates a thread', async () => {
-    createThread.mockResolvedValue({ thread: { ID: 'new' } })
-    const { wrapper } = mountWith(ThreadListView)
+  it('closes the new-thread dialog after Create and opens the thread', async () => {
+    // POST /api/threads answers the thread object itself with Go's field names,
+    // not { thread: { id } }. Using the real shape here is what guards the
+    // "dialog never closes" regression.
+    createThread.mockResolvedValue({ ID: 'new', Title: 'Hello thread' })
+    const { wrapper, router } = mountWith(ThreadListView)
     await wrapper.find('button.btn-primary').trigger('click')
     expect(document.querySelector('.dialog-backdrop')).not.toBeNull()
+
     const input = document.querySelector('#new-thread-title')
-    if (input) {
-      input.value = 'Hello thread'
-      input.dispatchEvent(new Event('input', { bubbles: true }))
-    }
+    input.value = 'Hello thread'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
     const createBtn = Array.from(document.querySelectorAll('.dialog-foot button'))
-      .find((b) => /create|new/i.test(b.textContent || ''))
-    if (createBtn) {
-      await createBtn.click()
-      await flushPromises()
-      expect(createThread).toHaveBeenCalled()
-    }
+      .find((b) => /create/i.test(b.textContent || ''))
+    createBtn.click()
+    await flushPromises()
+
+    expect(createThread).toHaveBeenCalledWith('Hello thread')
+    expect(document.querySelector('.dialog-backdrop')).toBeNull()
+    expect(router.currentRoute.value.fullPath).toBe('/threads/new')
   })
 
-  it('opens the thread it just created', async () => {
-    // The dialog is stubbed so the form renders inline; the point here is where a
-    // successful create lands, not how BaseDialog teleports.
+  it('accepts the legacy { thread } envelope too', async () => {
     const stubs = {
-      BaseDialog: { props: ['modelValue'], template: '<div class="dialog-stub"><slot /><slot name="footer" /></div>' },
+      BaseDialog: { props: ['modelValue'], template: '<div v-if="modelValue" class="dialog-stub"><slot /><slot name="footer" /></div>' },
     }
     createThread.mockResolvedValue({ thread: { id: 'new-1' } })
     const { wrapper, router } = mountWith(ThreadListView, { stubs })
@@ -262,7 +263,29 @@ describe('ThreadListView', () => {
     await flushPromises()
 
     expect(createThread).toHaveBeenCalledWith('Kickoff')
+    expect(wrapper.find('.dialog-stub').exists()).toBe(false)
     expect(router.currentRoute.value.fullPath).toBe('/threads/new-1')
+  })
+
+  it('ignores a second Create while the first is still in flight', async () => {
+    createThread.mockClear()
+    let release
+    createThread.mockReturnValue(new Promise((resolve) => { release = resolve }))
+    const stubs = {
+      BaseDialog: { props: ['modelValue'], template: '<div v-if="modelValue" class="dialog-stub"><slot /><slot name="footer" /></div>' },
+    }
+    const { wrapper } = mountWith(ThreadListView, { stubs })
+    await flushPromises()
+
+    await wrapper.find('button.btn-primary').trigger('click')
+    await nextTick()
+    const first = wrapper.vm.submit()
+    await wrapper.vm.submit()
+    expect(createThread).toHaveBeenCalledTimes(1)
+    release({ ID: 'once' })
+    await first
+    await flushPromises()
+    expect(createThread).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -2350,7 +2373,7 @@ describe('view branch edges', () => {
 
   it('names a new thread when the title is left empty', async () => {
     const stubs = {
-      BaseDialog: { props: ['modelValue'], template: '<div class="dialog-stub"><slot /><slot name="footer" /></div>' },
+      BaseDialog: { props: ['modelValue'], template: '<div v-if="modelValue" class="dialog-stub"><slot /><slot name="footer" /></div>' },
     }
     createThread.mockResolvedValue({})
     const { wrapper } = mountWith(ThreadListView, { stubs })
@@ -2362,7 +2385,9 @@ describe('view branch edges', () => {
     await flushPromises()
 
     expect(createThread).toHaveBeenCalledWith('New thread')
-    // No thread came back, so the dialog stays open instead of navigating nowhere.
-    expect(wrapper.find('.dialog-stub').exists()).toBe(true)
+    // A body without an id cannot be navigated to, but the thread still exists,
+    // so the dialog closes and the list is re-read instead of staying open.
+    expect(wrapper.find('.dialog-stub').exists()).toBe(false)
+    expect(listThreads).toHaveBeenCalled()
   })
 })

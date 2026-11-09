@@ -24,14 +24,21 @@ function openDialog() {
 }
 
 async function submit() {
+  // Enter and a double click on Create must not create two threads.
+  if (saving.value) return
   const title = draftTitle.value.trim() || t('newThread')
   saving.value = true
   try {
     const res = await apiCreateThread(title)
-    if (res?.thread?.id) {
-      showDialog.value = false
-      router.push(`/threads/${res.thread.id}`)
-    }
+    // POST /api/threads answers the thread object itself, with Go's field names
+    // (ID / Title). Older builds wrapped it in { thread }, so read every shape
+    // rather than keying the close on one guess that may not match.
+    const id = res?.ID || res?.id || res?.thread?.ID || res?.thread?.id
+    // The thread exists now, so the dialog has done its job whatever the body
+    // looked like: close first, then go there (or reload the list).
+    showDialog.value = false
+    if (id) router.push(`/threads/${id}`)
+    else await workbench.refreshThreads()
   } finally {
     saving.value = false
   }
