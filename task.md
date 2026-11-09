@@ -1477,3 +1477,32 @@ v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的
 - `bun run test`：**34 spec / 803 用例全绿**；`bun run test:coverage`：语句 / 行 / 分支 / 函数
   **四项 100%**（11314 语句、1876 分支、448 函数），配置无 exclude、无 `v8 ignore`。
 - `bun run build` 通过（只有既有的 chunk 体积提示）。
+
+## M36 — Threads 详情页返回列表（F3.7，2026-11-09）
+
+详情页此前没有页内返回出口：从通知深链 `/threads/42` 直达时，只能靠侧栏的 Threads 入口绕回。
+本轮只动 `web/`，不改 API、外壳与桌面文案。
+
+### 1. 收口
+
+- `ThreadView.vue`：把内容包进 `.thread-page`，顶部恒显示 `<RouterLink to="/threads">`，
+  标签取 `t('backToThreads')`，左箭头 `aria-hidden`；会话内容仍受 `v-if="thread"` 保护，
+  因此加载中 / 读取失败 / 深链直达时都能返回。用站内链接而非 `history.back()`，目标确定，
+  不依赖外部浏览历史。
+- `copy/thread-copy.js`：13 语各补 `backToThreads`，`copy-fallback.spec.js` 自动守卫每语已译
+  且不等于英文。
+- `style.css`：`.thread-page` 撑满内容区，`.thread` 由固定 `height` 改为 `flex: 1`；
+  返回链接复用 `.btn`、44px 触控目标、2px + 2px 焦点环，`ar` 下图标用 `scaleX(-1)` 翻转，
+  无新增色值。
+
+### 2. 用例与验证
+
+- `tests/thread-delete.spec.js` 增 2 条：从 `/threads/1` 点返回到 `/threads`，13 语逐个切换时
+  链接文案均本地化且 `ar` 下 `<html dir=rtl>`，中文下显示「返回会话」；`getThread` 未返回时
+  `.thread` 不渲染而链接仍可点。语言切换用例放在该 spec 的统一 `unmount` 流程里，避免
+  `views.spec.js` 里历史挂载的组件在 `document.body.innerHTML` 清空后被语言 ref 触发更新。
+- `bun run test`：**34 spec / 805 用例全绿**；`bun run test:coverage`：语句 / 行 / 分支 / 函数
+  **四项 100%**（11333 语句、1880 分支、448 函数、11298 行），配置无 exclude、无 `v8 ignore`。
+- `bun run build` 通过（只有既有的 chunk 体积提示）。
+- 文档同步：`README.md` / `README_cn.md`、`requirements.md`（F3.7 / 验收 46）、
+  `AGENTS.md`（测试基线）。

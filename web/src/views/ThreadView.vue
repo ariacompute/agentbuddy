@@ -8,7 +8,7 @@ import PersonaAvatar from '../components/PersonaAvatar.vue'
 import VoiceRecorder from '../components/VoiceRecorder.vue'
 import TaskCard from '../components/TaskCard.vue'
 import SuggestionCard from '../components/SuggestionCard.vue'
-import { Send, AtSign } from 'lucide-vue-next'
+import { Send, AtSign, ArrowLeft } from 'lucide-vue-next'
 
 const props = defineProps({ id: { type: String, required: true } })
 const { t } = useCopy('thread')
@@ -130,81 +130,87 @@ onUnmounted(() => sub && sub.close())
 </script>
 
 <template>
-  <div class="thread" v-if="thread">
-    <div class="thread-main">
-      <div class="messages">
-        <div v-if="messages.length === 0" class="empty">{{ t('listEmpty') }}</div>
-        <div
-          v-for="msg in messages"
-          :key="msg.ID"
-          class="msg"
-          :class="msg.AuthorType === 'user' ? 'from-user' : 'from-agent'"
-        >
-          <PersonaAvatar :name="msg.AuthorName || msg.AuthorID" :size="32" />
-          <div>
-            <div class="msg-meta">
-              <span>{{ msg.AuthorName || msg.AuthorID }}</span>
-              <span v-if="msg.Origin && msg.Origin.startsWith('agent:')" class="chip chip-mono">agent</span>
-              <span>{{ formatTime(msg.CreatedAt) }}</span>
+  <div class="thread-page">
+    <RouterLink class="btn btn-ghost thread-back" to="/threads">
+      <ArrowLeft :size="16" class="thread-back-icon" aria-hidden="true" />
+      {{ t('backToThreads') }}
+    </RouterLink>
+    <div class="thread" v-if="thread">
+      <div class="thread-main">
+        <div class="messages">
+          <div v-if="messages.length === 0" class="empty">{{ t('listEmpty') }}</div>
+          <div
+            v-for="msg in messages"
+            :key="msg.ID"
+            class="msg"
+            :class="msg.AuthorType === 'user' ? 'from-user' : 'from-agent'"
+          >
+            <PersonaAvatar :name="msg.AuthorName || msg.AuthorID" :size="32" />
+            <div>
+              <div class="msg-meta">
+                <span>{{ msg.AuthorName || msg.AuthorID }}</span>
+                <span v-if="msg.Origin && msg.Origin.startsWith('agent:')" class="chip chip-mono">agent</span>
+                <span>{{ formatTime(msg.CreatedAt) }}</span>
+              </div>
+              <div class="msg-body pre-wrap">{{ msg.Body }}</div>
             </div>
-            <div class="msg-body pre-wrap">{{ msg.Body }}</div>
+          </div>
+        </div>
+
+        <div class="composer">
+          <div class="line">
+            <textarea
+              v-model="draft"
+              :placeholder="t('composerPlaceholder')"
+              @keydown.enter.exact.prevent="send"
+            />
+          </div>
+          <!-- Mention picker: the names that have spoken in this thread. It shows
+               only while a `@token` is being typed, so the composer stays quiet. -->
+          <div v-if="mentionOpen" class="mention-pop" role="listbox" :aria-label="to('mentionTitle')">
+            <p v-if="mentionMatches.length === 0" class="muted" style="font-size:12px;padding:6px 8px">
+              {{ to('mentionEmpty') }}
+            </p>
+            <button
+              v-for="name in mentionMatches"
+              :key="name"
+              class="mention-item"
+              role="option"
+              :aria-selected="false"
+              @click="insertMention(name)"
+            >
+              <PersonaAvatar :name="name" :size="20" />
+              <span class="truncate">{{ name }}</span>
+            </button>
+          </div>
+          <div class="composer-foot">
+            <button class="voice-btn" :aria-label="to('mentionTitle')" @click="addMentions">
+              <AtSign :size="17" />
+            </button>
+            <VoiceRecorder :thread-id="id" />
+            <span class="spacer" />
+            <span class="muted" style="font-size:12px">{{ t('mentionHint') }}</span>
+            <button class="btn btn-primary" :disabled="!draft.trim() || sending" @click="send">
+              <Send :size="15" /> {{ t('send') }}
+            </button>
           </div>
         </div>
       </div>
 
-      <div class="composer">
-        <div class="line">
-          <textarea
-            v-model="draft"
-            :placeholder="t('composerPlaceholder')"
-            @keydown.enter.exact.prevent="send"
-          />
+      <div class="thread-side">
+        <h3 class="card-title">{{ th('suggestionTitle') }}</h3>
+        <div v-if="messages.filter(m => m.Suggestion).length === 0" class="muted" style="font-size:12px">{{ t('tasksPanelEmpty') }}</div>
+        <SuggestionCard v-for="m in messages.filter(x => x.Suggestion)" :key="m.ID" :suggestion="m.Suggestion" />
+
+        <h3 class="card-title" style="margin-top:16px">{{ t('tasksPanel') }}</h3>
+        <div v-if="relatedTasks.length === 0" class="muted" style="font-size:12px">{{ t('tasksPanelEmpty') }}</div>
+        <TaskCard v-for="task in relatedTasks" :key="task.id" :task="task" dense />
+
+        <div v-if="!unsubscribed" class="row" style="gap:8px;margin-top:16px">
+          <button class="btn btn-ghost btn-sm" @click="dropSubscription">{{ to('subscriptionDrop') }}</button>
         </div>
-        <!-- Mention picker: the names that have spoken in this thread. It shows
-             only while a `@token` is being typed, so the composer stays quiet. -->
-        <div v-if="mentionOpen" class="mention-pop" role="listbox" :aria-label="to('mentionTitle')">
-          <p v-if="mentionMatches.length === 0" class="muted" style="font-size:12px;padding:6px 8px">
-            {{ to('mentionEmpty') }}
-          </p>
-          <button
-            v-for="name in mentionMatches"
-            :key="name"
-            class="mention-item"
-            role="option"
-            :aria-selected="false"
-            @click="insertMention(name)"
-          >
-            <PersonaAvatar :name="name" :size="20" />
-            <span class="truncate">{{ name }}</span>
-          </button>
-        </div>
-        <div class="composer-foot">
-          <button class="voice-btn" :aria-label="to('mentionTitle')" @click="addMentions">
-            <AtSign :size="17" />
-          </button>
-          <VoiceRecorder :thread-id="id" />
-          <span class="spacer" />
-          <span class="muted" style="font-size:12px">{{ t('mentionHint') }}</span>
-          <button class="btn btn-primary" :disabled="!draft.trim() || sending" @click="send">
-            <Send :size="15" /> {{ t('send') }}
-          </button>
-        </div>
+        <p v-if="error" class="muted" style="font-size:12px">{{ error }}</p>
       </div>
-    </div>
-
-    <div class="thread-side">
-      <h3 class="card-title">{{ th('suggestionTitle') }}</h3>
-      <div v-if="messages.filter(m => m.Suggestion).length === 0" class="muted" style="font-size:12px">{{ t('tasksPanelEmpty') }}</div>
-      <SuggestionCard v-for="m in messages.filter(x => x.Suggestion)" :key="m.ID" :suggestion="m.Suggestion" />
-
-      <h3 class="card-title" style="margin-top:16px">{{ t('tasksPanel') }}</h3>
-      <div v-if="relatedTasks.length === 0" class="muted" style="font-size:12px">{{ t('tasksPanelEmpty') }}</div>
-      <TaskCard v-for="task in relatedTasks" :key="task.id" :task="task" dense />
-
-      <div v-if="!unsubscribed" class="row" style="gap:8px;margin-top:16px">
-        <button class="btn btn-ghost btn-sm" @click="dropSubscription">{{ to('subscriptionDrop') }}</button>
-      </div>
-      <p v-if="error" class="muted" style="font-size:12px">{{ error }}</p>
     </div>
   </div>
 </template>

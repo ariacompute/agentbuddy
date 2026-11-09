@@ -14,8 +14,12 @@ import { errorMessage } from '../src/lib/errors.js'
 
 vi.mock('../src/lib/api.js')
 
-import { listThreads, createThread, deleteThread } from '../src/lib/api.js'
+import {
+  listThreads, createThread, deleteThread, getThread, listTasks,
+  subscribeThreadEvents,
+} from '../src/lib/api.js'
 import ThreadListView from '../src/views/ThreadListView.vue'
+import ThreadView from '../src/views/ThreadView.vue'
 
 const THREADS = [
   { ID: 'th-1', Title: 'Alpha', Participants: ['a1'] },
@@ -29,6 +33,12 @@ const rows = () => THREADS.map((t) => ({ ...t }))
 const mounted = []
 function mountView() {
   const result = mountWith(ThreadListView)
+  mounted.push(result.wrapper)
+  return result
+}
+
+function mountThreadView() {
+  const result = mountWith(ThreadView, { props: { id: '1' } })
   mounted.push(result.wrapper)
   return result
 }
@@ -53,6 +63,9 @@ beforeEach(() => {
   listThreads.mockResolvedValue({ threads: rows() })
   createThread.mockResolvedValue({ ID: 'new' })
   deleteThread.mockResolvedValue(null)
+  getThread.mockResolvedValue({ thread: { ID: '1', Title: 't' }, messages: [] })
+  listTasks.mockResolvedValue({ tasks: [] })
+  subscribeThreadEvents.mockReturnValue({ close: vi.fn() })
 })
 
 afterEach(() => {
@@ -305,5 +318,55 @@ describe('ThreadListView — all 13 languages', () => {
     await findButton(wrapper, '删除所选').trigger('click')
     expect(document.body.textContent).toContain('删除选中的 3 个会话？')
     expect(document.body.textContent).toContain('删除会话')
+  })
+})
+
+describe('ThreadView — back to Threads', () => {
+  it('returns to the list with a localised label in all 13 languages', async () => {
+    const { wrapper, router } = mountThreadView()
+    await flushPromises()
+    await router.isReady()
+    await router.push('/threads/1')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/threads/1')
+
+    const link = wrapper.find('.thread-back')
+    expect(link.element.tagName).toBe('A')
+    expect(link.attributes('href')).toContain('/threads')
+
+    for (const lang of LANG_CODES) {
+      setLang(lang)
+      await nextTick()
+      const label = useCopy('thread').t('backToThreads')
+      expect(label, `${lang}.backToThreads missing`).toBeTruthy()
+      expect(wrapper.find('.thread-back').text()).toContain(label)
+      expect(document.documentElement.dir).toBe(lang === 'ar' ? 'rtl' : 'ltr')
+      if (lang !== 'en') {
+        expect(label, `${lang}.backToThreads equals English`).not.toBe('Back to Threads')
+      }
+    }
+
+    setLang('zh')
+    await nextTick()
+    expect(wrapper.find('.thread-back').text()).toContain('返回会话')
+    await wrapper.find('.thread-back').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/threads')
+  })
+
+  it('stays available before the thread has loaded', async () => {
+    getThread.mockReturnValue(new Promise(() => {}))
+    const { wrapper, router } = mountThreadView()
+    await flushPromises()
+    await router.isReady()
+    await router.push('/threads/1')
+    await flushPromises()
+
+    expect(wrapper.find('.thread').exists()).toBe(false)
+    const link = wrapper.find('.thread-back')
+    expect(link.exists()).toBe(true)
+    await link.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/threads')
   })
 })

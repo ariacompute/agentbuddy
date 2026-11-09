@@ -63,6 +63,7 @@
 | F3.4 | 消息来源标记：`origin` ∈ 空（文本）/ `voice` / 通道类型，以文本标签呈现 |
 | F3.5 | 右侧任务面板：本会话关联的 A2A 任务，可展开状态 / 产物 / 追踪 |
 | F3.6 | **会话删除（单选 / 多选）**：列表每张卡片一个复选框 + 一个「全选」，另有单卡删除按钮；勾选 1 个或 N 个走同一套二次确认（`BaseDialog`，单数 / 复数文案分别带 `{count}` 占位），确认后逐个 `DELETE /api/threads/{id}`，全部结束再 `GET /api/threads` 重拉列表。**不做乐观删除**。选中集始终与服务端最新列表求交：后台刷新删掉的 id 不再计数、不再发送；删除失败的行保留选中以便重试，并在页内 banner 显示本地化机器码。13 语全量文案（`copy/thread-copy.js`），触控目标 ≥44px、逻辑属性、单色令牌；取消 / 关闭确认框或重复点击确认不得发出第二个请求 |
+| F3.7 | **详情页返回列表**：`/threads/:id` 顶部恒显示一个站内返回链接（`RouterLink to="/threads"`），点击回到 Threads 列表；文案 `thread.backToThreads` 在 `copy/thread-copy.js` 13 语全量落地，由 `copy-fallback.spec.js` 守卫。链接在 `thread` 数据加载中 / 读取失败 / 通知深链直达时仍可见，不使用 `history.back()` 以免落到应用外或无关页面；复用 `.btn` 与单色令牌，触控目标 ≥44px、焦点环 2px + 2px offset，`ar` 下箭头翻转，布局不引入方向性物理属性。无新增 API 与错误码 |
 
 ### F4 任务与产物追踪
 
@@ -492,6 +493,9 @@
    `icacls /inheritance:r /grant:r <user>:F` 收紧 `config.json`）与执行节点跑一条任务，都**不出现
    命令窗口**；`icacls` 的退出码与失败日志行为不变；`console.rs` 的源码守卫要求 `session.rs` /
    `executor/spawn.rs` 里每个 `Command::new` 附近都有 `console::hide`（漏掉即在 CI 红）。
+46. 会话详情返回（F3.7）：从列表进入 `/threads/:id` 后点击返回链接回到 `/threads`；13 语下链接
+   均为已本地化文案，非英语语种不等于英文回落，`ar` 下为 RTL；`getThread` 未返回时链接仍在且
+   可跳转；`copy-fallback.spec.js` 与 v8 覆盖率四项 100% 保持全绿。
 
 ## 7. 自动更新（F19）
 

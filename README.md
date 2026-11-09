@@ -9,8 +9,9 @@ interconnection platform.
 
 - Connect to any agenthub server by URL. The session lives in an HttpOnly cookie
   and is reused by the loopback proxy, so the workbench just talks same-origin.
-- Agents, threads (single or multi-select delete with a confirmation, in all 13
-  languages), task tracing, approvals (HITL park/resume), channels
+- Agents, threads (single or multi-select delete with a confirmation, and a
+  localised back link from every thread to the list, in all 13 languages),
+  task tracing, approvals (HITL park/resume), channels
   (Slack / Teams / Telegram / SMS webhooks), connectors (policy-gated actions),
   and voice (record → transcribe → delegate).
 - Automatic updates: GitHub and Gitee are probed in parallel and the fastest

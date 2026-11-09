@@ -3,6 +3,7 @@
 export const threadCopy = {
   en: {
     title: 'Threads',
+    backToThreads: 'Back to Threads',
     subtitle: 'One conversation, many agents. Mention one with @ to hand it work.',
     newThread: 'New thread',
     titlePlaceholder: 'What is this about?',
@@ -45,6 +46,7 @@ export const threadCopy = {
   },
   zh: {
     title: '会话',
+    backToThreads: '返回会话',
     subtitle: '一场对话，多个智能体。用 @ 提及即可把工作交给它。',
     newThread: '新建会话',
     titlePlaceholder: '这次要做什么？',
@@ -87,6 +89,7 @@ export const threadCopy = {
   },
   'zh-TW': {
     title: '會話',
+    backToThreads: '返回會話',
     subtitle: '一場對話，多個智慧體。用 @ 提及即可把工作交給它。',
     newThread: '新增會話',
     titlePlaceholder: '這次要做什麼？',
@@ -129,6 +132,7 @@ export const threadCopy = {
   },
   es: {
     title: 'Conversaciones',
+    backToThreads: 'Volver a Conversaciones',
     subtitle: 'Una conversación, muchos agentes. Menciona uno con @ para darle trabajo.',
     newThread: 'Nueva conversación',
     titlePlaceholder: '¿De qué trata esto?',
@@ -171,6 +175,7 @@ export const threadCopy = {
   },
   fr: {
     title: 'Conversations',
+    backToThreads: 'Retour aux conversations',
     subtitle: 'Une conversation, plusieurs agents. Mentionnez l’un d’eux avec @ pour lui confier du travail.',
     newThread: 'Nouvelle conversation',
     titlePlaceholder: 'De quoi s’agit-il ?',
@@ -213,6 +218,7 @@ export const threadCopy = {
   },
   de: {
     title: 'Unterhaltungen',
+    backToThreads: 'Zurück zu Unterhaltungen',
     subtitle: 'Eine Unterhaltung, viele Agenten. Erwähne einen mit @, um ihm Arbeit zu geben.',
     newThread: 'Neue Unterhaltung',
     titlePlaceholder: 'Worum geht es hier?',
@@ -255,6 +261,7 @@ export const threadCopy = {
   },
   it: {
     title: 'Conversazioni',
+    backToThreads: 'Torna alle conversazioni',
     subtitle: 'Una conversazione, molti agenti. Menziona uno con @ per affidargli il lavoro.',
     newThread: 'Nuova conversazione',
     titlePlaceholder: 'Di cosa si tratta?',
@@ -297,6 +304,7 @@ export const threadCopy = {
   },
   ru: {
     title: 'Беседы',
+    backToThreads: 'Назад к беседам',
     subtitle: 'Одна беседа, много агентов. Упомяните агента через @, чтобы передать ему работу.',
     newThread: 'Новая беседа',
     titlePlaceholder: 'О чём эта беседа?',
@@ -339,6 +347,7 @@ export const threadCopy = {
   },
   ja: {
     title: 'スレッド',
+    backToThreads: 'スレッドに戻る',
     subtitle: '一つの会話に複数のエージェント。@ で mention すれば仕事を任せられます。',
     newThread: '新規スレッド',
     titlePlaceholder: '何についての会話ですか？',
@@ -381,6 +390,7 @@ export const threadCopy = {
   },
   ko: {
     title: '스레드',
+    backToThreads: '스레드로 돌아가기',
     subtitle: '하나의 대화, 여러 에이전트. @로 멘션하면 일을 맡길 수 있습니다.',
     newThread: '새 스레드',
     titlePlaceholder: '무엇에 대한 대화인가요?',
@@ -423,6 +433,7 @@ export const threadCopy = {
   },
   pt: {
     title: 'Conversas',
+    backToThreads: 'Voltar às conversas',
     subtitle: 'Uma conversa, muitos agentes. Mencione um com @ para lhe dar trabalho.',
     newThread: 'Nova conversa',
     titlePlaceholder: 'Sobre o que é isto?',
@@ -465,6 +476,7 @@ export const threadCopy = {
   },
   ar: {
     title: 'المحادثات',
+    backToThreads: 'العودة إلى المحادثات',
     subtitle: 'محادثة واحدة وعدة وكلاء. اذكر واحدًا بـ @ لتوكيل العمل إليه.',
     newThread: 'محادثة جديدة',
     titlePlaceholder: 'عمّ تتحدث هذه المحادثة؟',
@@ -507,6 +519,7 @@ export const threadCopy = {
   },
   hi: {
     title: 'बातचीत',
+    backToThreads: 'बातचीत पर वापस जाएँ',
     subtitle: 'एक बातचीत, कई एजेंट। @ से उल्लेख करें और काम सौंपें।',
     newThread: 'नई बातचीत',
     titlePlaceholder: 'यह किस बारे में है?',
