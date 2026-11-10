@@ -19,7 +19,7 @@ import {
   listTasks, listComputers, getComputer, deleteComputer, saveRouterPolicy, listRouterPolicies,
   routerStats, listRouterTriggers, listRouterTickets, listSchedules,
   getRouterTrigger, getRouterTicket, dropRouterSubscription, getThread, subscribeThreadEvents,
-  subscribeRouterEvents,
+  subscribeRouterEvents, postThreadMessage, getWorkspace,
 } from '../src/lib/api.js'
 import { errorMessage } from '../src/lib/errors.js'
 import KnowledgeView from '../src/views/KnowledgeView.vue'
@@ -466,6 +466,191 @@ describe('ThreadView mention picker and unsubscribe', () => {
 
     // The empty picker now means "no agents anywhere", not "nobody spoke here".
     expect(wrapper.find('.mention-pop').text()).toContain('No agents yet')
+  })
+
+  it('arms the first agent row as soon as the token opens', async () => {
+    const { wrapper } = mountWithThread()
+    await flushPromises()
+
+    const composer = wrapper.find('textarea')
+    await composer.setValue('ask @s')
+    await nextTick()
+
+    const items = wrapper.findAll('.mention-item')
+    expect(items.length).toBeGreaterThan(1)
+    expect(items[0].classes()).toContain('is-active')
+    expect(items[0].attributes('aria-selected')).toBe('true')
+    expect(items[1].attributes('aria-selected')).toBe('false')
+    expect(items[1].classes()).not.toContain('is-active')
+    // The textarea owns the listbox, so a screen reader follows the armed row.
+    expect(composer.attributes('aria-controls')).toBe('mention-listbox')
+    expect(composer.attributes('aria-expanded')).toBe('true')
+    expect(composer.attributes('aria-activedescendant')).toBe('mention-option-0')
+  })
+
+  it('walks the rows with the arrow keys and wraps at both ends', async () => {
+    const { wrapper } = mountWithThread()
+    await flushPromises()
+
+    const composer = wrapper.find('textarea')
+    await composer.setValue('ask @s')
+    await nextTick()
+    const armed = () => wrapper.findAll('.mention-item').find((b) => b.classes().includes('is-active'))
+    const first = armed().text()
+
+    // Two agents spoke here, so one step down lands on the second row.
+    await composer.trigger('keydown', { key: 'ArrowDown' })
+    await nextTick()
+    expect(armed().text()).not.toBe(first)
+
+    // Wrapping forward returns to the first row, and one step up goes back down.
+    await composer.trigger('keydown', { key: 'ArrowDown' })
+    await nextTick()
+    expect(armed().text()).toBe(first)
+    await composer.trigger('keydown', { key: 'ArrowUp' })
+    await nextTick()
+    expect(armed().text()).not.toBe(first)
+  })
+
+  it('completes the armed agent with Enter instead of sending the message', async () => {
+    const { wrapper } = mountWithThread()
+    await flushPromises()
+
+    const composer = wrapper.find('textarea')
+    await composer.setValue('ask @s')
+    await nextTick()
+    await composer.trigger('keydown', { key: 'ArrowDown' })
+    await composer.trigger('keydown', { key: 'Enter' })
+    await nextTick()
+
+    expect(composer.element.value).toBe('ask @scribe ')
+    expect(postThreadMessage).not.toHaveBeenCalled()
+    // The token is complete, so the picker closes on its own.
+    expect(wrapper.find('.mention-pop').exists()).toBe(false)
+  })
+
+  it('completes the armed agent with Tab as well', async () => {
+    const { wrapper } = mountWithThread()
+    await flushPromises()
+
+    const composer = wrapper.find('textarea')
+    await composer.setValue('ask @sco')
+    await nextTick()
+    await composer.trigger('keydown', { key: 'Tab' })
+    await nextTick()
+
+    expect(composer.element.value).toBe('ask @scout ')
+  })
+
+  it('dismisses the picker with Escape and keeps the draft', async () => {
+    const { wrapper } = mountWithThread()
+    await flushPromises()
+
+    const composer = wrapper.find('textarea')
+    await composer.setValue('ask @s')
+    await nextTick()
+    await composer.trigger('keydown', { key: 'Escape' })
+    await nextTick()
+
+    expect(wrapper.find('.mention-pop').exists()).toBe(false)
+    expect(composer.element.value).toBe('ask @s')
+    // Typing again is a new query, so the picker comes back.
+    await composer.setValue('ask @sc')
+    await nextTick()
+    expect(wrapper.find('.mention-pop').exists()).toBe(true)
+  })
+
+  it('keeps the picker closed when no agent matches the token', async () => {
+    const { wrapper, pinia } = mountWith(ThreadView, { props: { id: '1' } })
+    useWorkbenchStore(pinia).agents = [{ id: 'agent-1', name: 'scout' }]
+    await flushPromises()
+
+    await wrapper.find('textarea').setValue('hey @zzz')
+    await nextTick()
+
+    expect(wrapper.find('.mention-pop').exists()).toBe(false)
+    expect(wrapper.find('textarea').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('leaves keys the picker does not own to the composer', async () => {
+    const { wrapper } = mountWithThread()
+    await flushPromises()
+
+    const composer = wrapper.find('textarea')
+    await composer.setValue('ask @s')
+    await nextTick()
+    await composer.trigger('keydown', { key: 'a' })
+    await flushPromises()
+
+    expect(composer.element.value).toBe('ask @s')
+    expect(postThreadMessage).not.toHaveBeenCalled()
+  })
+
+  it('still sends when the popover only says the workspace has no agent', async () => {
+    getWorkspace.mockResolvedValue({ agents: [] })
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    const composer = wrapper.find('textarea')
+    await composer.setValue('hey @')
+    await nextTick()
+    // It lists nothing, so Enter cannot complete anything and must send.
+    expect(wrapper.find('.mention-item').exists()).toBe(false)
+    await composer.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'hey @', [])
+  })
+
+  it('sends on a bare Enter once no token is being typed', async () => {
+    getWorkspace.mockResolvedValue({ agents: [] })
+    const { wrapper } = mountWithThread()
+    await flushPromises()
+
+    const composer = wrapper.find('textarea')
+    await composer.setValue('hello')
+    await composer.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    // No mention in the body, so the turn goes to the latest speaker here.
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'hello', ['scribe'])
+  })
+
+  it('leaves Shift/Ctrl/Meta/Alt+Enter to the textarea newline', async () => {
+    const { wrapper } = mountWithThread()
+    await flushPromises()
+
+    const composer = wrapper.find('textarea')
+    await composer.setValue('line one')
+    for (const modifier of ['shiftKey', 'ctrlKey', 'metaKey', 'altKey']) {
+      await composer.trigger('keydown', { key: 'Enter', [modifier]: true })
+    }
+    await flushPromises()
+
+    expect(postThreadMessage).not.toHaveBeenCalled()
+    expect(composer.element.value).toBe('line one')
+  })
+
+  it('drops the armed row when the workspace shrinks under it', async () => {
+    const { wrapper, pinia } = mountWith(ThreadView, { props: { id: '1' } })
+    const store = useWorkbenchStore(pinia)
+    store.agents = [{ id: 'agent-1', name: 'scout' }, { id: 'agent-2', name: 'scribe' }]
+    await flushPromises()
+
+    const composer = wrapper.find('textarea')
+    await composer.setValue('hey @s')
+    await nextTick()
+    await composer.trigger('keydown', { key: 'ArrowDown' })
+    await nextTick()
+
+    // A workspace poll can replace the list mid-typing; the cursor now points past it.
+    store.agents = [{ id: 'agent-1', name: 'scout' }]
+    await nextTick()
+    await composer.trigger('keydown', { key: 'Enter' })
+    await nextTick()
+
+    expect(composer.element.value).toBe('hey @s')
+    expect(postThreadMessage).not.toHaveBeenCalled()
   })
 
   it('unsubscribes the thread from the router', async () => {

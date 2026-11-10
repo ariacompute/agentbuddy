@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { getThread, postThreadMessage, subscribeThreadEvents, dropRouterSubscription } from '../lib/api.js'
 import { useWorkbenchStore } from '../lib/workbench-store.js'
 import { useCopy } from '../lib/use-copy.js'
@@ -107,11 +107,77 @@ const mentionMatches = computed(() => {
     .slice(0, 6)
 })
 
+// Row the keyboard is on, and whether Escape dismissed the picker for the token
+// being typed. Both reset whenever the query changes, so typing always reopens.
+const mentionIndex = ref(0)
+const mentionDismissed = ref(false)
+
 // Open while a token is being typed. A corpus with no agents at all still says
 // so; once any agent exists the picker lists matches instead of empty text.
 const mentionOpen = computed(
-  () => mentionQuery.value !== null && (mentionMatches.value.length > 0 || mentionCandidates.value.length === 0),
+  () => !mentionDismissed.value &&
+    mentionQuery.value !== null &&
+    (mentionMatches.value.length > 0 || mentionCandidates.value.length === 0),
 )
+
+// Only a popover that lists rows can take the keys: the empty-corpus message has
+// nothing to pick, so Enter still has to reach the composer.
+const mentionActive = computed(() => mentionOpen.value && mentionMatches.value.length > 0)
+
+// Id of the armed option, wired to the textarea as aria-activedescendant.
+const activeMentionId = computed(() => (mentionActive.value ? `mention-option-${mentionIndex.value}` : null))
+
+// A new query re-filters the list, so the cursor goes back to the first row and a
+// dismissed picker opens again.
+watch(mentionQuery, () => {
+  mentionIndex.value = 0
+  mentionDismissed.value = false
+})
+
+/**
+ * Moves the armed row, wrapping at both ends so ArrowUp from the first row is the
+ * last. Only reached while rows exist (see `mentionActive`), so never divides by
+ * an empty list.
+ */
+function moveMention(delta) {
+  const total = mentionMatches.value.length
+  mentionIndex.value = (mentionIndex.value + delta + total) % total
+}
+
+/** Completes the half-typed token with the armed row; a cursor past a shrunk list does nothing. */
+function acceptMention() {
+  const candidate = mentionMatches.value[mentionIndex.value]
+  if (candidate) insertMention(candidate)
+}
+
+/**
+ * Composer keys. While the picker lists rows it owns ArrowUp/ArrowDown (move),
+ * Enter/Tab (complete) and Escape (dismiss); every other key falls through, so a
+ * bare Enter still sends and Shift+Enter still inserts a newline.
+ */
+function onComposerKeydown(event) {
+  if (mentionActive.value) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      moveMention(event.key === 'ArrowUp' ? -1 : 1)
+      return
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault()
+      acceptMention()
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      mentionDismissed.value = true
+      return
+    }
+  }
+  if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault()
+    send()
+  }
+}
 
 /** Replaces the half-typed token with a complete handle. */
 function insertMention(candidate) {
@@ -428,21 +494,34 @@ onUnmounted(() => {
             <textarea
               v-model="draft"
               :placeholder="t('composerPlaceholder')"
-              @keydown.enter.exact.prevent="send"
+              aria-autocomplete="list"
+              aria-controls="mention-listbox"
+              :aria-expanded="mentionActive"
+              :aria-activedescendant="activeMentionId"
+              @keydown="onComposerKeydown"
             />
           </div>
           <!-- Mention picker: agents already in this thread first, then the whole
-               workspace. It shows only while a `@token` is being typed. -->
-          <div v-if="mentionOpen" class="mention-pop" role="listbox" :aria-label="to('mentionTitle')">
+               workspace. It shows only while a `@token` is being typed; the arrow
+               keys move the armed row, Enter/Tab complete it. -->
+          <div
+            v-if="mentionOpen"
+            id="mention-listbox"
+            class="mention-pop"
+            role="listbox"
+            :aria-label="to('mentionTitle')"
+          >
             <p v-if="mentionMatches.length === 0" class="muted" style="font-size:12px;padding:6px 8px">
               {{ t('participantsEmpty') }}
             </p>
             <button
-              v-for="candidate in mentionMatches"
+              v-for="(candidate, index) in mentionMatches"
+              :id="`mention-option-${index}`"
               :key="candidate.id"
               class="mention-item"
+              :class="{ 'is-active': index === mentionIndex }"
               role="option"
-              :aria-selected="false"
+              :aria-selected="index === mentionIndex"
               @click="insertMention(candidate)"
             >
               <PersonaAvatar :name="candidate.label" :size="20" />

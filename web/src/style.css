@@ -1967,6 +1967,13 @@ audio {
   outline: none;
 }
 
+/* The row the arrow keys are on. Same fill as hover plus a hairline ring, so a
+   pointer and the keyboard agree on which row Enter will complete. */
+.mention-item.is-active {
+  background: var(--bg-raised);
+  box-shadow: inset 0 0 0 1px var(--stroke-2);
+}
+
 /* A trigger or ticket row that opens a detail panel: same row, plus a pointer
    and a hover edge. No colour is introduced. */
 .trigger-row-click {
