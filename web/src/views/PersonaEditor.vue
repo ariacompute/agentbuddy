@@ -47,11 +47,18 @@ function onSelect() {
 }
 
 async function save() {
-  if (!selectedId.value || saving.value) return
+  const agent = selected.value
+  if (!agent || saving.value) return
   saving.value = true
   error.value = ''
   try {
-    await updateResource(selectedId.value, { persona: { ...form.value } })
+    // PUT /api/resources/{id} replaces the whole record: a body holding only
+    // `persona` has no kind/name to validate and would wipe every other field.
+    // Re-send the entry untouched except for the five fields this form owns.
+    await updateResource(agent.id, {
+      ...agent,
+      persona: { ...agent.persona, ...form.value },
+    })
   } catch (e) {
     error.value = errorMessage(e.code) || e.message
   } finally {

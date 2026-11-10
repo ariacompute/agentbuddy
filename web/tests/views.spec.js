@@ -1927,7 +1927,11 @@ describe('SettingsView', () => {
 
 describe('PersonaEditor', () => {
   it('sends every field the operator typed, including the MBTI and the avatar', async () => {
-    listResources.mockResolvedValue({ resources: [{ id: 'a1', name: 'Agent', kind: 'agent', persona: {} }] })
+    const agent = {
+      id: 'a1', name: 'Agent', kind: 'agent', health: 'healthy',
+      persona: { displayName: 'Ada Lovelace', tagline: 'Keeps the lights on' },
+    }
+    listResources.mockResolvedValue({ resources: [agent] })
     updateResource.mockResolvedValue({})
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
@@ -1941,10 +1945,39 @@ describe('PersonaEditor', () => {
     await flushPromises()
 
     expect(updateResource).toHaveBeenCalledWith('a1', {
-      persona: { role: '', instruction: 'be exact', mbti: 'INTJ', avatar_ref: 'ref://ada', title: 'Ada' },
+      ...agent,
+      // Persona fields the form does not edit survive the round trip.
+      persona: {
+        displayName: 'Ada Lovelace', tagline: 'Keeps the lights on',
+        role: '', instruction: 'be exact', mbti: 'INTJ', avatar_ref: 'ref://ada', title: 'Ada',
+      },
     })
     // No half-typed state is left behind: the saved values are what is on screen.
     expect(wrapper.find('textarea').element.value).toBe('be exact')
+  })
+
+  it('replaces the whole entry so the server can validate kind and name', async () => {
+    // Reproduces "That kind of resource is not supported." on google-adk: a
+    // persona-only PUT decodes into an Entry with an empty kind, and Upsert
+    // answers invalid_kind before it ever looks at the persona.
+    const agent = {
+      id: 'example-agent-google-adk-windows', kind: 'agent', name: 'google-adk',
+      display_name: 'Google ADK（Windows）', namespace: 'example-windows',
+      endpoint: 'http://localhost:8001', health: 'unknown', status: 'approved',
+      kind_config: { agent: { card_url: 'http://localhost:8001/.well-known/agent-card.json' } },
+    }
+    listResources.mockResolvedValue({ resources: [agent] })
+    updateResource.mockResolvedValue({})
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
+    await flushPromises()
+
+    expect(updateResource).toHaveBeenCalledWith('example-agent-google-adk-windows', {
+      ...agent,
+      persona: { role: '', instruction: '', mbti: '', avatar_ref: '', title: '' },
+    })
   })
 
   it('loads agents and saves a persona', async () => {
@@ -1958,7 +1991,9 @@ describe('PersonaEditor', () => {
     expect(save).toBeTruthy()
     await save.trigger('click')
     await flushPromises()
-    expect(updateResource).toHaveBeenCalledWith('a1', expect.objectContaining({ persona: expect.any(Object) }))
+    expect(updateResource).toHaveBeenCalledWith('a1', expect.objectContaining({
+      kind: 'agent', name: 'Agent', persona: expect.any(Object),
+    }))
   })
 
   it('switches the form to whichever agent is selected', async () => {
@@ -1999,9 +2034,9 @@ describe('PersonaEditor', () => {
     await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
     await flushPromises()
 
-    expect(updateResource).toHaveBeenCalledWith('a1', {
+    expect(updateResource).toHaveBeenCalledWith('a1', expect.objectContaining({
       persona: expect.objectContaining({ role: 'Delivery lead' }),
-    })
+    }))
   })
 
   it('reports a rejected save and lets the user try again', async () => {
