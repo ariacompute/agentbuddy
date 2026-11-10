@@ -29,15 +29,22 @@ const showClearConfirm = ref(false)
 const clearing = ref(false)
 // Set while an agent is expected to answer: a delegated/routed task is in flight.
 const awaitingReply = ref(false)
+// Agent replies on screen when the current send started. A later increase is the
+// reply we are waiting for, so an unrelated history replay cannot clear the wait.
+const replyWatermark = ref(0)
+// A localized reason the send produced no reply (no agent, refused delegation).
+const notice = ref('')
 let sub = null
 // Timers that poll a fresh GET for asynchronously routed replies.
 const refreshTimers = new Set()
 
 const relatedTasks = computed(() => workbench.tasks.filter((task) => task.contextId === props.id))
 
-// The composer's live status: sending the POST first, then waiting on an agent.
+// The composer's live status: sending the POST first, then why nothing came back
+// or which agent we are still waiting on.
 const statusText = computed(() => {
   if (sending.value) return t('sending')
+  if (notice.value) return notice.value
   if (awaitingReply.value) return t('replying')
   return ''
 })
@@ -59,6 +66,12 @@ const mentionCandidates = computed(() => {
     if (!id) continue
     const token = m.AuthorName || id
     push(id, token, token)
+  }
+  // Declared participants stay addressable even when the workspace list does not
+  // show the caller that agent, so offer them by id as a fallback.
+  for (const pid of thread.value?.Participants || []) {
+    const agent = workbench.agents.find((a) => a.id === pid)
+    push(pid, pid, agent ? resourceLabel(agent) : pid)
   }
   for (const agent of workbench.agents) {
     push(agent.id, agent.name || agent.id, resourceLabel(agent))
@@ -128,7 +141,7 @@ function resolveMentions(body) {
   return ids
 }
 
-/** The agent a plain (unmentioned) message goes to: the latest speaker, else the first agent. */
+/** The agent a plain (unmentioned) message goes to: latest speaker, declared participant, first agent. */
 function defaultAgentId() {
   for (let i = messages.value.length - 1; i >= 0; i -= 1) {
     const m = messages.value[i]
@@ -136,6 +149,8 @@ function defaultAgentId() {
     const id = m.ResourceID || m.AuthorID
     if (id) return id
   }
+  const declared = thread.value?.Participants || []
+  if (declared.length > 0) return declared[declared.length - 1]
   return workbench.agents[0]?.id || null
 }
 
@@ -180,6 +195,20 @@ function pendingReply(msg) {
   return msg.AuthorType !== 'user' && Boolean(msg.TaskID) && !msg.Body
 }
 
+/** How many agent replies with a body are on screen right now. */
+function agentReplyCount() {
+  return messages.value.filter((m) => m.AuthorType !== 'user' && m.Body).length
+}
+
+/**
+ * Clears the wait only when a reply newer than the send arrives. Plain history
+ * frames (the user's own message, old replies) replay on every reconnect and must
+ * not hide the "Replying…" status before the agent has actually answered.
+ */
+function settleIfReplied() {
+  if (awaitingReply.value && agentReplyCount() > replyWatermark.value) awaitingReply.value = false
+}
+
 /** Opens the destructive confirmation; the trigger only exists with rows to lose. */
 function askClear() {
   error.value = ''
@@ -212,8 +241,15 @@ function scheduleRefresh() {
     } catch (e) {
       // A transient read failure must not break the conversation; the next tick retries.
     }
-    awaitingReply.value = attempts < 6 && messages.value.some(pendingReply)
-    if (!awaitingReply.value) {
+    settleIfReplied()
+    // Reconnecting makes the server replay this thread and fill any placeholder
+    // whose reply frame was persisted after our previous connection; the live
+    // broker subscription only covers frames emitted while it was attached.
+    if (awaitingReply.value) subscribe()
+    // Stop on a reply, or hand back to the user when the window closes so a
+    // spinner never dangles on a task the server stopped mentioning.
+    if (attempts >= 6 || !awaitingReply.value) {
+      awaitingReply.value = false
       clearInterval(timer)
       refreshTimers.delete(timer)
     }
@@ -249,14 +285,21 @@ async function send() {
   const body = draft.value.trim()
   if (!body) return
   error.value = ''
-  // Mentions in the body win; otherwise hand the message to one default agent.
-  const mentions = resolveMentions(body)
-  if (mentions.length === 0) {
-    const fallback = defaultAgentId()
-    if (fallback) mentions.push(fallback)
-  }
+  notice.value = ''
+  // Show "Sending" the instant the button is pressed: resolving a default agent
+  // may await a workspace refresh, and a blank composer in that gap reads as a
+  // dead button.
   sending.value = true
   try {
+    // Mentions in the body win; otherwise hand the message to one default agent.
+    const mentions = resolveMentions(body)
+    if (mentions.length === 0) {
+      // A cold start can reach this point before the workspace poll has filled the
+      // list; one refresh turns a silent no-op into a real delegation.
+      if (workbench.agents.length === 0) await workbench.refreshWorkspace()
+      const fallback = defaultAgentId()
+      if (fallback) mentions.push(fallback)
+    }
     const res = await postThreadMessage(props.id, body, mentions)
     // The event stream replays the history once when it connects and then follows
     // only the tasks from that snapshot: a message posted on this open page never
@@ -264,17 +307,19 @@ async function send() {
     // screen now instead of making the user leave and re-enter the thread.
     appendMessage(res?.message)
     draft.value = ''
-    const delegated = res?.delegated
-    // The contract returns an id array; accept a bare truthy flag too so a
-    // pre-upgrade server that answers `delegated: true` still refreshes tasks.
-    const handedOff = Array.isArray(delegated) ? delegated.length > 0 : Boolean(delegated)
-    const expectsReply = Boolean(res?.routed || handedOff)
+    const delegated = Array.isArray(res?.delegated) ? res.delegated : []
+    const expectsReply = Boolean(res?.routed || delegated.length > 0)
     if (expectsReply) {
+      replyWatermark.value = agentReplyCount()
       awaitingReply.value = true
-      if (handedOff) await workbench.refreshTasks()
+      if (delegated.length > 0) await workbench.refreshTasks()
     } else if (mentions.length === 0) {
-      // Nothing to hand the message to: it is still posted, but say why no reply follows.
-      error.value = t('participantsEmpty')
+      // Nothing to hand the message to: it is still posted, but say why.
+      notice.value = t('participantsEmpty')
+    } else {
+      // The message was posted but every mention failed to delegate: say so
+      // rather than leave the composer looking like it ignored the user.
+      notice.value = t('delegateFailed')
     }
     // Reconnect so the fresh replay also carries any task this send started.
     subscribe()
@@ -292,6 +337,8 @@ async function load() {
   const data = await getThread(props.id)
   thread.value = data.thread
   messages.value = data.messages || []
+  // Replies already on screen at load time are not the answer to a send.
+  replyWatermark.value = agentReplyCount()
   awaitingReply.value = messages.value.some(pendingReply)
   subscribe()
 }
@@ -300,8 +347,7 @@ function subscribe() {
   if (sub) sub.close()
   const receive = (msg) => {
     appendMessage(msg)
-    // A body arriving clears the wait; a placeholder keeps it visible.
-    if (msg?.Body) awaitingReply.value = messages.value.some(pendingReply)
+    settleIfReplied()
   }
   sub = subscribeThreadEvents(props.id, {
     message: receive,

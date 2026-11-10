@@ -637,6 +637,93 @@ describe('ThreadView delegation and pending replies', () => {
       vi.useRealTimers()
     }
   })
+
+  it('stops polling as soon as the reply lands', async () => {
+    vi.useFakeTimers()
+    try {
+      getThread.mockResolvedValue({
+        thread: { ID: '1' },
+        messages: [{ ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', TaskID: 't1', Body: '' }],
+      })
+      postThreadMessage.mockResolvedValue({
+        message: { ID: 'm2', AuthorType: 'user', Body: 'go' },
+        delegated: ['t1'],
+      })
+      const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+      await vi.advanceTimersByTimeAsync(0)
+
+      await wrapper.find('textarea').setValue('go')
+      await wrapper.findAll('button').find((b) => b.classes('btn-primary')).trigger('click')
+      await vi.advanceTimersByTimeAsync(0)
+
+      getThread.mockReset()
+      getThread.mockResolvedValue({
+        thread: { ID: '1' },
+        messages: [{ ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', TaskID: 't1', Body: 'done' }],
+      })
+      await vi.advanceTimersByTimeAsync(3000)
+
+      expect(wrapper.find('.composer-status').exists()).toBe(false)
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the wait through a replayed old reply, then clears on a new one', async () => {
+    let handlers = null
+    subscribeThreadEvents.mockImplementation((id, hs) => {
+      handlers = hs
+      return { close: vi.fn() }
+    })
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm2', AuthorType: 'user', Body: 'go' },
+      delegated: ['t1'],
+    })
+    getThread.mockResolvedValue({
+      thread: { ID: '1' },
+      messages: [
+        { ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', Body: 'old reply' },
+      ],
+    })
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    await sendDraft(wrapper, 'go')
+    expect(wrapper.find('.composer-status').text()).toContain('Replying…')
+
+    // A reconnect replays the old reply; it is not the answer we are waiting for.
+    handlers.agent({ ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', Body: 'old reply' })
+    await nextTick()
+    expect(wrapper.find('.composer-status').text()).toContain('Replying…')
+
+    handlers.agent({ ID: 'm9', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', TaskID: 't1', Body: 'fresh' })
+    await nextTick()
+    expect(wrapper.find('.composer-status').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('offers declared thread participants even when the workspace omits them', async () => {
+    getThread.mockResolvedValue({
+      thread: { ID: '1', Participants: ['agent-p', 'agent-missing'] },
+      messages: [],
+    })
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm1', AuthorType: 'user', Body: 'hi' },
+      delegated: [],
+    })
+    const { wrapper, pinia } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+    useWorkbenchStore(pinia).agents = [{ id: 'agent-p', name: 'planner', display_name: 'Planner' }]
+    await nextTick()
+
+    await wrapper.find('textarea').setValue('@')
+    await nextTick()
+    expect(wrapper.findAll('.mention-item .truncate').map((s) => s.text())).toEqual(['Planner', 'agent-missing'])
+
+    await sendDraft(wrapper, 'hi')
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'hi', ['agent-missing'])
+  })
 })
 
 describe('ChannelsView', () => {

@@ -24,7 +24,7 @@ import {
   sandboxStats, listSandboxes, listSandboxProviders, refreshSandboxProviders, listSandboxNodes,
   getSandbox, execSandbox, renewSandbox, terminateSandbox, listThreads,
   getThread, postThreadMessage, subscribeThreadEvents, dropRouterSubscription,
-  checkHealth, request,
+  checkHealth, request, getWorkspace,
 } from '../src/lib/api.js'
 import KnowledgeView from '../src/views/KnowledgeView.vue'
 import ConnectorsView from '../src/views/ConnectorsView.vue'
@@ -42,6 +42,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
   window.localStorage.clear()
 
+  getWorkspace.mockResolvedValue({ agents: [] })
   listKnowledge.mockResolvedValue([])
   listConnectors.mockResolvedValue([])
   listResources.mockResolvedValue({ resources: [] })
@@ -183,7 +184,7 @@ describe('ThreadView message and subscription edges', () => {
 
   it('refreshes the task list when the server says it delegated the turn', async () => {
     thread([])
-    postThreadMessage.mockResolvedValue({ delegated: true })
+    postThreadMessage.mockResolvedValue({ delegated: ['t1'] })
     const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
     await flushPromises()
     // Counted from here: the mount already refreshes once on its own.
