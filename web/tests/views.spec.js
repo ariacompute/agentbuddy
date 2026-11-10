@@ -1929,6 +1929,7 @@ describe('PersonaEditor', () => {
   it('sends every field the operator typed, including the MBTI and the avatar', async () => {
     const agent = {
       id: 'a1', name: 'Agent', kind: 'agent', health: 'healthy',
+      display_name: 'Registry label',
       persona: { displayName: 'Ada Lovelace', tagline: 'Keeps the lights on' },
     }
     listResources.mockResolvedValue({ resources: [agent] })
@@ -1936,7 +1937,12 @@ describe('PersonaEditor', () => {
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
 
-    await wrapper.find('input[type="text"]').setValue('Ada')
+    // Text inputs are display name, job title, role, avatar reference. The
+    // persona label wins over the registry display_name when both are stored.
+    const inputs = wrapper.findAll('input[type="text"]')
+    expect(inputs[0].element.value).toBe('Ada Lovelace')
+    await inputs[0].setValue('Ada')
+    await inputs[1].setValue('Dr Ada')
     await wrapper.findAll('select')[1].setValue('INTJ')
     await wrapper.find('textarea').setValue('be exact')
     await wrapper.find('input[placeholder="ref://"]').setValue('ref://ada')
@@ -1946,10 +1952,11 @@ describe('PersonaEditor', () => {
 
     expect(updateResource).toHaveBeenCalledWith('a1', {
       ...agent,
+      display_name: 'Ada',
       // Persona fields the form does not edit survive the round trip.
       persona: {
-        displayName: 'Ada Lovelace', tagline: 'Keeps the lights on',
-        role: '', instruction: 'be exact', mbti: 'INTJ', avatar_ref: 'ref://ada', title: 'Ada',
+        displayName: 'Ada', tagline: 'Keeps the lights on',
+        role: '', instruction: 'be exact', mbti: 'INTJ', avatar_ref: 'ref://ada', title: 'Dr Ada',
       },
     })
     // No half-typed state is left behind: the saved values are what is on screen.
@@ -1976,8 +1983,53 @@ describe('PersonaEditor', () => {
 
     expect(updateResource).toHaveBeenCalledWith('example-agent-google-adk-windows', {
       ...agent,
-      persona: { role: '', instruction: '', mbti: '', avatar_ref: '', title: '' },
+      display_name: 'Google ADK（Windows）',
+      persona: {
+        displayName: 'Google ADK（Windows）',
+        role: '', instruction: '', mbti: '', avatar_ref: '', title: '',
+      },
     })
+  })
+
+  it('lets the operator choose a display name without renaming the agent', async () => {
+    listResources.mockResolvedValue({
+      resources: [{ id: 'a1', name: 'google-adk', kind: 'agent', display_name: 'Old label' }],
+    })
+    updateResource.mockResolvedValue({})
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    // The selector is the registry name; the label below it is the editable one.
+    expect(wrapper.text()).toContain('Agent Name')
+    expect(wrapper.text()).toContain('Display name')
+    const inputs = wrapper.findAll('input[type="text"]')
+    expect(inputs[0].element.value).toBe('Old label')
+
+    await inputs[0].setValue('Ada Lovelace')
+    await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
+    await flushPromises()
+
+    expect(updateResource).toHaveBeenCalledWith('a1', expect.objectContaining({
+      name: 'google-adk',
+      display_name: 'Ada Lovelace',
+      persona: expect.objectContaining({ displayName: 'Ada Lovelace' }),
+    }))
+  })
+
+  it('reports a rejected display-name save instead of leaving a stale label', async () => {
+    listResources.mockResolvedValue({
+      resources: [{ id: 'a1', name: 'google-adk', kind: 'agent', persona: {} }],
+    })
+    updateResource.mockRejectedValue(Object.assign(new Error('nope'), { code: 'invalid_kind' }))
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    await wrapper.findAll('input[type="text"]')[0].setValue('Ada')
+    await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(errorMessage('invalid_kind'))
+    expect(wrapper.find('input[type="text"]').exists()).toBe(false)
   })
 
   it('loads agents and saves a persona', async () => {
@@ -1999,18 +2051,21 @@ describe('PersonaEditor', () => {
   it('switches the form to whichever agent is selected', async () => {
     listResources.mockResolvedValue({
       resources: [
-        { id: 'a1', name: 'First', kind: 'agent', persona: { instruction: 'be terse', mbti: 'INTJ' } },
+        { id: 'a1', name: 'First', kind: 'agent', display_name: 'First label', persona: { instruction: 'be terse', mbti: 'INTJ' } },
         { id: 'a2', name: 'Second', kind: 'agent', persona: { instruction: 'be kind', avatar_ref: 'ref://b' } },
       ],
     })
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
     expect(wrapper.find('textarea').element.value).toBe('be terse')
+    expect(wrapper.findAll('input[type="text"]')[0].element.value).toBe('First label')
 
     await wrapper.findAll('select')[0].setValue('a2')
     await nextTick()
 
     expect(wrapper.find('textarea').element.value).toBe('be kind')
+    // An agent with no stored label starts with an empty custom name.
+    expect(wrapper.findAll('input[type="text"]')[0].element.value).toBe('')
     expect(wrapper.find('input[placeholder="ref://"]').element.value).toBe('ref://b')
     expect(wrapper.findAll('select')[1].element.value).toBe('')
   })
@@ -2026,11 +2081,11 @@ describe('PersonaEditor', () => {
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
 
-    // text inputs are, in order: job title, role, avatar reference.
+    // text inputs are, in order: display name, job title, role, avatar reference.
     const inputs = wrapper.findAll('input[type="text"]')
-    expect(inputs[1].element.value).toBe('Research lead')
+    expect(inputs[2].element.value).toBe('Research lead')
 
-    await inputs[1].setValue('Delivery lead')
+    await inputs[2].setValue('Delivery lead')
     await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
     await flushPromises()
 

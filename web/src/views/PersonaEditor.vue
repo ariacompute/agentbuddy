@@ -11,7 +11,7 @@ const loading = ref(true)
 const error = ref('')
 const saving = ref(false)
 
-const form = ref({ role: '', instruction: '', mbti: '', avatar_ref: '', title: '' })
+const form = ref({ displayName: '', role: '', instruction: '', mbti: '', avatar_ref: '', title: '' })
 
 const selected = computed(() => agents.value.find((a) => a.id === selectedId.value) || null)
 
@@ -34,6 +34,9 @@ async function load() {
 function loadForm(agent) {
   const p = agent.persona || {}
   form.value = {
+    // A persona label wins; older records only carry the registry's
+    // display_name, which is what the form shows until the operator saves.
+    displayName: p.displayName || agent.display_name || '',
     role: p.role || '',
     instruction: p.instruction || '',
     mbti: p.mbti || '',
@@ -54,9 +57,12 @@ async function save() {
   try {
     // PUT /api/resources/{id} replaces the whole record: a body holding only
     // `persona` has no kind/name to validate and would wipe every other field.
-    // Re-send the entry untouched except for the five fields this form owns.
+    // Re-send the entry untouched except for the label and persona this form owns.
+    // Both places carry the label: the registry uses it for exported Agent Cards,
+    // while the workbench and thread cards read persona.displayName first.
     await updateResource(agent.id, {
       ...agent,
+      display_name: form.value.displayName,
       persona: { ...agent.persona, ...form.value },
     })
   } catch (e) {
@@ -85,6 +91,10 @@ onMounted(load)
         <select v-model="selectedId" @change="onSelect">
           <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
+      </label>
+      <label class="field">
+        <span>{{ t('personaDisplayName') }}</span>
+        <input v-model="form.displayName" type="text" />
       </label>
       <label class="field">
         <span>{{ t('personaJobTitle') }}</span>
