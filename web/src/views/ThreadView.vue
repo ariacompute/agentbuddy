@@ -40,8 +40,9 @@ const refreshTimers = new Set()
 
 const relatedTasks = computed(() => workbench.tasks.filter((task) => task.contextId === props.id))
 
-// The composer's live status: sending the POST first, then why nothing came back
-// or which agent we are still waiting on.
+// The conversation's live status, pinned to the end of the message stream:
+// sending the POST first, then why nothing came back or which agent we are
+// still waiting on.
 const statusText = computed(() => {
   if (sending.value) return t('sending')
   if (notice.value) return notice.value
@@ -371,7 +372,7 @@ onUnmounted(() => {
     <div class="thread" v-if="thread">
       <div class="thread-main">
         <div class="messages">
-          <div v-if="messages.length === 0" class="empty">{{ t('messagesEmpty') }}</div>
+          <div v-if="messages.length === 0 && !statusText" class="empty">{{ t('messagesEmpty') }}</div>
           <div
             v-for="msg in messages"
             :key="msg.ID"
@@ -394,6 +395,13 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
+          <!-- The live send/reply status trails the message stream instead of
+               sitting under the composer, so it reads as the outcome of the
+               message just posted. -->
+          <p v-if="statusText" class="messages-status" role="status" aria-live="polite">
+            <StateDot v-if="sending || awaitingReply" state="working" :label="false" />
+            <span>{{ statusText }}</span>
+          </p>
         </div>
 
         <div class="composer">
@@ -433,10 +441,6 @@ onUnmounted(() => {
               <Send :size="15" /> {{ t('send') }}
             </button>
           </div>
-          <p v-if="statusText" class="composer-status" role="status" aria-live="polite">
-            <StateDot v-if="awaitingReply" state="working" :label="false" />
-            <span>{{ statusText }}</span>
-          </p>
         </div>
       </div>
 

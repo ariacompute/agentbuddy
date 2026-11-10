@@ -383,7 +383,7 @@ describe('ThreadView delegation and pending replies', () => {
     await sendDraft(wrapper, 'go @scout')
 
     expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @scout', ['agent-1'])
-    expect(wrapper.find('.composer-status').text()).toContain('Replying…')
+    expect(wrapper.find('.messages-status').text()).toContain('Replying…')
     wrapper.unmount()
   })
 
@@ -433,6 +433,9 @@ describe('ThreadView delegation and pending replies', () => {
 
     expect(postThreadMessage).toHaveBeenCalledWith('1', 'hi', [])
     expect(wrapper.text()).toContain('No agents yet')
+    // The hint trails the stream; a plain notice carries no pulsing dot.
+    expect(wrapper.find('.messages .messages-status').text()).toContain('No agents yet')
+    expect(wrapper.find('.messages-status .state-dot').exists()).toBe(false)
   })
 
   it('keeps the draft and reports a refused send', async () => {
@@ -486,9 +489,35 @@ describe('ThreadView delegation and pending replies', () => {
     await wrapper.findAll('button').find((b) => b.classes('btn-primary')).trigger('click')
     await nextTick()
 
-    expect(wrapper.find('.composer-status').text()).toContain('Sending')
+    expect(wrapper.find('.messages-status').text()).toContain('Sending')
     resolvePost({ message: { ID: 'm1', AuthorType: 'user', Body: 'hi' }, delegated: [] })
     await flushPromises()
+  })
+
+  it('trails the send status at the end of the stream and hides the empty placeholder', async () => {
+    let resolvePost
+    postThreadMessage.mockReturnValue(new Promise((resolve) => { resolvePost = resolve }))
+    const { wrapper } = mountThread([])
+    await flushPromises()
+
+    // An idle empty thread still shows its placeholder and no status line.
+    expect(wrapper.find('.empty').exists()).toBe(true)
+    expect(wrapper.find('.messages-status').exists()).toBe(false)
+
+    await wrapper.find('textarea').setValue('@google-adk hello')
+    await wrapper.findAll('button').find((b) => b.classes('btn-primary')).trigger('click')
+    await nextTick()
+
+    // The status is the last row of the message stream, not a bar under the
+    // composer, and the in-flight state is the one that pulses.
+    expect(wrapper.find('.messages > .messages-status').text()).toContain('Sending')
+    expect(wrapper.find('.messages-status .state-dot').exists()).toBe(true)
+    expect(wrapper.find('.composer .messages-status').exists()).toBe(false)
+    expect(wrapper.find('.empty').exists()).toBe(false)
+
+    resolvePost({ message: { ID: 'm1', AuthorType: 'user', Body: '@google-adk hello' }, delegated: [] })
+    await flushPromises()
+    wrapper.unmount()
   })
 
   it('treats a routed answer as a pending reply', async () => {
@@ -501,7 +530,7 @@ describe('ThreadView delegation and pending replies', () => {
 
     await sendDraft(wrapper, 'hi')
 
-    expect(wrapper.find('.composer-status').text()).toContain('Replying…')
+    expect(wrapper.find('.messages-status').text()).toContain('Replying…')
     wrapper.unmount()
   })
 
@@ -631,7 +660,7 @@ describe('ThreadView delegation and pending replies', () => {
 
       for (let i = 0; i < 6; i += 1) await vi.advanceTimersByTimeAsync(3000)
 
-      expect(wrapper.find('.composer-status').exists()).toBe(false)
+      expect(wrapper.find('.messages-status').exists()).toBe(false)
       wrapper.unmount()
     } finally {
       vi.useRealTimers()
@@ -663,7 +692,7 @@ describe('ThreadView delegation and pending replies', () => {
       })
       await vi.advanceTimersByTimeAsync(3000)
 
-      expect(wrapper.find('.composer-status').exists()).toBe(false)
+      expect(wrapper.find('.messages-status').exists()).toBe(false)
       wrapper.unmount()
     } finally {
       vi.useRealTimers()
@@ -690,16 +719,16 @@ describe('ThreadView delegation and pending replies', () => {
     await flushPromises()
 
     await sendDraft(wrapper, 'go')
-    expect(wrapper.find('.composer-status').text()).toContain('Replying…')
+    expect(wrapper.find('.messages-status').text()).toContain('Replying…')
 
     // A reconnect replays the old reply; it is not the answer we are waiting for.
     handlers.agent({ ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', Body: 'old reply' })
     await nextTick()
-    expect(wrapper.find('.composer-status').text()).toContain('Replying…')
+    expect(wrapper.find('.messages-status').text()).toContain('Replying…')
 
     handlers.agent({ ID: 'm9', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', TaskID: 't1', Body: 'fresh' })
     await nextTick()
-    expect(wrapper.find('.composer-status').exists()).toBe(false)
+    expect(wrapper.find('.messages-status').exists()).toBe(false)
     wrapper.unmount()
   })
 
