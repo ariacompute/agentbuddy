@@ -17,11 +17,15 @@ const showDialog = ref(false)
 const draftTitle = ref('')
 const saving = ref(false)
 
-// One checkbox per card plus a select-all control covers both cases: a single
-// checked card is a single delete, several checked cards are a batch delete.
+// Selection lives behind the select-all control: the per-card checkbox is only
+// rendered once that control turns selection mode on, so a plain list stays
+// free of boxes. Checking select-all selects everything; unchecking a single
+// card narrows the batch while mode stays on (the master box turns
+// indeterminate); unchecking select-all leaves the mode and clears the batch.
 // `selected` is the raw v-model value; `selectedIds` re-intersects it with the
 // list the server most recently returned, so an id deleted on another machine
 // can never be counted or sent again.
+const selectMode = ref(false)
 const selected = ref([])
 const pending = ref([])
 const showConfirm = ref(false)
@@ -72,11 +76,13 @@ function openThread(id) {
 }
 
 function toggleAll(checked) {
+  selectMode.value = checked
   selected.value = checked ? [...visibleIds.value] : []
 }
 
 function clearSelection() {
   selected.value = []
+  selectMode.value = false
 }
 
 function askDelete(ids) {
@@ -101,6 +107,8 @@ async function confirmDelete() {
     // The refreshed list is the truth: drop ids that are no longer there, but
     // keep the ones a refused delete left behind so they can be retried.
     selected.value = selected.value.filter((id) => visibleIds.value.includes(id))
+    // Nothing left checked: leave selection mode so the empty boxes go away.
+    if (!selected.value.length) selectMode.value = false
     if (code) {
       error.value = errorMessage(code)
       return
@@ -145,7 +153,8 @@ async function confirmDelete() {
         <label class="thread-checkall">
           <input
             type="checkbox"
-            :checked="allSelected"
+            :checked="selectMode"
+            :indeterminate="selectMode && !allSelected"
             :aria-label="t('selectAll')"
             @change="toggleAll($event.target.checked)"
           />
@@ -167,7 +176,7 @@ async function confirmDelete() {
           @click="openThread(thread.ID)"
         >
           <div class="card-head">
-            <label class="thread-check-label" @click.stop>
+            <label v-if="selectMode" class="thread-check-label" @click.stop>
               <input
                 v-model="selected"
                 class="thread-check"

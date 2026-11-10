@@ -1629,3 +1629,26 @@ agentbuddy F3.8 ↔ agenthub `requirements.md` §14 / `task.md` M21。
   重载也不抛错。
 - `bun run test`：**34 spec / 856 用例全绿**；`bun run test:coverage`：语句 / 行 / 分支 / 函数
   **四项 100%**（11769 语句、2006 分支、466 函数、11734 行）。
+
+## M41 — Threads 复选框只在「全选」后出现（2026-11-10）
+
+列表此前每张卡片常驻一个复选框：什么都没选时，一屏卡片上仍挂满空框，既像「已可选」又
+看不出选择模式是否开启。本轮收口 F3.6 的入口语义，只动 `web/`，API 与外壳零改动。
+
+### 1. 视图（`ThreadListView.vue`）
+
+- 新增 `selectMode`：默认 `false`，卡片上的 `.thread-check-label` 用 `v-if="selectMode"` 渲染，
+  **未进入选择模式时列表里没有任何复选框**。
+- 母框（`.thread-checkall input`）绑定 `:checked="selectMode"` + `:indeterminate="selectMode && !allSelected"`：
+  勾上即把 `selected` 填成最新列表全部 id（每卡同时显示且均为选中态），取消即清空并退出模式；
+  模式内逐卡取消时批次收窄，母框转为 indeterminate，方便「全选后排除几个再删」。
+- `clearSelection()` 与「删除后选中集为空」两处一并关闭 `selectMode`，避免留下一排没人认领的空框。
+
+### 2. 用例与验证
+
+- `tests/thread-delete.spec.js`：默认态断言改为 `.thread-check` 数量为 0 且 `.thread-check-label`
+  不存在，勾「全选」后为 3 且全选中、母框非 indeterminate；新增「先全选再逐卡取消」一条钉住
+  批次收窄、母框 indeterminate、取消全选后复选框整体消失；其余用例改为先勾「全选」再取消
+  不需要的卡片（批量删除仍走 `Promise.allSettled` 并发，重复提交用例改为按 3 个飞行中请求校验）。
+- `bun run test`：**34 spec / 857 用例全绿**；`bun run test:coverage`：语句 / 行 / 分支 / 函数
+  **四项 100%**（11778 语句、2009 分支、466 函数、11743 行）。

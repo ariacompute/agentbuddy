@@ -83,21 +83,47 @@ afterEach(() => {
 })
 
 describe('ThreadListView — selection', () => {
-  it('offers a checkbox per card and a select-all control', async () => {
+  it('shows the per-card checkboxes only once select-all turns them on', async () => {
     const { wrapper } = mountView()
     await flushPromises()
 
-    expect(wrapper.findAll('.thread-check')).toHaveLength(3)
     expect(wrapper.find('.thread-checkall input').exists()).toBe(true)
     expect(wrapper.find('.thread-checkall').text()).toContain('Select all')
+    // A plain list carries no boxes at all, so nothing looks selected.
+    expect(wrapper.findAll('.thread-check')).toHaveLength(0)
+    expect(wrapper.find('.thread-check-label').exists()).toBe(false)
     // Nothing is checked, so no destructive action is offered yet.
     expect(findButton(wrapper, 'Delete selected')).toBeUndefined()
+
+    await wrapper.find('.thread-checkall input').setValue(true)
+    const boxes = wrapper.findAll('.thread-check')
+    expect(boxes).toHaveLength(3)
+    expect(boxes.every((box) => box.element.checked)).toBe(true)
+    expect(wrapper.find('.thread-checkall input').element.indeterminate).toBe(false)
+  })
+
+  it('narrows the batch with the per-card boxes and unchecks select-all again', async () => {
+    const { wrapper } = mountView()
+    await flushPromises()
+
+    await wrapper.find('.thread-checkall input').setValue(true)
+    await wrapper.findAll('.thread-check')[1].setValue(false)
+    expect(wrapper.vm.selected).toEqual(['th-1', 'th-3'])
+    expect(wrapper.text()).toContain('2 selected')
+    // Still in selection mode, so the master box says "partly selected".
+    expect(wrapper.findAll('.thread-check')).toHaveLength(3)
+    expect(wrapper.find('.thread-checkall input').element.indeterminate).toBe(true)
+
+    await wrapper.find('.thread-checkall input').setValue(false)
+    expect(wrapper.vm.selected).toEqual([])
+    expect(wrapper.findAll('.thread-check')).toHaveLength(0)
   })
 
   it('opens a thread from the card, but not from its checkbox or delete button', async () => {
     const { wrapper, router } = mountView()
     await flushPromises()
 
+    await wrapper.find('.thread-checkall input').setValue(true)
     await wrapper.find('.thread-check-label').trigger('click')
     await wrapper.find('.thread-delete').trigger('click')
     expect(router.currentRoute.value.fullPath).toBe('/')
@@ -120,6 +146,7 @@ describe('ThreadListView — selection', () => {
 
     await findButton(wrapper, 'Clear selection').trigger('click')
     expect(wrapper.vm.selected).toEqual([])
+    expect(wrapper.findAll('.thread-check')).toHaveLength(0)
     expect(findButton(wrapper, 'Delete selected')).toBeUndefined()
   })
 
@@ -137,7 +164,11 @@ describe('ThreadListView — selection', () => {
     const { wrapper } = mountView()
     await flushPromises()
 
-    await wrapper.findAll('.thread-check')[0].setValue(true)
+    await wrapper.find('.thread-checkall input').setValue(true)
+    // Narrow the batch down to the first card only.
+    await wrapper.findAll('.thread-check')[1].setValue(false)
+    await wrapper.findAll('.thread-check')[2].setValue(false)
+    expect(wrapper.vm.selectedIds).toEqual(['th-1'])
     // A background refresh drops the selected thread without any click.
     listThreads.mockResolvedValueOnce({ threads: rows().slice(1) })
     await wrapper.vm.workbench.refreshThreads()
@@ -231,8 +262,9 @@ describe('ThreadListView — deleting', () => {
     deleteThread.mockReset()
       .mockRejectedValueOnce({ code: 'forbidden' })
       .mockResolvedValueOnce(null)
-    await wrapper.findAll('.thread-check')[0].setValue(true)
-    await wrapper.findAll('.thread-check')[2].setValue(true)
+    await wrapper.find('.thread-checkall input').setValue(true)
+    // Leave the middle card out so the batch is a proper subset.
+    await wrapper.findAll('.thread-check')[1].setValue(false)
     await findButton(wrapper, 'Delete selected').trigger('click')
     await clickDialogButton('Delete')
 
@@ -247,7 +279,9 @@ describe('ThreadListView — deleting', () => {
     await flushPromises()
 
     deleteThread.mockRejectedValue({ code: '405', status: 405 })
-    await wrapper.findAll('.thread-check')[0].setValue(true)
+    await wrapper.find('.thread-checkall input').setValue(true)
+    await wrapper.findAll('.thread-check')[1].setValue(false)
+    await wrapper.findAll('.thread-check')[2].setValue(false)
     await findButton(wrapper, 'Delete selected').trigger('click')
     await clickDialogButton('Delete')
 
@@ -261,33 +295,40 @@ describe('ThreadListView — deleting', () => {
 
     deleteThread.mockRejectedValue({ code: 'not_found' })
     listThreads.mockResolvedValueOnce({ threads: rows().slice(1) })
-    await wrapper.findAll('.thread-check')[0].setValue(true)
+    await wrapper.find('.thread-checkall input').setValue(true)
+    await wrapper.findAll('.thread-check')[1].setValue(false)
+    await wrapper.findAll('.thread-check')[2].setValue(false)
     await findButton(wrapper, 'Delete selected').trigger('click')
     await clickDialogButton('Delete')
 
     expect(wrapper.find('.banner-error').exists()).toBe(false)
     expect(document.querySelector('.dialog-backdrop')).toBeNull()
     expect(wrapper.vm.selected).toEqual([])
+    // Nothing is checked any more, so selection mode closes with it.
+    expect(wrapper.findAll('.thread-check')).toHaveLength(0)
   })
 
   it('does not send the same batch twice while a delete is in flight', async () => {
     const { wrapper } = mountView()
     await flushPromises()
 
-    let release
-    deleteThread.mockReturnValue(new Promise((resolve) => { release = resolve }))
-    await wrapper.findAll('.thread-check')[0].setValue(true)
+    // The store sends the batch concurrently, so every request needs its own
+    // resolver before the in-flight batch can be released.
+    const resolvers = []
+    deleteThread.mockImplementation(() => new Promise((resolve) => { resolvers.push(resolve) }))
+    await wrapper.find('.thread-checkall input').setValue(true)
     await findButton(wrapper, 'Delete selected').trigger('click')
     await nextTick()
 
     const first = wrapper.vm.confirmDelete()
     await wrapper.vm.confirmDelete()
-    expect(deleteThread).toHaveBeenCalledTimes(1)
+    expect(deleteThread).toHaveBeenCalledTimes(3)
 
-    release(null)
+    for (const resolve of resolvers) resolve(null)
     await first
     await flushPromises()
-    expect(deleteThread).toHaveBeenCalledTimes(1)
+    // The batch was sent exactly once.
+    expect(deleteThread).toHaveBeenCalledTimes(3)
   })
 })
 
