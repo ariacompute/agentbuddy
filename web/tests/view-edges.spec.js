@@ -1081,7 +1081,10 @@ describe('guards behind disabled controls', () => {
     await flushPromises()
 
     wrapper.vm.selectedId = 'ghost'
+    await nextTick()
     expect(wrapper.vm.selected).toBeNull()
+    // A click that cannot do anything is disabled rather than silently dropped.
+    expect(wrapper.findAll('button').find((b) => /save/i.test(b.text())).attributes('disabled')).toBeDefined()
     wrapper.vm.selectedId = ''
     await wrapper.vm.save()
     expect(wrapper.vm.saving).toBe(false)

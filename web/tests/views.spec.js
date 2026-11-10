@@ -2061,6 +2061,65 @@ describe('PersonaEditor', () => {
     }))
   })
 
+  it('shows a saving state, a saved notice, and the values the server stored', async () => {
+    const agent = { id: 'a1', name: 'A', kind: 'agent', persona: { title: 'Old' } }
+    listResources.mockResolvedValue({ resources: [agent] })
+    let finish
+    updateResource.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    // Locate by class: the label changes from "Save persona" to "Saving…".
+    const saveButton = () => wrapper.find('button.btn-sm')
+    const textInputs = () => wrapper.findAll('input[type="text"]')
+    expect(saveButton().text()).toBe('Save persona')
+
+    await textInputs()[0].setValue('  Ada  ')
+    await textInputs()[1].setValue('  Lead  ')
+    await saveButton().trigger('click')
+    await nextTick()
+
+    expect(saveButton().text()).toBe('Saving…')
+    expect(saveButton().attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).not.toContain('Saved.')
+
+    finish({
+      id: 'a1', name: 'A', kind: 'agent', display_name: 'Ada',
+      persona: {
+        displayName: 'Ada', title: 'Lead', role: '', instruction: '',
+        mbti: '', avatar_ref: '',
+      },
+    })
+    await flushPromises()
+
+    expect(saveButton().text()).toBe('Save persona')
+    expect(saveButton().attributes('disabled')).toBeUndefined()
+    expect(wrapper.text()).toContain('Saved.')
+    // The server trims and normalises: the form must show what was stored.
+    expect(textInputs()[0].element.value).toBe('Ada')
+    expect(textInputs()[1].element.value).toBe('Lead')
+  })
+
+  it('clears the saved notice when another agent is selected', async () => {
+    listResources.mockResolvedValue({
+      resources: [
+        { id: 'a1', name: 'First', kind: 'agent', persona: {} },
+        { id: 'a2', name: 'Second', kind: 'agent', persona: {} },
+      ],
+    })
+    updateResource.mockResolvedValue({})
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Saved.')
+
+    await wrapper.findAll('select')[0].setValue('a2')
+    await nextTick()
+    expect(wrapper.text()).not.toContain('Saved.')
+  })
+
   it('switches the form to whichever agent is selected', async () => {
     listResources.mockResolvedValue({
       resources: [

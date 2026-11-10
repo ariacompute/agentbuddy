@@ -10,6 +10,7 @@ const selectedId = ref('')
 const loading = ref(true)
 const error = ref('')
 const saving = ref(false)
+const saved = ref(false)
 
 const form = ref({ displayName: '', role: '', instruction: '', mbti: '', avatar_ref: '', title: '' })
 
@@ -46,6 +47,7 @@ function loadForm(agent) {
 }
 
 function onSelect() {
+  saved.value = false
   if (selected.value) loadForm(selected.value)
 }
 
@@ -53,6 +55,7 @@ async function save() {
   const agent = selected.value
   if (!agent || saving.value) return
   saving.value = true
+  saved.value = false
   error.value = ''
   try {
     // PUT /api/resources/{id} replaces the whole record: a body holding only
@@ -60,11 +63,18 @@ async function save() {
     // Re-send the entry untouched except for the label and persona this form owns.
     // Both places carry the label: the registry uses it for exported Agent Cards,
     // while the workbench and thread cards read persona.displayName first.
-    await updateResource(agent.id, {
+    const stored = await updateResource(agent.id, {
       ...agent,
       display_name: form.value.displayName,
       persona: { ...agent.persona, ...form.value },
     })
+    // The server trims, caps and validates the persona. Mirror what it stored so
+    // the form shows the saved values rather than a half-typed draft.
+    if (stored && stored.id) {
+      Object.assign(agent, stored)
+      loadForm(agent)
+    }
+    saved.value = true
   } catch (e) {
     error.value = errorMessage(e.code) || e.message
   } finally {
@@ -120,7 +130,8 @@ onMounted(load)
         <input v-model="form.avatar_ref" type="text" placeholder="ref://" />
       </label>
       <div class="row" style="gap:8px">
-        <button class="btn btn-sm" :disabled="saving" @click="save">{{ t('personaSave') }}</button>
+        <button class="btn btn-sm" :disabled="saving || !selected" @click="save">{{ saving ? t('personaSaving') : t('personaSave') }}</button>
+        <span v-if="saved" class="muted" style="font-size:11px">{{ t('personaSaved') }}</span>
       </div>
     </section>
   </div>
