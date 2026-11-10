@@ -13,6 +13,7 @@ vi.mock('../src/lib/api.js', () => ({
   resumeTask: vi.fn(),
   cancelTask: vi.fn(),
   isAuthError: vi.fn(),
+  clearTasks: vi.fn(),
   notifyShell: vi.fn(),
   setTrayBadge: vi.fn(),
   getShellConfig: vi.fn(),
@@ -21,7 +22,7 @@ vi.mock('../src/lib/api.js', () => ({
 import { useWorkbenchStore } from '../src/lib/workbench-store.js'
 import {
   getWorkspace, listThreads, deleteThread, clearThreadMessages, listTasks, listChannels, listConnectors, getDeliveries,
-  resumeTask, cancelTask, isAuthError, notifyShell, setTrayBadge, getShellConfig,
+  resumeTask, cancelTask, isAuthError, clearTasks, notifyShell, setTrayBadge, getShellConfig,
 } from '../src/lib/api.js'
 import { resetShellNotifySettings } from '../src/lib/shell-settings.js'
 
@@ -276,6 +277,56 @@ describe('workbench-store', () => {
       expect(s.loading).toBe(false)
       expect(getWorkspace).toHaveBeenCalled()
       expect(listConnectors).toHaveBeenCalled()
+    })
+  })
+
+  // F4.5: the clear deletes on the server (DELETE /api/tasks) and re-reads what
+  // is left, so the screen never shows a list the server disagrees with.
+  describe('clearTasks', () => {
+    it('asks the server, then re-reads what is left', async () => {
+      clearTasks.mockResolvedValue({ deleted: 3, kept: 1 })
+      listTasks.mockResolvedValue({ tasks: [{ id: 't9', status: { state: 'working' } }] })
+      const s = useWorkbenchStore()
+      s.tasks = [{ id: 't1' }, { id: 't2' }]
+
+      const result = await s.clearTasks()
+
+      expect(clearTasks).toHaveBeenCalledTimes(1)
+      expect(result).toEqual({ deleted: 3, kept: 1 })
+      // The list comes from the server, not from what the click assumed.
+      expect(s.tasks.map((t) => t.id)).toEqual(['t9'])
+    })
+
+    it('answers zero counts when the server sends none', async () => {
+      clearTasks.mockResolvedValue(null)
+      const s = useWorkbenchStore()
+
+      expect(await s.clearTasks()).toEqual({ deleted: 0, kept: 0 })
+    })
+
+    it('reports an older server as a missing feature, not a 405', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      clearTasks.mockRejectedValue(Object.assign(new Error('nope'), { code: '405' }))
+      const s = useWorkbenchStore()
+
+      expect(await s.clearTasks()).toEqual({ code: 'feature_unavailable' })
+      expect(consoleError).toHaveBeenCalled()
+    })
+
+    it('passes the machine code through when the server refuses', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      clearTasks.mockRejectedValue(Object.assign(new Error('nope'), { code: 'forbidden' }))
+      const s = useWorkbenchStore()
+
+      expect(await s.clearTasks()).toEqual({ code: 'forbidden' })
+    })
+
+    it('falls back to internal_error when the failure carries no code', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      clearTasks.mockRejectedValue(new Error('boom'))
+      const s = useWorkbenchStore()
+
+      expect(await s.clearTasks()).toEqual({ code: 'internal_error' })
     })
   })
 

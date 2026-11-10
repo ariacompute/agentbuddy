@@ -25,6 +25,7 @@ import {
   getTask,
   cancelTask,
   resumeTask,
+  clearTasks,
   listResources,
   updateChannel,
   deleteChannel,
@@ -341,6 +342,11 @@ describe('api endpoint helpers', () => {
     await resumeTask('t1', 'answer')
     expect(lastCall()[0]).toBe('/api/tasks/t1/resume')
     expect(JSON.parse(lastCall()[1].body)).toEqual({ answer: 'answer' })
+    // Clearing history is one DELETE on the collection, not one per task: the
+    // server decides what is finished and keeps the live runs.
+    await clearTasks()
+    expect(lastCall()[0]).toBe('/api/tasks')
+    expect(lastCall()[1].method).toBe('DELETE')
   })
 
   it('listResources passes the kind as a query when given', async () => {

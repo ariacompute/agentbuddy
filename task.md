@@ -1652,3 +1652,47 @@ agentbuddy F3.8 ↔ agenthub `requirements.md` §14 / `task.md` M21。
   不需要的卡片（批量删除仍走 `Promise.allSettled` 并发，重复提交用例改为按 3 个飞行中请求校验）。
 - `bun run test`：**34 spec / 857 用例全绿**；`bun run test:coverage`：语句 / 行 / 分支 / 函数
   **四项 100%**（11778 语句、2009 分支、466 函数、11743 行）。
+
+## M42 — Tasks 页清理全部 + 任务详情返回列表（2026-11-10）
+
+F4.5 / F4.6。第一版「清理」只能在本机隐藏（agenthub 当时没有任何删除任务的通道，重启即复原），
+随后按需求补齐了服务端契约（agenthub `requirements.md` §15 / `task.md` M22：
+`DELETE /api/tasks` 删已结束记录、保留在途并回 `{deleted, kept}`），因此这里改成**真实删除**，
+上一版的 `clearedTasks` / `visibleTasks` / localStorage 影子状态整套**删除**。
+
+### 1. API 与 Store
+
+- `lib/api.js`：新增 `clearTasks = () => del('/api/tasks')`（一次请求删集合，不是逐个删）。
+- `lib/workbench-store.js`：`clearTasks()` 改成 async —— 调服务端 → **重读 `refreshTasks()`** →
+  返回 `{deleted, kept}`；失败返回 `{code}`，其中 `405` 归一为 `feature_unavailable`
+  （旧 agenthub 没这条路由，界面说「未开启」而不是打印 405），其余透传机器码。
+  列表永远来自重读结果，不自认已空。
+- 上一版的 `clearedTasks` 状态、`visibleTasks` getter、存储读写守卫与 200 条封顶全部移除：
+  `TaskListView` / `WorkspaceView` 回到读原始 `tasks`。
+
+### 2. 视图
+
+- `TaskListView.vue`：页头在 `tasks.length > 0` 时给出 `.task-clear`（无任务时不渲染，空态仍是既有
+  `listEmpty` / `listEmptyNote`）；`BaseDialog` 二次确认（`clearAllTitle` / `clearAllBody`），
+  确认后 `clearing` 守卫 + 按钮 disabled 保证一次确认一个请求；成功才关弹窗、复位筛选到「全部」，
+  失败则在弹窗内 `.banner-error` 显示本地化原因（同一弹窗即重试入口）；
+  `kept > 0` 时页头 `.banner` 说明「{count} 个任务仍在进行，记录已保留」。
+- `TaskTraceView.vue`：根节点换成 `.task-page`，顶部 `RouterLink to="/tasks"`（`.task-back`，
+  `ArrowLeft` + `backToTasks`）**在加载中 / 加载失败 / 深链直达时都在**；不用 `history.back()`。
+- `style.css`：新增 `.task-page` / `.task-back` / `.task-back-icon` / `.task-back:focus-visible` /
+  `[dir='rtl'] .task-back-icon`（箭头翻转）/ `.task-clear`（44px 触控目标），只用既有令牌。
+- `copy/task-copy.js`：13 语 `backToTasks` / `clearAll` / `clearAllTitle` / `clearAllBody` /
+  `clearAllKept`（后四条按服务端语义重写）。
+
+### 3. 用例与验证
+
+- `tests/task-clear.spec.js`（12 条）：空列表不渲染入口；确认后发**一次** DELETE、按重读结果显示
+  空态并隐藏入口；`{deleted:1,kept:1}` 时保留在途任务并显示「1 still running」横幅；
+  取消 / X 关闭不发请求；`forbidden` 时弹窗不关、显示本地化原因、再点一次可成功（重试）；
+  在途重复点击只调用一次（disabled 按钮的守卫用 `wrapper.vm.confirmClear()` 覆盖）；
+  筛选态清理后复位；返回链接 13 语 + 加载中 / 加载失败可见性与跳转；中文渲染。
+- `tests/workbench-store.spec.js`：`clearTasks` 五条（委托 + 重读、空响应计数归零、
+  405 → `feature_unavailable`、机器码透传、无 code → `internal_error`）。
+- `tests/api.spec.js`：`clearTasks` 打到 `/api/tasks` 且方法为 DELETE。
+- `bun run test`：**35 spec / 887 用例全绿**；`bun run test:coverage`：语句 / 行 / 分支 / 函数
+  **四项 100%**（12039 语句、2074 分支、475 函数、12004 行）；`bun run build` 通过。

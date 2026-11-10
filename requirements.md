@@ -74,6 +74,8 @@
 | F4.2 | spans 分层列表（名称、耗时、状态）；artifacts 卡片（文本直展、文件显示大小、音频内联播放） |
 | F4.3 | `input-required` 时提供审批输入与 `POST /api/tasks/{id}/resume`；取消走 `POST /api/tasks/{id}/cancel` |
 | F4.4 | 危险操作二次确认 |
+| F4.5 | **清理全部任务（服务端删除）**：Tasks 页在有任务时于页头给出「清理全部」入口（无任务时不渲染，空态仍是既有 `listEmpty`），`BaseDialog` 二次确认真实删除。删除走 **`DELETE /api/tasks`**（agenthub 契约见其 `requirements.md` §15）：只删调用者**已结束**的记录并级联 artifacts / spans / pending / push / events / push_records，在途（submitted / working / input-required / unknown）保留，响应 `{deleted, kept}`。前端**不自认列表已空**，成功后重读 `/api/tasks`；`kept > 0` 时页头横幅说明「{count} 个任务仍在进行，记录已保留」。失败按机器码本地化：弹窗不关、在原处给出原因，且 `clearing` 守卫保证一次确认只发一个请求（按钮同时 disabled，守卫由 `wrapper.vm` 直接调用覆盖）。旧服务端无此路由返回 405，store 归一为 `feature_unavailable`，界面说「服务端未开启」而不是打印 405。13 语 `clearAll` / `clearAllTitle` / `clearAllBody` / `clearAllKept`（`copy-fallback.spec.js` 守卫），触控目标 ≥44px、逻辑属性、单色令牌。无新增错误码 |
+| F4.6 | **详情页返回列表**：`/tasks/:id` 顶部恒显示一个站内返回链接（`RouterLink to="/tasks"`），点击回到 Tasks 列表；文案 `task.backToTasks` 在 `copy/task-copy.js` 13 语全量落地，由 `copy-fallback.spec.js` 守卫。链接在任务加载中 / 读取失败 / 通知深链直达时仍可见，不使用 `history.back()`；复用 `.btn` 与单色令牌，触控目标 ≥44px、焦点环 2px + 2px offset，`ar` 下箭头翻转，布局不引入方向性物理属性。无新增 API 与错误码 |
 
 ### F5 后台常驻与通知（Muse/dots 对齐项）
 
@@ -502,6 +504,15 @@
    旧 SSE 被关闭且新流接到空历史；取消 / 关闭 / 重复点击不产生第二个请求；服务端拒绝时保留
    全部消息并显示本地化机器码；13 语按钮 / 标题 / 正文 / 空态齐全且不等于英文回落，
    `copy-fallback.spec.js`、接线守卫与 v8 覆盖率四项 100% 保持全绿。
+48. 清理全部任务（F4.5）：有任务时页头出现「清理全部」，确认后发出**一个** `DELETE /api/tasks`，
+   列表按响应后的重读结果渲染 —— 全删完则显示空态且入口消失，服务端保留了在途任务时列表仍有它们、
+   并显示「{count} 个任务仍在进行，记录已保留」；取消 / 关闭弹窗不发请求；
+   服务端拒绝（如 `forbidden`）时弹窗不关、原处显示本地化原因，再点一次可重试；
+   请求在途时重复点击只产生一次调用；旧服务端 405 显示为「服务端未开启」；
+   清理后筛选复位「全部」；13 语文案齐全且不等于英文回落。
+49. 任务详情返回（F4.6）：从列表进入 `/tasks/:id` 后点击返回链接回到 `/tasks`；13 语下链接均为
+   已本地化文案且 `ar` 为 RTL；`getTask` 未返回或返回失败时链接仍在且可跳转；
+   `copy-fallback.spec.js` 与 v8 覆盖率四项 100% 保持全绿。
 
 ## 7. 自动更新（F19）
 

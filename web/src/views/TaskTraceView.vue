@@ -5,7 +5,7 @@ import { useCopy } from '../lib/use-copy.js'
 import { formatDuration } from '../lib/format.js'
 import StateDot from '../components/StateDot.vue'
 import ArtifactList from '../components/ArtifactList.vue'
-import { Ban, Send } from 'lucide-vue-next'
+import { Ban, Send, ArrowLeft } from 'lucide-vue-next'
 
 const props = defineProps({ id: { type: String, required: true } })
 const { t } = useCopy('task')
@@ -64,63 +64,74 @@ onUnmounted(() => sub && sub.close())
 </script>
 
 <template>
-  <div class="stack" v-if="task">
-    <div class="page-head">
-      <div>
-        <div class="row" style="gap:10px">
-          <h1>{{ task.resourceId || task.id }}</h1>
-          <StateDot :state="state" />
+  <div class="task-page">
+    <!-- The way back sits outside the loaded/unloaded branches: the screen may
+         open from a notification deep link, and a task that fails to load must
+         still leave the operator somewhere to go. A router link, not
+         history.back(), so it cannot land outside the app. -->
+    <RouterLink class="btn btn-ghost task-back" to="/tasks">
+      <ArrowLeft :size="16" class="task-back-icon" aria-hidden="true" />
+      {{ t('backToTasks') }}
+    </RouterLink>
+
+    <div class="stack" v-if="task">
+      <div class="page-head">
+        <div>
+          <div class="row" style="gap:10px">
+            <h1>{{ task.resourceId || task.id }}</h1>
+            <StateDot :state="state" />
+          </div>
+          <p class="sub mono">{{ task.id }}</p>
         </div>
-        <p class="sub mono">{{ task.id }}</p>
-      </div>
-      <div class="row">
-        <button v-if="isActive || isWaiting" class="btn btn-sm btn-danger" :disabled="acting" @click="cancel">
-          <Ban :size="15" /> {{ t('cancel') }}
-        </button>
-      </div>
-    </div>
-
-    <div class="timeline">
-      <template v-for="(step, i) in STEPS" :key="step">
-        <span class="sep" v-if="i > 0" />
-        <span class="step" :data-on="reached(step)">{{ step }}</span>
-      </template>
-      <span class="sep" />
-      <span class="step" :data-on="isWaiting">input-required</span>
-    </div>
-
-    <section class="stack" v-if="isWaiting">
-      <h2 class="card-title">{{ t('approvalTitle') }}</h2>
-      <p class="muted" style="font-size:13px">{{ t('approvalBody') }}</p>
-      <div class="card stack">
-        <textarea v-model="answer" :placeholder="t('resumePlaceholder')" />
-        <div class="row" style="justify-content:flex-end">
-          <button class="btn btn-primary btn-sm" :disabled="acting" @click="resume">
-            <Send :size="15" /> {{ t('resumeSubmit') }}
+        <div class="row">
+          <button v-if="isActive || isWaiting" class="btn btn-sm btn-danger" :disabled="acting" @click="cancel">
+            <Ban :size="15" /> {{ t('cancel') }}
           </button>
         </div>
       </div>
-    </section>
 
-    <section class="stack">
-      <h2 class="card-title">{{ t('spans') }}</h2>
-      <div v-if="spans.length === 0" class="muted" style="font-size:12px">{{ t('spansEmpty') }}</div>
-      <div v-else class="spans">
-        <div v-for="(span, i) in spans" :key="i" class="span-row">
-          <span class="state-dot" :data-state="span.status === 'ok' ? 'completed' : 'failed'" />
-          <span class="name truncate">{{ span.name }}</span>
-          <span class="spacer" />
-          <span class="dur">{{ formatDuration(span.durationMs) }}</span>
-        </div>
+      <div class="timeline">
+        <template v-for="(step, i) in STEPS" :key="step">
+          <span class="sep" v-if="i > 0" />
+          <span class="step" :data-on="reached(step)">{{ step }}</span>
+        </template>
+        <span class="sep" />
+        <span class="step" :data-on="isWaiting">input-required</span>
       </div>
-    </section>
 
-    <section class="stack">
-      <h2 class="card-title">{{ t('artifacts') }}</h2>
-      <ArtifactList :artifacts="task.artifacts || []" />
-    </section>
-  </div>
-  <div v-else-if="errorCode" class="empty">
-    <p>{{ t('notFound') }}</p>
+      <section class="stack" v-if="isWaiting">
+        <h2 class="card-title">{{ t('approvalTitle') }}</h2>
+        <p class="muted" style="font-size:13px">{{ t('approvalBody') }}</p>
+        <div class="card stack">
+          <textarea v-model="answer" :placeholder="t('resumePlaceholder')" />
+          <div class="row" style="justify-content:flex-end">
+            <button class="btn btn-primary btn-sm" :disabled="acting" @click="resume">
+              <Send :size="15" /> {{ t('resumeSubmit') }}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="stack">
+        <h2 class="card-title">{{ t('spans') }}</h2>
+        <div v-if="spans.length === 0" class="muted" style="font-size:12px">{{ t('spansEmpty') }}</div>
+        <div v-else class="spans">
+          <div v-for="(span, i) in spans" :key="i" class="span-row">
+            <span class="state-dot" :data-state="span.status === 'ok' ? 'completed' : 'failed'" />
+            <span class="name truncate">{{ span.name }}</span>
+            <span class="spacer" />
+            <span class="dur">{{ formatDuration(span.durationMs) }}</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="stack">
+        <h2 class="card-title">{{ t('artifacts') }}</h2>
+        <ArtifactList :artifacts="task.artifacts || []" />
+      </section>
+    </div>
+    <div v-else-if="errorCode" class="empty">
+      <p>{{ t('notFound') }}</p>
+    </div>
   </div>
 </template>

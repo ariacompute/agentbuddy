@@ -236,6 +236,12 @@ export const listTasks = () => get('/api/tasks')
 export const getTask = (id) => get(`/api/tasks/${id}`)
 export const cancelTask = (id) => post(`/api/tasks/${id}/cancel`)
 export const resumeTask = (id, answer) => post(`/api/tasks/${id}/resume`, { answer })
+/**
+ * Deletes the caller's finished task records on the server, with their
+ * artifacts, trace and event frames. Runs still in progress are kept, and the
+ * answer says how many of each: `{ deleted, kept }`.
+ */
+export const clearTasks = () => del('/api/tasks')
 
 /** Streams one task's events since a sequence number. `handlers` gets {event, data}. */
 export function subscribeTaskEvents(id, since, handlers = {}) {

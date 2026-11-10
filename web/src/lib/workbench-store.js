@@ -6,7 +6,7 @@ import { defineStore } from 'pinia'
 import {
   getWorkspace, listThreads, deleteThread, clearThreadMessages as apiClearThreadMessages,
   listTasks, listChannels, listConnectors, getDeliveries,
-  resumeTask, cancelTask, isAuthError, notifyShell, setTrayBadge,
+  resumeTask, cancelTask, clearTasks as apiClearTasks, isAuthError, notifyShell, setTrayBadge,
 } from './api.js'
 import { decide, markSeen, pruneSeen } from './notifications.js'
 import { loadShellNotifySettings } from './shell-settings.js'
@@ -177,6 +177,28 @@ export const useWorkbenchStore = defineStore('workbench', {
       } catch (error) {
         console.error('agentbuddy: tasks refresh failed', error)
         this.errorCode = error.code
+      }
+    },
+
+    /**
+     * Deletes the finished task records on the server — the Tasks screen's
+     * "clear all". agenthub keeps the runs that are still live and answers how
+     * many it deleted and how many it kept, and the list is re-read afterwards so
+     * the screen shows what is actually left instead of guessing.
+     *
+     * Returns `{ deleted, kept }` on success and `{ code }` on failure. A 405 is
+     * an older agenthub that predates the route: that is a missing feature, not a
+     * fault, so the screen can say so instead of printing "405".
+     */
+    async clearTasks() {
+      try {
+        const data = await apiClearTasks()
+        await this.refreshTasks()
+        return { deleted: data?.deleted || 0, kept: data?.kept || 0 }
+      } catch (error) {
+        console.error('agentbuddy: clearing tasks failed', error)
+        const code = error?.code === '405' ? 'feature_unavailable' : error?.code || 'internal_error'
+        return { code }
       }
     },
 
