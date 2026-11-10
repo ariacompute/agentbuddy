@@ -64,6 +64,7 @@
 | F3.5 | 右侧任务面板：本会话关联的 A2A 任务，可展开状态 / 产物 / 追踪 |
 | F3.6 | **会话删除（单选 / 多选）**：列表每张卡片一个复选框 + 一个「全选」，另有单卡删除按钮；勾选 1 个或 N 个走同一套二次确认（`BaseDialog`，单数 / 复数文案分别带 `{count}` 占位），确认后逐个 `DELETE /api/threads/{id}`，全部结束再 `GET /api/threads` 重拉列表。**不做乐观删除**。选中集始终与服务端最新列表求交：后台刷新删掉的 id 不再计数、不再发送；删除失败的行保留选中以便重试，并在页内 banner 显示本地化机器码。13 语全量文案（`copy/thread-copy.js`），触控目标 ≥44px、逻辑属性、单色令牌；取消 / 关闭确认框或重复点击确认不得发出第二个请求 |
 | F3.7 | **详情页返回列表**：`/threads/:id` 顶部恒显示一个站内返回链接（`RouterLink to="/threads"`），点击回到 Threads 列表；文案 `thread.backToThreads` 在 `copy/thread-copy.js` 13 语全量落地，由 `copy-fallback.spec.js` 守卫。链接在 `thread` 数据加载中 / 读取失败 / 通知深链直达时仍可见，不使用 `history.back()` 以免落到应用外或无关页面；复用 `.btn` 与单色令牌，触控目标 ≥44px、焦点环 2px + 2px offset，`ar` 下箭头翻转，布局不引入方向性物理属性。无新增 API 与错误码 |
+| F3.8 | **清理会话全部消息**：详情页（仅当已有消息时）提供「清空消息」入口，点开 `BaseDialog` 二次确认（13 语 `clearMessages*` / `messagesEmpty`）；确认后经 store 调 `DELETE /api/threads/{id}/messages`，成功后清空本地列表、重建 SSE 流以免旧流把已删除行 / 旧任务回复灌回，失败保留全部消息并在弹窗内显示经 `errors.js` 本地化的机器码。取消 / 关闭 / 重复点击确认不得发出第二个请求；线程、参与者与任务均保留，触控目标 ≥44px、逻辑属性、单色令牌。服务端契约见 `agenthub/requirements.md` §14 |
 
 ### F4 任务与产物追踪
 
@@ -293,6 +294,7 @@
 | POST | `/api/connectors/{id}/actions` | `resources:write` | 执行动作（ask → park） |
 | POST | `/api/threads/{id}/audio` | `tasks:write` | 语音上传（multipart） |
 | DELETE | `/api/threads/{id}` | `tasks:write` | 删除自有会话（含消息历史）：204 空体；不存在 / 非本人 → 404 `not_found`（F3.6，多选时客户端逐 id 调用） |
+| DELETE | `/api/threads/{id}/messages` | `tasks:write` | 清空自有会话的全部消息，会话 / 参与者 / 任务保留：204 空体；不存在 / 非本人 → 404 `not_found`（F3.8；旧服务端 405 归一化为 `method_not_allowed`） |
 | GET | `/api/computers` | `resources:read` | Agent 计算机会话列表（F11） |
 | POST | `/api/computers` | `resources:write` | 新建计算机会话（browser/shell/screen） |
 | GET | `/api/computers/{id}` | `resources:read` | 计算机会话详情 + 最近动作回显 |
@@ -496,6 +498,10 @@
 46. 会话详情返回（F3.7）：从列表进入 `/threads/:id` 后点击返回链接回到 `/threads`；13 语下链接
    均为已本地化文案，非英语语种不等于英文回落，`ar` 下为 RTL；`getThread` 未返回时链接仍在且
    可跳转；`copy-fallback.spec.js` 与 v8 覆盖率四项 100% 保持全绿。
+47. 清理会话全部消息（F3.8）：有消息时显示清空入口，确认后本地所有行消失、显示会话空态、
+   旧 SSE 被关闭且新流接到空历史；取消 / 关闭 / 重复点击不产生第二个请求；服务端拒绝时保留
+   全部消息并显示本地化机器码；13 语按钮 / 标题 / 正文 / 空态齐全且不等于英文回落，
+   `copy-fallback.spec.js`、接线守卫与 v8 覆盖率四项 100% 保持全绿。
 
 ## 7. 自动更新（F19）
 

@@ -967,6 +967,12 @@ textarea::placeholder {
   flex: 0 0 auto;
 }
 
+/* Destructive actions need the full 44px target even in the dense side panel. */
+.thread-clear {
+  min-height: var(--touch-min);
+  min-inline-size: var(--touch-min);
+}
+
 .thread-back:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -2186,7 +2192,8 @@ audio {
 
 .thread-checkall input:focus-visible,
 .thread-check:focus-visible,
-.thread-delete:focus-visible {
+.thread-delete:focus-visible,
+.thread-clear:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

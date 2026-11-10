@@ -3,17 +3,20 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getThread, postThreadMessage, subscribeThreadEvents, dropRouterSubscription } from '../lib/api.js'
 import { useWorkbenchStore } from '../lib/workbench-store.js'
 import { useCopy } from '../lib/use-copy.js'
+import { errorMessage } from '../lib/errors.js'
 import { formatTime } from '../lib/format.js'
+import BaseDialog from '../components/BaseDialog.vue'
 import PersonaAvatar from '../components/PersonaAvatar.vue'
 import VoiceRecorder from '../components/VoiceRecorder.vue'
 import TaskCard from '../components/TaskCard.vue'
 import SuggestionCard from '../components/SuggestionCard.vue'
-import { Send, AtSign, ArrowLeft } from 'lucide-vue-next'
+import { Send, AtSign, ArrowLeft, Trash2 } from 'lucide-vue-next'
 
 const props = defineProps({ id: { type: String, required: true } })
 const { t } = useCopy('thread')
 const { t: th } = useCopy('hub')
 const { t: to } = useCopy('ops')
+const { t: ts } = useCopy('shell')
 const workbench = useWorkbenchStore()
 
 const thread = ref(null)
@@ -21,6 +24,8 @@ const messages = ref([])
 const draft = ref('')
 const sending = ref(false)
 const error = ref('')
+const showClearConfirm = ref(false)
+const clearing = ref(false)
 let sub = null
 
 const relatedTasks = computed(() => workbench.tasks.filter((task) => task.contextId === props.id))
@@ -103,6 +108,40 @@ function appendMessage(msg) {
   messages.value.push(msg)
 }
 
+/** Opens the destructive confirmation; the trigger only exists with rows to lose. */
+function askClear() {
+  error.value = ''
+  showClearConfirm.value = true
+}
+
+function cancelClear() {
+  showClearConfirm.value = false
+}
+
+/**
+ * Clears the conversation on the server, drops every local row and rebuilds the
+ * stream: the old SSE connection still follows tasks from a replay that predates
+ * the delete, and would otherwise bring deleted rows back. The store normalises
+ * refusals to a machine code; errors.js turns that code into the current language.
+ */
+async function confirmClear() {
+  if (clearing.value) return
+  clearing.value = true
+  error.value = ''
+  try {
+    const code = await workbench.clearThreadMessages(props.id)
+    if (code) {
+      error.value = errorMessage(code)
+      return
+    }
+    messages.value = []
+    showClearConfirm.value = false
+    subscribe()
+  } finally {
+    clearing.value = false
+  }
+}
+
 async function send() {
   const body = draft.value.trim()
   if (!body) return
@@ -156,7 +195,7 @@ onUnmounted(() => sub && sub.close())
     <div class="thread" v-if="thread">
       <div class="thread-main">
         <div class="messages">
-          <div v-if="messages.length === 0" class="empty">{{ t('listEmpty') }}</div>
+          <div v-if="messages.length === 0" class="empty">{{ t('messagesEmpty') }}</div>
           <div
             v-for="msg in messages"
             :key="msg.ID"
@@ -227,8 +266,30 @@ onUnmounted(() => sub && sub.close())
         <div v-if="!unsubscribed" class="row" style="gap:8px;margin-top:16px">
           <button class="btn btn-ghost btn-sm" @click="dropSubscription">{{ to('subscriptionDrop') }}</button>
         </div>
+        <div v-if="messages.length > 0" class="row" style="gap:8px;margin-top:16px">
+          <button class="btn btn-ghost btn-sm thread-clear" :disabled="clearing" @click="askClear">
+            <Trash2 :size="15" aria-hidden="true" /> {{ t('clearMessages') }}
+          </button>
+        </div>
         <p v-if="error" class="muted" style="font-size:12px">{{ error }}</p>
       </div>
     </div>
+
+    <BaseDialog
+      v-model="showClearConfirm"
+      :title="t('clearMessagesTitle')"
+      :close-label="ts('actionClose')"
+    >
+      <p>{{ t('clearMessagesConfirm') }}</p>
+      <p v-if="error" class="banner banner-error">{{ error }}</p>
+      <template #footer>
+        <button class="btn btn-ghost btn-sm" :disabled="clearing" @click="cancelClear">
+          {{ ts('actionCancel') }}
+        </button>
+        <button class="btn btn-danger btn-sm" :disabled="clearing" @click="confirmClear">
+          {{ ts('actionDelete') }}
+        </button>
+      </template>
+    </BaseDialog>
   </div>
 </template>

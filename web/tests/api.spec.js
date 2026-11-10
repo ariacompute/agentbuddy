@@ -19,6 +19,7 @@ import {
   createThread,
   getThread,
   deleteThread,
+  clearThreadMessages,
   postThreadMessage,
   listTasks,
   getTask,
@@ -310,6 +311,23 @@ describe('api endpoint helpers', () => {
       json: async () => ({ code: 'forbidden' }),
     })
     await expect(deleteThread('t2')).rejects.toMatchObject({ code: 'forbidden', status: 403 })
+  })
+
+  it('clears a conversation without deleting the thread', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 204, text: async () => '' })
+    expect(await clearThreadMessages('t1')).toBeNull()
+    const [url, opts] = lastCall()
+    expect(url).toBe('/api/threads/t1/messages')
+    expect(opts.method).toBe('DELETE')
+  })
+
+  it('surfaces a refused clear as a machine code', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ code: 'not_found' }),
+    })
+    await expect(clearThreadMessages('t2')).rejects.toMatchObject({ code: 'not_found', status: 404 })
   })
 
   it('task helpers build paths', async () => {

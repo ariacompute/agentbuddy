@@ -88,8 +88,8 @@ desktop/
   `xxx.mockResolvedValue is not a function`，而同一份代码用 node 跑 773 条全绿）。
   新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线（34 个 spec、**811** 条用例）：
-  语句/行 **100%**、分支 **100%**、函数 **100%**（11354 条语句、1887 个分支、447 个函数）；
+  `text-summary` + `text`，不写报告目录），当前基线（34 个 spec、**835** 条用例）：
+  语句/行 **100%**、分支 **100%**、函数 **100%**（11524 条语句、1920 个分支、455 个函数、11489 行）；
   `vitest` 与 `@vitest/coverage-v8` **版本必须完全一致**（当前同为 `2.1.9`，写死不用 `^`）：
   混版本会打印 "Running mixed versions is not supported"，且覆盖率数字不可信；
   **四项须保持 100%**，回落时先看报告里的未覆盖行再补用例，`test.coverage` **没有 exclude**，

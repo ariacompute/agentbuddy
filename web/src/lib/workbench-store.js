@@ -4,7 +4,8 @@
 // stay in sync — without ever holding a timer or DOM reference itself.
 import { defineStore } from 'pinia'
 import {
-  getWorkspace, listThreads, deleteThread, listTasks, listChannels, listConnectors, getDeliveries,
+  getWorkspace, listThreads, deleteThread, clearThreadMessages as apiClearThreadMessages,
+  listTasks, listChannels, listConnectors, getDeliveries,
   resumeTask, cancelTask, isAuthError, notifyShell, setTrayBadge,
 } from './api.js'
 import { decide, markSeen, pruneSeen } from './notifications.js'
@@ -146,6 +147,24 @@ export const useWorkbenchStore = defineStore('workbench', {
       }
       await this.refreshThreads()
       return failure
+    },
+
+    /**
+     * Clears one thread's conversation without deleting the thread. The store
+     * normalises the refusal code so the view can localise raw mux statuses
+     * (a pre-upgrade server answers 405) through errors.js. Returns null on
+     * success, the machine code on failure.
+     */
+    async clearThreadMessages(id) {
+      try {
+        await apiClearThreadMessages(id)
+        return null
+      } catch (error) {
+        console.error('agentbuddy: clear thread messages failed', error)
+        const reason = error || {}
+        const code = reason.code || reason.message || 'internal_error'
+        return STATUS_CODES[code] || code
+      }
     },
 
     async refreshTasks() {

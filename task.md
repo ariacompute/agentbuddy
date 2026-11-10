@@ -1558,3 +1558,41 @@ Connectors 页每张卡片里的 Action / Arguments / Run 挤在一条不换行�
   **四项 100%**（11354 语句、1887 分支、447 函数、11319 行），配置无 exclude、无 `v8 ignore`。
 - `bun run build` 通过（只有既有的 chunk 体积提示）。
 - 文档同步：`AGENTS.md`（测试基线 + 窄卡片布局约束）。
+
+## M39 — Threads 详情页清理全部消息（2026-11-10）
+
+会话页需要「清理对话框所有消息」且 **13 语全量文案**。客户端单独清本地列表会在重进时复活，
+而 M36 的 `DELETE /api/threads/{id}` 会连线程一起删掉，因此两个仓库一起收口：
+agentbuddy F3.8 ↔ agenthub `requirements.md` §14 / `task.md` M21。
+
+### 1. 服务端（agenthub）
+
+- 新增 `DELETE /api/threads/{id}/messages`（`tasks:write`）：`threads.Store.ClearMessages`
+  先校验归属再按 owner 删除 `thread_messages`，线程 / 参与者 / 任务保留，成功 204 空体；
+  他人 / 不存在 → 404 `not_found`，空会话重复清空仍 204。不改迁移 / 错误码 / 权限码。
+- `Listeners()`、路由存活探针、`docs-content.js`（143 条、collaboration 25 条）、
+  `docs-copy.js` 13 语 `epThreadClear`、两份生成 md 同步；Go 用例覆盖 204 / 404 /
+  存储故障 / 无存储 / 幂等，另有 `DATABASE_URL` 门控的 GORM 用例。
+
+### 2. 客户端（agentbuddy）
+
+- `api.js` 新增 `clearThreadMessages(id)`；`workbench-store.js` 新增同名 action，把
+  旧服务端 405 等裸状态码归一化为 `method_not_allowed` 等机器码，经 `errors.js` 本地化。
+- `ThreadView.vue`：仅当有消息时显示「清空消息」，`BaseDialog` 二次确认；成功后清空本地
+  行、显示会话空态并**重建 SSE**（旧流仍跟随删除前快照里的任务，会把消息灌回来）；失败
+  保留全部消息并在弹窗内显示本地化原因；`clearing` 防重复提交、取消 / 关闭不发请求。
+- `thread-copy.js` 13 语新增 `clearMessages` / `clearMessagesTitle` /
+  `clearMessagesConfirm` / `messagesEmpty`；空态从误用的 `listEmpty` 换成 `messagesEmpty`。
+  `style.css` 为 `.thread-clear` 补 44px 触控目标与焦点环，不新增色值。
+
+### 3. 用例与验证
+
+- `tests/api.spec.js`：封装 204 / 拒绝双路径；`workbench-store.spec.js`：action 成功 /
+  裸状态码归一化 / 异常回落；`thread-delete.spec.js`：清空成功 + SSE 重建、取消 / X 关闭、
+  服务端拒绝保留消息并本地化、飞行中防重复、13 语键齐全且中文渲染。
+- `bun run test`：**34 spec / 835 用例全绿**；`bun run test:coverage`：语句 / 行 / 分支 /
+  函数 **四项 100%**（11524 语句、1920 分支、455 函数、11489 行）；`bun run build` 通过。
+- `go build ./...` / `go vet ./...` / `go test ./...` 全绿；agenthub `cd web && bun run test`
+  460 用例全绿、`bun run build` 通过；`tests/docs_endpoints_test.go` 双向差集无漂移。
+- 文档同步：`requirements.md`（F3.8 / §4.1 / 验收 47）、`task.md`、
+  `AGENTS.md`（测试基线）、中英 README。

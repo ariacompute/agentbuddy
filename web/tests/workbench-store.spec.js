@@ -5,6 +5,7 @@ vi.mock('../src/lib/api.js', () => ({
   getWorkspace: vi.fn(),
   listThreads: vi.fn(),
   deleteThread: vi.fn(),
+  clearThreadMessages: vi.fn(),
   listTasks: vi.fn(),
   listChannels: vi.fn(),
   listConnectors: vi.fn(),
@@ -19,7 +20,7 @@ vi.mock('../src/lib/api.js', () => ({
 
 import { useWorkbenchStore } from '../src/lib/workbench-store.js'
 import {
-  getWorkspace, listThreads, deleteThread, listTasks, listChannels, listConnectors, getDeliveries,
+  getWorkspace, listThreads, deleteThread, clearThreadMessages, listTasks, listChannels, listConnectors, getDeliveries,
   resumeTask, cancelTask, isAuthError, notifyShell, setTrayBadge, getShellConfig,
 } from '../src/lib/api.js'
 import { resetShellNotifySettings } from '../src/lib/shell-settings.js'
@@ -514,6 +515,33 @@ describe('workbench-store', () => {
       expect(await s.deleteThreads([])).toBeNull()
       expect(deleteThread).not.toHaveBeenCalled()
       expect(listThreads).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('clearThreadMessages', () => {
+    it('clears one conversation and reports success', async () => {
+      clearThreadMessages.mockResolvedValue(null)
+      const s = useWorkbenchStore()
+      expect(await s.clearThreadMessages('th-1')).toBeNull()
+      expect(clearThreadMessages).toHaveBeenCalledWith('th-1')
+    })
+
+    it('normalises raw mux statuses but keeps domain codes', async () => {
+      const s = useWorkbenchStore()
+      clearThreadMessages.mockRejectedValueOnce({ code: '405', status: 405 })
+      expect(await s.clearThreadMessages('a')).toBe('method_not_allowed')
+      clearThreadMessages.mockRejectedValueOnce({ code: '404', status: 404 })
+      expect(await s.clearThreadMessages('b')).toBe('not_found')
+      clearThreadMessages.mockRejectedValueOnce({ code: 'feature_unavailable' })
+      expect(await s.clearThreadMessages('c')).toBe('feature_unavailable')
+    })
+
+    it('falls back to the error message, then to a generic code', async () => {
+      const s = useWorkbenchStore()
+      clearThreadMessages.mockRejectedValueOnce(new Error('offline'))
+      expect(await s.clearThreadMessages('a')).toBe('offline')
+      clearThreadMessages.mockRejectedValueOnce(undefined)
+      expect(await s.clearThreadMessages('b')).toBe('internal_error')
     })
   })
 })

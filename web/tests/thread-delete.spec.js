@@ -11,11 +11,12 @@ import { mountWith } from './helpers/vue-utils.js'
 import { setLang, useCopy } from '../src/lib/use-copy.js'
 import { LANG_CODES } from '../src/lib/languages.js'
 import { errorMessage } from '../src/lib/errors.js'
+import { threadCopy } from '../src/lib/copy/thread-copy.js'
 
 vi.mock('../src/lib/api.js')
 
 import {
-  listThreads, createThread, deleteThread, getThread, listTasks,
+  listThreads, createThread, deleteThread, clearThreadMessages, getThread, listTasks,
   subscribeThreadEvents,
 } from '../src/lib/api.js'
 import ThreadListView from '../src/views/ThreadListView.vue'
@@ -63,6 +64,7 @@ beforeEach(() => {
   listThreads.mockResolvedValue({ threads: rows() })
   createThread.mockResolvedValue({ ID: 'new' })
   deleteThread.mockResolvedValue(null)
+  clearThreadMessages.mockResolvedValue(null)
   getThread.mockResolvedValue({ thread: { ID: '1', Title: 't' }, messages: [] })
   listTasks.mockResolvedValue({ tasks: [] })
   subscribeThreadEvents.mockReturnValue({ close: vi.fn() })
@@ -368,5 +370,143 @@ describe('ThreadView — back to Threads', () => {
     await link.trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/threads')
+  })
+})
+
+function withMessages() {
+  getThread.mockResolvedValue({
+    thread: { ID: '1', Title: 't' },
+    messages: [
+      { ID: 'm1', AuthorType: 'user', AuthorName: 'me', Body: 'hello' },
+      { ID: 'm2', AuthorType: 'agent', AuthorName: 'bot', Body: 'hi there' },
+    ],
+  })
+}
+
+describe('ThreadView — clearing the conversation', () => {
+  it('offers no clear action for a conversation that is already empty', async () => {
+    const { wrapper } = mountThreadView()
+    await flushPromises()
+
+    expect(findButton(wrapper, 'Clear messages')).toBeUndefined()
+    expect(wrapper.text()).toContain('No messages yet.')
+  })
+
+  it('clears every row after confirmation and rebuilds the stream', async () => {
+    withMessages()
+    const firstClose = vi.fn()
+    subscribeThreadEvents
+      .mockReturnValueOnce({ close: firstClose })
+      .mockReturnValueOnce({ close: vi.fn() })
+    const { wrapper } = mountThreadView()
+    await flushPromises()
+
+    expect(wrapper.findAll('.msg')).toHaveLength(2)
+    const clearButton = findButton(wrapper, 'Clear messages')
+    expect(clearButton).toBeTruthy()
+    await clearButton.trigger('click')
+    expect(document.body.textContent).toContain('Clear conversation')
+    expect(clearThreadMessages).not.toHaveBeenCalled()
+
+    await clickDialogButton('Delete')
+
+    expect(clearThreadMessages).toHaveBeenCalledWith('1')
+    expect(wrapper.findAll('.msg')).toHaveLength(0)
+    expect(wrapper.text()).toContain('No messages yet.')
+    expect(findButton(wrapper, 'Clear messages')).toBeUndefined()
+    expect(document.querySelector('.dialog-backdrop')).toBeNull()
+    // The fresh stream replays the now-empty history; the old one must be closed.
+    expect(firstClose).toHaveBeenCalledTimes(1)
+    expect(subscribeThreadEvents).toHaveBeenCalledTimes(2)
+  })
+
+  it('backs out of the confirmation without deleting anything', async () => {
+    withMessages()
+    const { wrapper } = mountThreadView()
+    await flushPromises()
+
+    await findButton(wrapper, 'Clear messages').trigger('click')
+    await clickDialogButton('Cancel')
+    expect(clearThreadMessages).not.toHaveBeenCalled()
+    expect(wrapper.findAll('.msg')).toHaveLength(2)
+    expect(document.querySelector('.dialog-backdrop')).toBeNull()
+
+    // Closing the dialog through its own X goes through the same v-model.
+    await findButton(wrapper, 'Clear messages').trigger('click')
+    await nextTick()
+    document.querySelector('.dialog-close').click()
+    await flushPromises()
+    expect(document.querySelector('.dialog-backdrop')).toBeNull()
+    expect(clearThreadMessages).not.toHaveBeenCalled()
+  })
+
+  it('keeps the rows and localises the reason when the server refuses', async () => {
+    setLang('zh')
+    withMessages()
+    clearThreadMessages.mockRejectedValueOnce({ code: 'forbidden' })
+    const { wrapper } = mountThreadView()
+    await flushPromises()
+
+    await findButton(wrapper, '清空消息').trigger('click')
+    await clickDialogButton('删除')
+
+    expect(wrapper.findAll('.msg')).toHaveLength(2)
+    expect(document.body.textContent).toContain('清空会话')
+    expect(document.body.textContent).toContain(errorMessage('forbidden'))
+    expect(clearThreadMessages).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('.dialog-foot .btn-danger').disabled).toBe(false)
+  })
+
+  it('does not send the same clear twice while one is in flight', async () => {
+    withMessages()
+    let release
+    clearThreadMessages.mockReturnValue(new Promise((resolve) => { release = resolve }))
+    const { wrapper } = mountThreadView()
+    await flushPromises()
+
+    await findButton(wrapper, 'Clear messages').trigger('click')
+    const first = wrapper.vm.confirmClear()
+    await wrapper.vm.confirmClear()
+    expect(clearThreadMessages).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('.dialog-foot .btn-danger').disabled).toBe(true)
+    expect(findButton(wrapper, 'Clear messages').element.disabled).toBe(true)
+
+    release(null)
+    await first
+    await flushPromises()
+    expect(clearThreadMessages).toHaveBeenCalledTimes(1)
+    expect(wrapper.findAll('.msg')).toHaveLength(0)
+  })
+})
+
+describe('ThreadView — clear conversation in all 13 languages', () => {
+  const KEYS = ['clearMessages', 'clearMessagesTitle', 'clearMessagesConfirm', 'messagesEmpty']
+
+  it('translates every clear key', () => {
+    for (const lang of LANG_CODES) {
+      setLang(lang)
+      const { t } = useCopy('thread')
+      for (const key of KEYS) {
+        expect(t(key), `${lang}.${key} missing`).toBeTruthy()
+        if (lang !== 'en') {
+          expect(t(key), `${lang}.${key} equals English`).not.toBe(threadCopy.en[key])
+        }
+      }
+    }
+  })
+
+  it('renders the trigger, dialog and empty state in Chinese', async () => {
+    setLang('zh')
+    withMessages()
+    const { wrapper } = mountThreadView()
+    await flushPromises()
+
+    expect(findButton(wrapper, '清空消息')).toBeTruthy()
+    await findButton(wrapper, '清空消息').trigger('click')
+    expect(document.body.textContent).toContain('清空会话')
+    expect(document.body.textContent).toContain('删除此会话中的全部消息？')
+
+    await clickDialogButton('删除')
+    expect(wrapper.text()).toContain('暂无消息。')
   })
 })

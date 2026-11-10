@@ -2470,7 +2470,7 @@ describe('view branch edges', () => {
     getThread.mockResolvedValue({ thread: { ID: '1', Title: 't', Status: 'open' } })
     const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
     await flushPromises()
-    expect(wrapper.text()).toContain('No threads yet.')
+    expect(wrapper.text()).toContain('No messages yet.')
   })
 
   it('marks a message another agent wrote, and only that one', async () => {
