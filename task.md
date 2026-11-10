@@ -1529,3 +1529,32 @@ v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的
   **四项 100%**（11354 语句、1886 分支、447 函数、11319 行），配置无 exclude、无 `v8 ignore`。
 - `bun run build` 通过（只有既有的 chunk 体积提示）。
 - 文档同步：`AGENTS.md`（测试基线）。
+
+## M38 — Connectors 卡片 Actions 表单宽度溢出（bug fix，2026-11-10）
+
+Connectors 页每张卡片里的 Action / Arguments / Run 挤在一条不换行的 `.row` 里，两个 `<input>`
+又没写 `type`，因此匹配不到 `style.css` 的 `input[type='text']` 规则：各自保持浏览器固有宽度
+（约 177px）且无法收缩。`grid-2` 卡片内容区只有 290–390px，实测行右边缘最多超出卡片
+**102px**，Run 按钮同时被压到 22px。只动 `web/`，不改 API / 文案 / 外壳。
+
+### 1. 收口
+
+- `ConnectorCard.vue`：Actions 行由 `.row` 换成专用 `.connector-actions`，两个输入框补
+  `type="text"`，走设计系统的边框 / 高度 / `width: 100%`；13 语文案与错误码均不改。
+- `style.css`：`.connector-actions` 用 `flex-wrap: wrap`，输入框 `flex: 1 1 110px` +
+  `min-width: 0` 允许收缩，按钮 `flex: none` 不被挤扁；空间不足时 Run 落到第二行，
+  用逻辑属性 `margin-inline-start: auto` 对齐行尾、`ar` 下自动镜像。只用已有令牌，
+  无新增色值。
+- 宽卡片仍是单行紧凑布局；窄卡片换行后两个输入框各约 140px，按钮保持完整宽度。
+
+### 2. 用例与验证
+
+- `tests/style.spec.js` 增 2 条布局守卫：钉住 `flex-wrap` / `min-width: 0` / `flex: none`
+  与组件里的 `.connector-actions`、`type="text"`；jsdom 无布局引擎，只守 CSS 契约。
+- Chromium 真机实测 420 / 500 / 700 / 900 / 1100 / 1400px 六档宽度，另测 `ar` RTL 与德语
+  `Ausführen` / 俄语 `Выполнить` 长按钮：修复前溢出 2–102px，修复后各档溢出均为 0
+  且 `scrollWidth === clientWidth`。
+- `bun run test`：**34 spec / 811 用例全绿**；`bun run test:coverage`：语句 / 行 / 分支 / 函数
+  **四项 100%**（11354 语句、1887 分支、447 函数、11319 行），配置无 exclude、无 `v8 ignore`。
+- `bun run build` 通过（只有既有的 chunk 体积提示）。
+- 文档同步：`AGENTS.md`（测试基线 + 窄卡片布局约束）。

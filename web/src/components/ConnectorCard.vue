@@ -60,9 +60,9 @@ async function run() {
 
     <div class="field" style="margin-top:14px">
       <label>{{ t('actionsTitle') }}</label>
-      <div class="row" style="gap:8px">
-        <input v-model="actionName" :placeholder="t('actionName')" />
-        <input v-model="actionArgs" :placeholder="t('actionArgs')" />
+      <div class="connector-actions">
+        <input v-model="actionName" type="text" :placeholder="t('actionName')" />
+        <input v-model="actionArgs" type="text" :placeholder="t('actionArgs')" />
         <button class="btn btn-sm btn-primary" :disabled="running" @click="run">
           <Play :size="14" /> {{ t('actionRunSubmit') }}
         </button>

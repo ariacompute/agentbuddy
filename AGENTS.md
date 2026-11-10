@@ -73,6 +73,9 @@ desktop/
   新增颜色必须两处都写，禁止硬编码色值。
 - **单色禁令**：UI 不得出现任何有彩色相，一律落在 `#000 ↔ #fff` 明度轴；
   `tests/style.spec.js` 自动校验（hex 三通道相等 + rgb/hsl 中性 + 色相词黑名单）。
+- **窄卡片布局**：`grid-2` 卡片最窄 300px，卡片内的表单行必须能换行、输入框必须能收缩到
+  固有宽度以下（`min-width: 0`），否则会顶出卡片；`tests/style.spec.js` 静态守卫
+  `.connector-actions` 的这些声明（jsdom 无布局引擎，宽度只能由真浏览器量）。
 - **RTL**：`ar` 下 `document.documentElement.dir = 'rtl'`，布局一律逻辑属性
   （`margin-inline` / `inset-inline`）。
 - **无障碍**：触控目标 ≥44px；焦点环 2px + 2px offset；`prefers-reduced-motion: reduce` 下禁全部动效。
@@ -85,8 +88,8 @@ desktop/
   `xxx.mockResolvedValue is not a function`，而同一份代码用 node 跑 773 条全绿）。
   新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线（34 个 spec、**809** 条用例）：
-  语句/行 **100%**、分支 **100%**、函数 **100%**（11354 条语句、1886 个分支、447 个函数）；
+  `text-summary` + `text`，不写报告目录），当前基线（34 个 spec、**811** 条用例）：
+  语句/行 **100%**、分支 **100%**、函数 **100%**（11354 条语句、1887 个分支、447 个函数）；
   `vitest` 与 `@vitest/coverage-v8` **版本必须完全一致**（当前同为 `2.1.9`，写死不用 `^`）：
   混版本会打印 "Running mixed versions is not supported"，且覆盖率数字不可信；
   **四项须保持 100%**，回落时先看报告里的未覆盖行再补用例，`test.coverage` **没有 exclude**，

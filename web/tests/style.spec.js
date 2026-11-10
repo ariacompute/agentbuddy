@@ -77,3 +77,30 @@ describe('monochrome style guard', () => {
     }
   })
 })
+
+// Regression guard: Action / Arguments / Run used to sit in a plain `.row`.
+// The inputs kept their intrinsic ~177px each, so the row ran outside the
+// ~300px `.grid-2` card and squeezed the Run button. jsdom has no layout, so
+// pin the CSS contract and the class that wires it to the component.
+describe('connector action form layout', () => {
+  const css = readFileSync(join(ROOT, 'style.css'), 'utf8')
+  const card = readFileSync(join(ROOT, 'components', 'ConnectorCard.vue'), 'utf8')
+
+  const declarations = (selector) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] || ''
+  }
+
+  it('wraps the controls and lets inputs shrink below their intrinsic width', () => {
+    expect(declarations('.connector-actions')).toMatch(/flex-wrap:\s*wrap/)
+    const inputs = declarations('.connector-actions > input')
+    expect(inputs).toMatch(/flex:\s*1 1\s+110px/)
+    expect(inputs).toMatch(/min-width:\s*0/)
+    expect(declarations('.connector-actions > .btn')).toMatch(/flex:\s*none/)
+  })
+
+  it('uses the wrapping container and design-system text inputs', () => {
+    expect(card).toContain('class="connector-actions"')
+    expect(card.match(/<input[^>]*type="text"/g)).toHaveLength(2)
+  })
+})
