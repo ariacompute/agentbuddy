@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { getThread, postThreadMessage, subscribeThreadEvents, dropRouterSubscription } from '../lib/api.js'
 import { useWorkbenchStore } from '../lib/workbench-store.js'
+import { useAuthStore } from '../lib/auth-store.js'
 import { useCopy } from '../lib/use-copy.js'
 import { errorMessage } from '../lib/errors.js'
 import { formatTime, resourceLabel } from '../lib/format.js'
@@ -19,6 +20,7 @@ const { t: th } = useCopy('hub')
 const { t: to } = useCopy('ops')
 const { t: ts } = useCopy('shell')
 const workbench = useWorkbenchStore()
+const auth = useAuthStore()
 
 const thread = ref(null)
 const messages = ref([])
@@ -37,6 +39,9 @@ const notice = ref('')
 let sub = null
 // Timers that poll a fresh GET for asynchronously routed replies.
 const refreshTimers = new Set()
+// Counter behind the ids of echoed rows, so a send has a row to hang its status
+// under before the server has minted one.
+let echoSeq = 0
 
 const relatedTasks = computed(() => workbench.tasks.filter((task) => task.contextId === props.id))
 
@@ -367,6 +372,18 @@ async function send() {
   // may await a workspace refresh, and a blank composer in that gap reads as a
   // dead button.
   sending.value = true
+  // Echo the message into the stream before the round trip: the status line
+  // needs a row to hang under, and waiting for the POST would leave the reader
+  // staring at a conversation that ignored what they just typed.
+  const echo = {
+    ID: `local-${(echoSeq += 1)}`,
+    AuthorType: 'user',
+    AuthorName: auth.user?.displayName || '',
+    Body: body,
+    CreatedAt: new Date().toISOString(),
+  }
+  messages.value.push(echo)
+  draft.value = ''
   try {
     // Mentions in the body win; otherwise hand the message to one default agent.
     const mentions = resolveMentions(body)
@@ -383,7 +400,9 @@ async function send() {
     // arrives as a frame. The POST already returns the persisted row, so put it on
     // screen now instead of making the user leave and re-enter the thread.
     appendMessage(res?.message)
-    draft.value = ''
+    // The persisted row supersedes the echo in place. A response without a row
+    // keeps it: the message did go out, only its id is missing.
+    if (res?.message?.ID) messages.value = messages.value.filter((m) => m.ID !== echo.ID)
     const delegated = Array.isArray(res?.delegated) ? res.delegated : []
     const expectsReply = Boolean(res?.routed || delegated.length > 0)
     if (expectsReply) {
@@ -403,7 +422,10 @@ async function send() {
     // Router-on replies arrive after the POST, so poll a fresh GET for a while.
     if (expectsReply) scheduleRefresh()
   } catch (e) {
-    // Keep the draft: a refused send stays available for a retry.
+    // Keep the echo, flagged: dropping it would hide which message failed, and
+    // the row is where the reader looks for the outcome. The draft is already
+    // consumed, so the text is not duplicated back into the composer.
+    messages.value = messages.value.map((m) => (m.ID === echo.ID ? { ...m, Failed: true } : m))
     error.value = e.message || String(e)
   } finally {
     sending.value = false
@@ -470,6 +492,11 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
+            <!-- A refused send keeps its row and says so right under it, where
+                 the outcome of that message belongs. -->
+            <p v-if="msg.Failed" class="messages-status from-user" role="status">
+              {{ t('sendFailed') }}
+            </p>
             <!-- The live status hangs under the message the user just posted, on
                  the same side, so it reads as that message's outcome. -->
             <p

@@ -440,14 +440,20 @@ describe('ThreadView delegation and pending replies', () => {
     expect(wrapper.find('.messages-status .state-dot').exists()).toBe(false)
   })
 
-  it('keeps the draft and reports a refused send', async () => {
+  it('keeps a refused message on screen, flagged, and leaves the composer empty', async () => {
     postThreadMessage.mockRejectedValue(new Error('refused'))
     const { wrapper } = mountThread([])
     await flushPromises()
 
     await sendDraft(wrapper, 'hello')
 
-    expect(wrapper.find('textarea').element.value).toBe('hello')
+    // The echoed row stays where the reader expects it, with its own failure
+    // note; the draft is consumed either way.
+    expect(wrapper.findAll('.msg')).toHaveLength(1)
+    expect(wrapper.find('.msg').text()).toContain('hello')
+    expect(wrapper.find('.messages-status').text()).toContain('Message not sent')
+    expect(wrapper.find('.messages-status').classes()).toContain('from-user')
+    expect(wrapper.find('textarea').element.value).toBe('')
     expect(wrapper.text()).toContain('refused')
   })
 
@@ -481,28 +487,13 @@ describe('ThreadView delegation and pending replies', () => {
     expect(wrapper.text()).toContain('done')
   })
 
-  it('shows a sending status while the POST is in flight', async () => {
+  it('echoes the message at once and hangs the sending status under it', async () => {
     let resolvePost
     postThreadMessage.mockReturnValue(new Promise((resolve) => { resolvePost = resolve }))
     const { wrapper } = mountThread([])
     await flushPromises()
 
-    await wrapper.find('textarea').setValue('hi')
-    await wrapper.findAll('button').find((b) => b.classes('btn-primary')).trigger('click')
-    await nextTick()
-
-    expect(wrapper.find('.messages-status').text()).toContain('Sending')
-    resolvePost({ message: { ID: 'm1', AuthorType: 'user', Body: 'hi' }, delegated: [] })
-    await flushPromises()
-  })
-
-  it('trails the send status until the first message lands and hides the empty placeholder', async () => {
-    let resolvePost
-    postThreadMessage.mockReturnValue(new Promise((resolve) => { resolvePost = resolve }))
-    const { wrapper } = mountThread([])
-    await flushPromises()
-
-    // An idle empty thread still shows its placeholder and no status line.
+    // An idle empty thread shows its placeholder and no status line.
     expect(wrapper.find('.empty').exists()).toBe(true)
     expect(wrapper.find('.messages-status').exists()).toBe(false)
 
@@ -510,19 +501,53 @@ describe('ThreadView delegation and pending replies', () => {
     await wrapper.findAll('button').find((b) => b.classes('btn-primary')).trigger('click')
     await nextTick()
 
-    // No user row to hang under yet, so the status trails the stream, not the
-    // composer, and the in-flight state is the one that pulses.
-    expect(wrapper.find('.messages > .messages-status').text()).toContain('Sending')
-    expect(wrapper.find('.messages-status').classes()).not.toContain('from-user')
-    expect(wrapper.find('.messages-status .state-dot').exists()).toBe(true)
-    expect(wrapper.find('.composer .messages-status').exists()).toBe(false)
+    // The row is on screen before the POST resolves: the composer is empty and
+    // the status sits under that row, not under the composer.
+    expect(wrapper.find('.msg').text()).toContain('@google-adk hello')
+    expect(wrapper.find('textarea').element.value).toBe('')
     expect(wrapper.find('.empty').exists()).toBe(false)
+    expect(wrapper.find('.messages-status').text()).toContain('Sending')
+    expect(wrapper.find('.messages-status').classes()).toContain('from-user')
+    expect(wrapper.find('.messages-status').element.previousElementSibling.classList.contains('msg')).toBe(true)
+    expect(wrapper.find('.composer .messages-status').exists()).toBe(false)
 
-    // The landed row takes the status with it: it stops trailing the stream and
-    // hangs under the message instead.
     resolvePost({ message: { ID: 'm1', AuthorType: 'user', Body: '@google-adk hello' }, delegated: [] })
     await flushPromises()
-    expect(wrapper.find('.messages-status').classes()).toContain('from-user')
+    // The persisted row replaced the echo instead of doubling it.
+    expect(wrapper.findAll('.msg')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('signs the echoed row with the signed-in user', async () => {
+    let resolvePost
+    postThreadMessage.mockReturnValue(new Promise((resolve) => { resolvePost = resolve }))
+    const { wrapper, pinia } = mountWith(ThreadView, { props: { id: '1' } })
+    useAuthStore(pinia).user = { displayName: 'Ada Lovelace' }
+    await flushPromises()
+
+    await wrapper.find('textarea').setValue('hello')
+    await wrapper.findAll('button').find((b) => b.classes('btn-primary')).trigger('click')
+    await nextTick()
+
+    expect(wrapper.find('.msg-meta').text()).toContain('Ada Lovelace')
+
+    resolvePost({ message: { ID: 'm1', AuthorType: 'user', Body: 'hello' }, delegated: [] })
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('trails the status when the thread has no user message to hang it under', async () => {
+    const { wrapper } = mountThread([
+      { ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', TaskID: 't1', Body: '' },
+    ])
+    await flushPromises()
+
+    // Only an agent placeholder is on screen, so there is no user row to anchor
+    // to and the status trails the stream.
+    const status = wrapper.find('.messages > .messages-status')
+    expect(status.text()).toContain('Replying…')
+    expect(status.classes()).not.toContain('from-user')
+    expect(wrapper.find('.messages-status .state-dot').exists()).toBe(true)
     wrapper.unmount()
   })
 

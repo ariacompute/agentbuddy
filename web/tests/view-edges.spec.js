@@ -195,7 +195,7 @@ describe('ThreadView message and subscription edges', () => {
     await flushPromises()
 
     expect(listTasks).toHaveBeenCalledTimes(1)
-    // The draft is cleared only after the send went through.
+    // The draft is consumed the instant the message is echoed into the stream.
     expect(wrapper.find('textarea').element.value).toBe('')
   })
 
@@ -243,12 +243,15 @@ describe('ThreadView message and subscription edges', () => {
     await wrapper.findAll('button').find((b) => b.text().includes('Send')).trigger('click')
     await flushPromises()
 
-    expect(wrapper.findAll('.msg')).toHaveLength(0)
+    // Without a persisted row the echo is the only thing on screen — and the
+    // message did go out, so it stays.
+    expect(wrapper.findAll('.msg')).toHaveLength(1)
+    expect(wrapper.find('.msg').text()).toContain('no echo')
     expect(wrapper.find('textarea').element.value).toBe('')
     expect(subscribeThreadEvents).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps the draft and explains a refused send', async () => {
+  it('keeps refused sends on screen and explains each failure', async () => {
     thread([])
     postThreadMessage
       .mockRejectedValueOnce(new Error('server refused'))
@@ -261,17 +264,22 @@ describe('ThreadView message and subscription edges', () => {
     await sendButton().trigger('click')
     await flushPromises()
 
-    expect(wrapper.findAll('.msg')).toHaveLength(0)
+    // The row stays, flagged; the draft was consumed on send, not restored.
+    expect(wrapper.findAll('.msg')).toHaveLength(1)
+    expect(wrapper.find('.msg').text()).toContain('try again')
+    expect(wrapper.text()).toContain('Message not sent')
     expect(wrapper.text()).toContain('server refused')
-    expect(wrapper.find('textarea').element.value).toBe('try again')
-    // A failure must not leave the composer stuck in its sending state.
-    expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('textarea').element.value).toBe('')
+    // The failure ends the send: the status line explains it instead of spinning.
+    expect(wrapper.find('.messages-status').text()).not.toContain('Sending')
 
     // A rejection without a message still reaches the screen as text.
+    await wrapper.find('textarea').setValue('again')
     await sendButton().trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('[object Object]')
-    expect(wrapper.find('textarea').element.value).toBe('try again')
+    expect(wrapper.findAll('.msg')).toHaveLength(2)
+    expect(wrapper.findAll('.messages-status')).toHaveLength(2)
   })
 
   it('shows a failure that is neither "gone" nor "switched off"', async () => {
