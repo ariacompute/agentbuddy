@@ -4,12 +4,13 @@ import { getThread, postThreadMessage, subscribeThreadEvents, dropRouterSubscrip
 import { useWorkbenchStore } from '../lib/workbench-store.js'
 import { useCopy } from '../lib/use-copy.js'
 import { errorMessage } from '../lib/errors.js'
-import { formatTime } from '../lib/format.js'
+import { formatTime, resourceLabel } from '../lib/format.js'
 import BaseDialog from '../components/BaseDialog.vue'
 import PersonaAvatar from '../components/PersonaAvatar.vue'
 import VoiceRecorder from '../components/VoiceRecorder.vue'
 import TaskCard from '../components/TaskCard.vue'
 import SuggestionCard from '../components/SuggestionCard.vue'
+import StateDot from '../components/StateDot.vue'
 import { Send, AtSign, ArrowLeft, Trash2 } from 'lucide-vue-next'
 
 const props = defineProps({ id: { type: String, required: true } })
@@ -26,21 +27,41 @@ const sending = ref(false)
 const error = ref('')
 const showClearConfirm = ref(false)
 const clearing = ref(false)
+// Set while an agent is expected to answer: a delegated/routed task is in flight.
+const awaitingReply = ref(false)
 let sub = null
+// Timers that poll a fresh GET for asynchronously routed replies.
+const refreshTimers = new Set()
 
 const relatedTasks = computed(() => workbench.tasks.filter((task) => task.contextId === props.id))
 
-// Mention candidates come from the people and agents that have already spoken
-// here. The server has no participant list to ask for, and inventing one from the
-// whole registry would offer names that cannot be addressed in this thread.
+// The composer's live status: sending the POST first, then waiting on an agent.
+const statusText = computed(() => {
+  if (sending.value) return t('sending')
+  if (awaitingReply.value) return t('replying')
+  return ''
+})
+
+// Mention candidates: agents that already spoke here first, then every agent in
+// the workspace. The server addresses agents by resource id, so each candidate
+// carries the id to send plus a whitespace-free token inserted into the draft.
 const mentionCandidates = computed(() => {
-  const seen = new Set()
   const out = []
+  const seen = new Set()
+  const push = (id, token, label) => {
+    if (!id || seen.has(id)) return
+    seen.add(id)
+    out.push({ id, token, label: label || token })
+  }
   for (const m of messages.value) {
-    const name = m.AuthorName || m.AuthorID
-    if (!name || m.AuthorType === 'user' || seen.has(name)) continue
-    seen.add(name)
-    out.push(name)
+    if (m.AuthorType === 'user') continue
+    const id = m.ResourceID || m.AuthorID
+    if (!id) continue
+    const token = m.AuthorName || id
+    push(id, token, token)
+  }
+  for (const agent of workbench.agents) {
+    push(agent.id, agent.name || agent.id, resourceLabel(agent))
   }
   return out
 })
@@ -57,18 +78,20 @@ const mentionQuery = computed(() => {
 const mentionMatches = computed(() => {
   const q = mentionQuery.value
   if (q === null) return []
-  return mentionCandidates.value.filter((name) => name.toLowerCase().includes(q)).slice(0, 6)
+  return mentionCandidates.value
+    .filter((c) => c.label.toLowerCase().includes(q) || c.token.toLowerCase().includes(q))
+    .slice(0, 6)
 })
 
-// Open while a token is being typed, including the empty thread case: an empty
-// picker that says so is better than a key that appears to do nothing.
+// Open while a token is being typed. A corpus with no agents at all still says
+// so; once any agent exists the picker lists matches instead of empty text.
 const mentionOpen = computed(
   () => mentionQuery.value !== null && (mentionMatches.value.length > 0 || mentionCandidates.value.length === 0),
 )
 
 /** Replaces the half-typed token with a complete handle. */
-function insertMention(name) {
-  draft.value = draft.value.replace(/(^|\s)@[^\s@]*$/, (_, lead) => `${lead}@${name} `)
+function insertMention(candidate) {
+  draft.value = draft.value.replace(/(^|\s)@[^\s@]*$/, (_, lead) => `${lead}@${candidate.token} `)
   draft.value = draft.value.replace(/^\s+/, '')
 }
 
@@ -80,6 +103,40 @@ function insertMention(name) {
  */
 function addMentions() {
   draft.value = (draft.value + ' @').trimStart()
+}
+
+/**
+ * Maps every `@token` in the draft back to a resource id. A token may match the
+ * inserted token, the display label or the id itself, so a hand-typed mention
+ * still resolves. Returns unique ids in first-seen order.
+ */
+function resolveMentions(body) {
+  const ids = []
+  const seen = new Set()
+  for (const match of body.matchAll(/(?:^|\s)@([^\s@]+)/g)) {
+    const token = match[1].toLowerCase()
+    const hit = mentionCandidates.value.find(
+      (c) => c.token.toLowerCase() === token ||
+        c.label.toLowerCase() === token ||
+        c.id.toLowerCase() === token,
+    )
+    if (hit && !seen.has(hit.id)) {
+      seen.add(hit.id)
+      ids.push(hit.id)
+    }
+  }
+  return ids
+}
+
+/** The agent a plain (unmentioned) message goes to: the latest speaker, else the first agent. */
+function defaultAgentId() {
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const m = messages.value[i]
+    if (m.AuthorType === 'user') continue
+    const id = m.ResourceID || m.AuthorID
+    if (id) return id
+  }
+  return workbench.agents[0]?.id || null
 }
 
 /**
@@ -102,10 +159,25 @@ async function dropSubscription() {
   }
 }
 
-/** Adds one row once: the POST receipt and an SSE replay can carry the same message. */
+/**
+ * Adds one row, or merges into the row with the same id when it is already on
+ * screen. The server writes an empty-bodied agent placeholder and fills the same
+ * message id later; without the merge the reply would stay blank.
+ */
 function appendMessage(msg) {
-  if (!msg || messages.value.some((m) => m.ID === msg.ID)) return
-  messages.value.push(msg)
+  if (!msg || !msg.ID) return
+  const index = messages.value.findIndex((m) => m.ID === msg.ID)
+  if (index === -1) {
+    messages.value.push(msg)
+    return
+  }
+  const current = messages.value[index]
+  messages.value[index] = { ...current, ...msg, Body: msg.Body || current.Body }
+}
+
+/** True while an agent message is a server placeholder waiting for its body. */
+function pendingReply(msg) {
+  return msg.AuthorType !== 'user' && Boolean(msg.TaskID) && !msg.Body
 }
 
 /** Opens the destructive confirmation; the trigger only exists with rows to lose. */
@@ -116,6 +188,37 @@ function askClear() {
 
 function cancelClear() {
   showClearConfirm.value = false
+}
+
+function clearRefreshTimers() {
+  for (const timer of refreshTimers) clearInterval(timer)
+  refreshTimers.clear()
+}
+
+/**
+ * Re-reads the thread a bounded number of times after a send. The SSE stream
+ * freezes its task-id list at connect time, so an asynchronously routed reply is
+ * only visible through a fresh GET; the timer stops itself once nothing is
+ * pending, and never runs longer than the cap.
+ */
+function scheduleRefresh() {
+  clearRefreshTimers()
+  let attempts = 0
+  const timer = setInterval(async () => {
+    attempts += 1
+    try {
+      const data = await getThread(props.id)
+      for (const m of data.messages || []) appendMessage(m)
+    } catch (e) {
+      // A transient read failure must not break the conversation; the next tick retries.
+    }
+    awaitingReply.value = attempts < 6 && messages.value.some(pendingReply)
+    if (!awaitingReply.value) {
+      clearInterval(timer)
+      refreshTimers.delete(timer)
+    }
+  }, 3000)
+  refreshTimers.add(timer)
 }
 
 /**
@@ -145,20 +248,38 @@ async function confirmClear() {
 async function send() {
   const body = draft.value.trim()
   if (!body) return
-  sending.value = true
   error.value = ''
+  // Mentions in the body win; otherwise hand the message to one default agent.
+  const mentions = resolveMentions(body)
+  if (mentions.length === 0) {
+    const fallback = defaultAgentId()
+    if (fallback) mentions.push(fallback)
+  }
+  sending.value = true
   try {
-    const res = await postThreadMessage(props.id, body)
+    const res = await postThreadMessage(props.id, body, mentions)
     // The event stream replays the history once when it connects and then follows
     // only the tasks from that snapshot: a message posted on this open page never
     // arrives as a frame. The POST already returns the persisted row, so put it on
     // screen now instead of making the user leave and re-enter the thread.
     appendMessage(res?.message)
     draft.value = ''
-    if (res?.delegated) await workbench.refreshTasks()
-    // Reconnect so the fresh replay also carries any task this send started; its
-    // agent reply would otherwise have no subscriber on the old stream.
+    const delegated = res?.delegated
+    // The contract returns an id array; accept a bare truthy flag too so a
+    // pre-upgrade server that answers `delegated: true` still refreshes tasks.
+    const handedOff = Array.isArray(delegated) ? delegated.length > 0 : Boolean(delegated)
+    const expectsReply = Boolean(res?.routed || handedOff)
+    if (expectsReply) {
+      awaitingReply.value = true
+      if (handedOff) await workbench.refreshTasks()
+    } else if (mentions.length === 0) {
+      // Nothing to hand the message to: it is still posted, but say why no reply follows.
+      error.value = t('participantsEmpty')
+    }
+    // Reconnect so the fresh replay also carries any task this send started.
     subscribe()
+    // Router-on replies arrive after the POST, so poll a fresh GET for a while.
+    if (expectsReply) scheduleRefresh()
   } catch (e) {
     // Keep the draft: a refused send stays available for a retry.
     error.value = e.message || String(e)
@@ -171,19 +292,28 @@ async function load() {
   const data = await getThread(props.id)
   thread.value = data.thread
   messages.value = data.messages || []
+  awaitingReply.value = messages.value.some(pendingReply)
   subscribe()
 }
 
 function subscribe() {
   if (sub) sub.close()
+  const receive = (msg) => {
+    appendMessage(msg)
+    // A body arriving clears the wait; a placeholder keeps it visible.
+    if (msg?.Body) awaitingReply.value = messages.value.some(pendingReply)
+  }
   sub = subscribeThreadEvents(props.id, {
-    message: appendMessage,
-    agent: appendMessage,
+    message: receive,
+    agent: receive,
   })
 }
 
 onMounted(() => { load(); workbench.refreshTasks() })
-onUnmounted(() => sub && sub.close())
+onUnmounted(() => {
+  if (sub) sub.close()
+  clearRefreshTimers()
+})
 </script>
 
 <template>
@@ -209,7 +339,13 @@ onUnmounted(() => sub && sub.close())
                 <span v-if="msg.Origin && msg.Origin.startsWith('agent:')" class="chip chip-mono">agent</span>
                 <span>{{ formatTime(msg.CreatedAt) }}</span>
               </div>
-              <div class="msg-body pre-wrap">{{ msg.Body }}</div>
+              <div class="msg-body pre-wrap">
+                <span v-if="msg.Body">{{ msg.Body }}</span>
+                <span v-else-if="pendingReply(msg)" class="msg-pending">
+                  <StateDot state="working" :label="false" />
+                  <span>{{ t('replying') }}</span>
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -222,22 +358,22 @@ onUnmounted(() => sub && sub.close())
               @keydown.enter.exact.prevent="send"
             />
           </div>
-          <!-- Mention picker: the names that have spoken in this thread. It shows
-               only while a `@token` is being typed, so the composer stays quiet. -->
+          <!-- Mention picker: agents already in this thread first, then the whole
+               workspace. It shows only while a `@token` is being typed. -->
           <div v-if="mentionOpen" class="mention-pop" role="listbox" :aria-label="to('mentionTitle')">
             <p v-if="mentionMatches.length === 0" class="muted" style="font-size:12px;padding:6px 8px">
-              {{ to('mentionEmpty') }}
+              {{ t('participantsEmpty') }}
             </p>
             <button
-              v-for="name in mentionMatches"
-              :key="name"
+              v-for="candidate in mentionMatches"
+              :key="candidate.id"
               class="mention-item"
               role="option"
               :aria-selected="false"
-              @click="insertMention(name)"
+              @click="insertMention(candidate)"
             >
-              <PersonaAvatar :name="name" :size="20" />
-              <span class="truncate">{{ name }}</span>
+              <PersonaAvatar :name="candidate.label" :size="20" />
+              <span class="truncate">{{ candidate.label }}</span>
             </button>
           </div>
           <div class="composer-foot">
@@ -251,6 +387,10 @@ onUnmounted(() => sub && sub.close())
               <Send :size="15" /> {{ t('send') }}
             </button>
           </div>
+          <p v-if="statusText" class="composer-status" role="status" aria-live="polite">
+            <StateDot v-if="awaitingReply" state="working" :label="false" />
+            <span>{{ statusText }}</span>
+          </p>
         </div>
       </div>
 

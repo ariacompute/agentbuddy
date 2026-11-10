@@ -10,6 +10,7 @@ import { nextTick } from 'vue'
 import { flushPromises } from '@vue/test-utils'
 import { mountWith } from './helpers/vue-utils.js'
 import { setLang } from '../src/lib/use-copy.js'
+import { useWorkbenchStore } from '../src/lib/workbench-store.js'
 
 vi.mock('../src/lib/api.js')
 
@@ -405,8 +406,10 @@ describe('ThreadView mention picker and unsubscribe', () => {
     getThread.mockResolvedValue({
       thread: { ID: '1', Title: 't' },
       messages: [
-        { ID: 'm1', AuthorType: 'agent', AuthorName: 'scout', Body: 'on it' },
-        { ID: 'm2', AuthorType: 'agent', AuthorName: 'scribe', Body: 'noted' },
+        // The server stores the resource id as the author id, so a mention can be
+        // turned back into the id the delegation endpoint expects.
+        { ID: 'm1', AuthorType: 'agent', AuthorID: 'scout', AuthorName: 'scout', Body: 'on it' },
+        { ID: 'm2', AuthorType: 'agent', AuthorID: 'scribe', AuthorName: 'scribe', Body: 'noted' },
         { ID: 'm3', AuthorType: 'user', AuthorName: 'me', Body: 'hi' },
       ],
     })
@@ -439,14 +442,30 @@ describe('ThreadView mention picker and unsubscribe', () => {
     expect(wrapper.find('textarea').element.value).toBe('ask @scout ')
   })
 
-  it('says so when the thread has nobody to mention', async () => {
+  it('offers workspace agents when the thread has no speakers yet', async () => {
+    const { wrapper, pinia } = mountWith(ThreadView, { props: { id: '1' } })
+    useWorkbenchStore(pinia).agents = [
+      { id: 'agent-1', name: 'scout', display_name: 'Scout' },
+    ]
+    await flushPromises()
+
+    await wrapper.find('textarea').setValue('hey @')
+    await nextTick()
+
+    const items = wrapper.findAll('.mention-item')
+    expect(items).toHaveLength(1)
+    expect(items[0].text()).toContain('Scout')
+  })
+
+  it('says so only when the workspace has no agents at all', async () => {
     const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
     await flushPromises()
 
     await wrapper.find('textarea').setValue('hey @')
     await nextTick()
 
-    expect(wrapper.find('.mention-pop').text()).toContain('Nobody in this thread yet')
+    // The empty picker now means "no agents anywhere", not "nobody spoke here".
+    expect(wrapper.find('.mention-pop').text()).toContain('No agents yet')
   })
 
   it('unsubscribes the thread from the router', async () => {

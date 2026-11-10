@@ -217,7 +217,7 @@ describe('ThreadView message and subscription edges', () => {
     await wrapper.findAll('button').find((b) => b.text().includes('Send')).trigger('click')
     await flushPromises()
 
-    expect(postThreadMessage).toHaveBeenCalledWith('1', 'sent right now')
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'sent right now', [])
     expect(wrapper.findAll('.msg')).toHaveLength(1)
     expect(wrapper.find('.msg').text()).toContain('sent right now')
     expect(wrapper.find('.msg').classes()).toContain('from-user')

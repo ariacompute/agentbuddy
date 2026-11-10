@@ -984,7 +984,7 @@ textarea::placeholder {
 
 .thread {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 260px;
   gap: 16px;
   flex: 1;
   min-height: 0;
@@ -1057,6 +1057,17 @@ textarea::placeholder {
   color: var(--text-3);
 }
 
+/* An agent placeholder with no body yet: the server wrote the row before the
+   reply body existed. Tokens only; the dot already pulses (and the global
+   prefers-reduced-motion block turns that off). */
+.msg-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-style: italic;
+}
+
 .composer {
   border-top: 1px solid var(--stroke-1);
   padding: 12px;
@@ -1083,12 +1094,32 @@ textarea::placeholder {
   gap: 8px;
 }
 
+/* One live line under the composer: sending, then waiting on an agent. */
+.composer-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
 .thread-side {
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* Long translated headings and card titles wrap instead of widening the
+     column in any of the 13 languages, RTL included. */
+  overflow-wrap: anywhere;
+}
+
+/* A card's title and its confidence chip share one line only while they fit;
+   at 260px they wrap instead of pushing the chip out of the column. */
+.thread-side .row {
+  flex-wrap: wrap;
 }
 
 /* ------------------------------------------------------------------ voice */

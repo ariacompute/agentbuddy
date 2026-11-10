@@ -358,6 +358,287 @@ describe('ThreadView mentions and live frames', () => {
   })
 })
 
+describe('ThreadView delegation and pending replies', () => {
+  function mountThread(messages) {
+    getThread.mockResolvedValue({ thread: { ID: '1', Title: 't' }, messages })
+    return mountWith(ThreadView, { props: { id: '1' } })
+  }
+
+  async function sendDraft(wrapper, value) {
+    await wrapper.find('textarea').setValue(value)
+    await wrapper.findAll('button').find((b) => b.classes('btn-primary')).trigger('click')
+    await flushPromises()
+  }
+
+  it('sends the mentioned agent resource id and shows the wait', async () => {
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm2', AuthorType: 'user', Body: 'go @scout' },
+      delegated: ['t1'],
+    })
+    const { wrapper } = mountThread([
+      { ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', Body: 'here' },
+    ])
+    await flushPromises()
+
+    await sendDraft(wrapper, 'go @scout')
+
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @scout', ['agent-1'])
+    expect(wrapper.find('.composer-status').text()).toContain('Replying…')
+    wrapper.unmount()
+  })
+
+  it('falls back to the latest agent when no handle is typed', async () => {
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm2', AuthorType: 'user', Body: 'hi' },
+      delegated: ['t1'],
+    })
+    const { wrapper } = mountThread([
+      { ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-7', AuthorName: 'scribe', Body: 'noted' },
+    ])
+    await flushPromises()
+
+    await sendDraft(wrapper, 'hi')
+
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'hi', ['agent-7'])
+    wrapper.unmount()
+  })
+
+  it('skips user rows and id-less agents when looking for a default agent', async () => {
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm4', AuthorType: 'user', Body: 'again' },
+      delegated: ['t2'],
+    })
+    const { wrapper } = mountThread([
+      { ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-2', AuthorName: 'scribe', Body: 'noted' },
+      { ID: 'm2', AuthorType: 'agent', Body: 'no id' },
+      { ID: 'm3', AuthorType: 'user', AuthorName: 'me', Body: 'thanks' },
+    ])
+    await flushPromises()
+
+    await sendDraft(wrapper, 'again')
+
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'again', ['agent-2'])
+    wrapper.unmount()
+  })
+
+  it('posts without mentions and explains when no agent exists', async () => {
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm1', AuthorType: 'user', Body: 'hi' },
+      delegated: [],
+    })
+    const { wrapper } = mountThread([])
+    await flushPromises()
+
+    await sendDraft(wrapper, 'hi')
+
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'hi', [])
+    expect(wrapper.text()).toContain('No agents yet')
+  })
+
+  it('keeps the draft and reports a refused send', async () => {
+    postThreadMessage.mockRejectedValue(new Error('refused'))
+    const { wrapper } = mountThread([])
+    await flushPromises()
+
+    await sendDraft(wrapper, 'hello')
+
+    expect(wrapper.find('textarea').element.value).toBe('hello')
+    expect(wrapper.text()).toContain('refused')
+  })
+
+  it('fills a pending agent placeholder instead of duplicating it', async () => {
+    let handlers = null
+    subscribeThreadEvents.mockImplementation((id, hs) => {
+      handlers = hs
+      return { close: vi.fn() }
+    })
+    const { wrapper } = mountThread([
+      { ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', TaskID: 't1', Body: '' },
+    ])
+    await flushPromises()
+
+    expect(wrapper.find('.msg-pending').text()).toContain('Replying…')
+
+    handlers.agent({
+      ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', TaskID: 't1', Body: 'done',
+    })
+    await nextTick()
+
+    expect(wrapper.findAll('.msg')).toHaveLength(1)
+    expect(wrapper.text()).toContain('done')
+    expect(wrapper.find('.msg-pending').exists()).toBe(false)
+
+    // A later empty-body frame (a terminal marker) must not blank the reply.
+    handlers.agent({
+      ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', TaskID: 't1', Body: '',
+    })
+    await nextTick()
+    expect(wrapper.text()).toContain('done')
+  })
+
+  it('shows a sending status while the POST is in flight', async () => {
+    let resolvePost
+    postThreadMessage.mockReturnValue(new Promise((resolve) => { resolvePost = resolve }))
+    const { wrapper } = mountThread([])
+    await flushPromises()
+
+    await wrapper.find('textarea').setValue('hi')
+    await wrapper.findAll('button').find((b) => b.classes('btn-primary')).trigger('click')
+    await nextTick()
+
+    expect(wrapper.find('.composer-status').text()).toContain('Sending')
+    resolvePost({ message: { ID: 'm1', AuthorType: 'user', Body: 'hi' }, delegated: [] })
+    await flushPromises()
+  })
+
+  it('treats a routed answer as a pending reply', async () => {
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm1', AuthorType: 'user', Body: 'hi' },
+      routed: true,
+    })
+    const { wrapper } = mountThread([])
+    await flushPromises()
+
+    await sendDraft(wrapper, 'hi')
+
+    expect(wrapper.find('.composer-status').text()).toContain('Replying…')
+    wrapper.unmount()
+  })
+
+  it('uses the first workspace agent when the thread has no speaker', async () => {
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm1', AuthorType: 'user', Body: 'hi' },
+      delegated: [],
+    })
+    const { wrapper, pinia } = mountWith(ThreadView, { props: { id: '1' } })
+    useWorkbenchStore(pinia).agents = [{ id: 'agent-1' }]
+    await flushPromises()
+
+    await sendDraft(wrapper, 'hi')
+
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'hi', ['agent-1'])
+  })
+
+  it('resolves a mention by token, label and id', async () => {
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm1', AuthorType: 'user', Body: 'x' },
+      delegated: [],
+    })
+    const { wrapper, pinia } = mountWith(ThreadView, { props: { id: '1' } })
+    useWorkbenchStore(pinia).agents = [{ id: 'agent-9', name: 'scout', display_name: 'Alpha' }]
+    await flushPromises()
+
+    // The token matches, even though the label ("Alpha") does not contain it.
+    await wrapper.find('textarea').setValue('@sco')
+    await nextTick()
+    expect(wrapper.find('.mention-item').text()).toContain('Alpha')
+
+    postThreadMessage.mockClear()
+    await sendDraft(wrapper, 'go @Alpha')
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @Alpha', ['agent-9'])
+
+    postThreadMessage.mockClear()
+    await sendDraft(wrapper, 'go @agent-9')
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @agent-9', ['agent-9'])
+
+    // A repeated handle yields one target; an unknown handle falls back to the
+    // default agent instead of being sent as a bogus id.
+    postThreadMessage.mockClear()
+    await sendDraft(wrapper, 'go @scout @scout')
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @scout @scout', ['agent-9'])
+
+    postThreadMessage.mockClear()
+    await sendDraft(wrapper, 'go @ghost')
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @ghost', ['agent-9'])
+  })
+
+  it('dedupes candidates and skips agents without an id', async () => {
+    getThread.mockResolvedValue({
+      thread: { ID: '1' },
+      messages: [
+        { ID: 'm1', AuthorType: 'agent', ResourceID: 'agent-1', Body: 'a' },
+        { ID: 'm2', AuthorType: 'agent', ResourceID: 'agent-1', Body: 'b' },
+        { ID: 'm3', AuthorType: 'agent' },
+      ],
+    })
+    const { wrapper, pinia } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+    useWorkbenchStore(pinia).agents = [
+      { id: 'agent-1' },
+      { name: 'nameless' },
+      { id: 'agent-bare' },
+    ]
+    await nextTick()
+
+    await wrapper.find('textarea').setValue('@')
+    await nextTick()
+
+    expect(wrapper.findAll('.mention-item .truncate').map((s) => s.text())).toEqual(['agent-1', 'agent-bare'])
+  })
+
+  it('falls back to its token for an agent with no display name', async () => {
+    const { wrapper, pinia } = mountWith(ThreadView, { props: { id: '1' } })
+    useWorkbenchStore(pinia).agents = [{ id: 'agent-bare' }]
+    await flushPromises()
+
+    await wrapper.find('textarea').setValue('@')
+    await nextTick()
+
+    expect(wrapper.find('.mention-item').text()).toContain('agent-bare')
+  })
+
+  it('ignores a frame without an id and keeps the wait through an empty placeholder', async () => {
+    let handlers = null
+    subscribeThreadEvents.mockImplementation((id, hs) => {
+      handlers = hs
+      return { close: vi.fn() }
+    })
+    const { wrapper } = mountThread([])
+    await flushPromises()
+
+    handlers.message(null)
+    handlers.message({})
+    handlers.message({ ID: 'm9', AuthorType: 'agent', TaskID: 't9', Body: '' })
+    await nextTick()
+
+    expect(wrapper.findAll('.msg')).toHaveLength(1)
+    expect(wrapper.find('.msg-pending').exists()).toBe(true)
+  })
+
+  it('polls through a read failure and stops at the cap', async () => {
+    vi.useFakeTimers()
+    try {
+      const placeholder = {
+        ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', TaskID: 't1', Body: '',
+      }
+      getThread.mockResolvedValue({ thread: { ID: '1' }, messages: [placeholder] })
+      postThreadMessage.mockResolvedValue({
+        message: { ID: 'm2', AuthorType: 'user', Body: 'go' },
+        delegated: ['t1'],
+      })
+      const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+      await vi.advanceTimersByTimeAsync(0)
+
+      await wrapper.find('textarea').setValue('go')
+      await wrapper.findAll('button').find((b) => b.classes('btn-primary')).trigger('click')
+      await vi.advanceTimersByTimeAsync(0)
+
+      // One tick fails, one returns no message list, the rest keep the placeholder.
+      getThread.mockReset()
+      getThread.mockRejectedValueOnce(new Error('blip'))
+      getThread.mockResolvedValueOnce({ thread: { ID: '1' } })
+      getThread.mockResolvedValue({ thread: { ID: '1' }, messages: [placeholder] })
+
+      for (let i = 0; i < 6; i += 1) await vi.advanceTimersByTimeAsync(3000)
+
+      expect(wrapper.find('.composer-status').exists()).toBe(false)
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('ChannelsView', () => {
   // The dialog itself is covered by base-dialog.spec.js; here it is stubbed so
   // the form renders inline and the test can drive it without hunting through
