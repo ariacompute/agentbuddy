@@ -489,11 +489,28 @@ mod tests {
     use axum::body::to_bytes;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
+    /// A process-unique counter so every `scratch_dir()` call gets its own
+    /// directory (see `scratch_dir`).
+    static SCRATCH_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    /// A private scratch directory for one test. The module's tests run in
+    /// parallel and several of them persist `config.json`; a process-shared
+    /// directory let a sibling's save clobber another test's draft between its
+    /// write and its reload (e.g. `saving_the_executor_settings_...`'s
+    /// `executor_allowlist` showing up empty). A process-unique counter keeps
+    /// every invocation isolated.
+    fn scratch_dir() -> PathBuf {
+        let n = SCRATCH_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        std::env::temp_dir().join(format!("agentbuddy-shell-{}-{}", std::process::id(), n))
+    }
+
     async fn state() -> ProxyState {
-        let dir = std::env::temp_dir().join(format!("agentbuddy-shell-{}", std::process::id()));
+        let dir = scratch_dir();
+        std::fs::create_dir_all(&dir).unwrap();
         let store = Arc::new(ConfigStore::new(dir));
         let jar = Arc::new(reqwest::cookie::Jar::default());
         let clients = forward::Clients::new(jar.clone()).expect("the forwarding client builds");
@@ -634,12 +651,7 @@ mod tests {
     /// keyed by an origin whose port changes on every start.
     #[tokio::test]
     async fn the_config_endpoint_persists_the_theme() {
-        let mut state = state().await;
-        // Its own directory: the shared fixture is written by every save in this
-        // module, and the tests run in parallel.
-        let dir = std::env::temp_dir().join(format!("agentbuddy-shell-theme-{}", std::process::id()));
-        state.store = Arc::new(ConfigStore::new(dir.clone()));
-
+        let state = state().await;
         let (status, _) =
             decode(handle(&state, json_post("/__shell/config", r#"{"theme":"dark"}"#)).await).await;
         assert_eq!(status, StatusCode::OK);
@@ -655,8 +667,6 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let (_, json) = decode(handle(&state, req("GET", "/__shell/config")).await).await;
         assert_eq!(json["theme"], "dark");
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The value reaches the page as a string literal, so only the two known
