@@ -137,7 +137,7 @@ onMounted(load)
           <RefreshCw :size="14" />
           {{ t('filesRetry') }}
         </button>
-        <button class="btn btn-primary" :disabled="uploading || featureOff" @click="choose">
+        <button v-if="!featureOff" class="btn btn-primary" :disabled="uploading" @click="choose">
           <UploadCloud :size="16" />
           {{ t('filesUpload') }}
         </button>
@@ -149,6 +149,9 @@ onMounted(load)
     <section v-if="featureOff" class="card stack">
       <h2 class="card-title">{{ t('filesTitle') }}</h2>
       <p class="muted">{{ t('filesOff') }}</p>
+      <!-- A machine setting, not prose: it stays the same in every language and
+           tells the operator which switch to turn on before retrying. -->
+      <p class="muted mono">AGENTHUB_FILES_STORE=local | s3</p>
     </section>
 
     <template v-else>

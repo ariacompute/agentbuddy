@@ -53,6 +53,10 @@ describe('FilesView', () => {
     const link = wrapper.find('a[download]')
     expect(link.attributes('href')).toBe('/api/files/file_1/content')
     expect(fileContentUrl).toHaveBeenCalledWith('file_1')
+    // A server that answers the list has a live upload control, not a grey one.
+    const upload = wrapper.findAll('button').find((b) => b.text().includes('Upload file'))
+    expect(upload).toBeTruthy()
+    expect(upload.attributes('disabled')).toBeUndefined()
   })
 
   it('says the list is empty instead of showing an empty table', async () => {
@@ -70,9 +74,30 @@ describe('FilesView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('This server has shared files turned off.')
-    // Uploading is impossible, so the drop target is not offered.
+    // Uploading is impossible, so neither the drop target nor a dead grey
+    // "Upload file" button is offered; the card names the switch instead.
     expect(wrapper.find('.files-drop').exists()).toBe(false)
+    expect(wrapper.findAll('button').some((b) => b.text().includes('Upload file'))).toBe(false)
+    expect(wrapper.text()).toContain('AGENTHUB_FILES_STORE=local | s3')
     expect(wrapper.find('input[type="file"]').exists()).toBe(true)
+  })
+
+  it('brings the upload button back after the server enables the feature', async () => {
+    listFiles.mockRejectedValueOnce({ code: 'files_disabled' })
+    const { wrapper } = mountWith(FilesView)
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some((b) => b.text().includes('Upload file'))).toBe(false)
+
+    listFiles.mockResolvedValue({ files: [ROW], maxBytes: 4096, backend: 'local' })
+    const retry = wrapper.findAll('button').find((b) => b.text().includes('Retry'))
+    await retry.trigger('click')
+    await flushPromises()
+
+    const upload = wrapper.findAll('button').find((b) => b.text().includes('Upload file'))
+    expect(upload).toBeTruthy()
+    expect(upload.attributes('disabled')).toBeUndefined()
+    expect(wrapper.text()).toContain('brief.pdf')
   })
 
   it('shows why the list failed and retries it', async () => {
