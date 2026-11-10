@@ -2016,6 +2016,19 @@ describe('PersonaEditor', () => {
     }))
   })
 
+  it('labels every persona field, including the avatar reference', async () => {
+    // t() is a plain table lookup: a missing key renders as an empty <span>,
+    // so the avatar input used to have no accessible label at all.
+    listResources.mockResolvedValue({ resources: [{ id: 'a1', name: 'A', kind: 'agent', persona: {} }] })
+    updateResource.mockResolvedValue({})
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    const labels = wrapper.findAll('label.field > span').map((s) => s.text())
+    expect(labels).toContain('Avatar reference')
+    expect(labels).not.toContain('')
+  })
+
   it('reports a rejected display-name save instead of leaving a stale label', async () => {
     listResources.mockResolvedValue({
       resources: [{ id: 'a1', name: 'google-adk', kind: 'agent', persona: {} }],
