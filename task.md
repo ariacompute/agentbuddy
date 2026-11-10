@@ -1596,3 +1596,36 @@ agentbuddy F3.8 ↔ agenthub `requirements.md` §14 / `task.md` M21。
   460 用例全绿、`bun run build` 通过；`tests/docs_endpoints_test.go` 双向差集无漂移。
 - 文档同步：`requirements.md`（F3.8 / §4.1 / 验收 47）、`task.md`、
   `AGENTS.md`（测试基线）、中英 README。
+
+## M40 — 人格页「只读展示 + 编辑模式」（2026-11-10）
+
+原 `PersonaEditor.vue` 一进页面就是可编辑表单：输入框里是原始值，操作员看不出这个 agent
+**当前存了什么**，也容易在只想查看时改坏记录。改为两态：
+
+### 1. 视图（`PersonaEditor.vue`）
+
+- 默认**只读**：`READ_FIELDS` 一张表驱动六行（显示名称 / 头衔 / 角色 / MBTI / 指令 / 头像引用），
+  与编辑表单同序、同标签；空值渲染 `—` 并挂 `.is-empty` 置灰（字段不隐藏，缺值本身是信息）。
+  顶部只留一个按钮「编辑」，保存成功后的「已保存」提示也在此态显示。
+- 「编辑」进入编辑态：原表单原样保留（含 MBTI 下拉、头像 `ref://` 输入），底部补「取消」：
+  取消丢弃草稿、按当前记录重新载入并回到只读；`saving` 期间「取消」禁用，避免与飞行中的保存抢状态。
+- 保存成功后自动回到只读并回显服务端规范化后的值；切换 agent 退出编辑态（草稿属于某一个 agent）。
+- agent 选择器两种状态都在，属于导航而非人格字段。
+
+### 2. 文案与样式
+
+- `hub-copy.js` 13 语新增 `personaEdit` / `personaCancel`（`copy-fallback.spec.js` 逐语校验，
+  不得与英文相同）。
+- `style.css` 新增 `.persona-value`（13px / `line-height: 1.5` / `white-space: pre-wrap` 保留指令
+  换行 / `overflow-wrap: anywhere` 防长头像引用顶出卡片）与 `.persona-value.is-empty`，
+  只用既有令牌，不新增色值（单色守卫照过）。
+
+### 3. 用例与验证
+
+- `tests/views.spec.js`：新增「只读展示六行 + 单一 Edit 按钮 + 七条本地化标签」「空值占位条数」
+  「取消丢弃草稿且不发 PUT」三条；原有 10 条字段 / 保存用例改为先点「编辑」，保存类断言改为
+  保存后回到只读并回显存储值。
+- `tests/view-edges.spec.js`：无选中时进入编辑态，「保存」保持 disabled；`cancelEdit` 无记录可
+  重载也不抛错。
+- `bun run test`：**34 spec / 856 用例全绿**；`bun run test:coverage`：语句 / 行 / 分支 / 函数
+  **四项 100%**（11769 语句、2006 分支、466 函数、11734 行）。

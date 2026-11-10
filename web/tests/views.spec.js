@@ -2303,6 +2303,15 @@ describe('SettingsView', () => {
 })
 
 describe('PersonaEditor', () => {
+  // The screen opens on the stored persona; changing it is an explicit step.
+  const openEditor = async (wrapper) => {
+    await wrapper.findAll('button').find((b) => /^edit/i.test(b.text())).trigger('click')
+    await nextTick()
+  }
+  // Read-out rows, in form order: display name, title, role, MBTI, instructions,
+  // avatar reference.
+  const values = (wrapper) => wrapper.findAll('.persona-value').map((p) => p.text())
+
   it('sends every field the operator typed, including the MBTI and the avatar', async () => {
     const agent = {
       id: 'a1', name: 'Agent', kind: 'agent', health: 'healthy',
@@ -2315,6 +2324,7 @@ describe('PersonaEditor', () => {
     updateResource.mockResolvedValue({})
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
+    await openEditor(wrapper)
 
     // Text inputs are display name, job title, role, avatar reference.
     const inputs = wrapper.findAll('input[type="text"]')
@@ -2337,8 +2347,10 @@ describe('PersonaEditor', () => {
         role: '', instruction: 'be exact', mbti: 'INTJ', avatar_ref: 'ref://ada', title: 'Dr Ada',
       },
     })
-    // No half-typed state is left behind: the saved values are what is on screen.
-    expect(wrapper.find('textarea').element.value).toBe('be exact')
+    // No half-typed state is left behind: saving returns to the read-out, which
+    // shows exactly what the server stored.
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    expect(values(wrapper)[4]).toBe('be exact')
   })
 
   it('replaces the whole entry so the server can validate kind and name', async () => {
@@ -2355,6 +2367,7 @@ describe('PersonaEditor', () => {
     updateResource.mockResolvedValue({})
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
+    await openEditor(wrapper)
 
     await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
     await flushPromises()
@@ -2373,6 +2386,7 @@ describe('PersonaEditor', () => {
     updateResource.mockResolvedValue({})
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
+    await openEditor(wrapper)
 
     // The selector is the registry name; the label below it is the editable one.
     expect(wrapper.text()).toContain('Agent Name')
@@ -2400,6 +2414,7 @@ describe('PersonaEditor', () => {
     updateResource.mockResolvedValue({})
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
+    await openEditor(wrapper)
 
     const labels = wrapper.findAll('label.field > span').map((s) => s.text())
     expect(labels).toContain('Avatar reference')
@@ -2413,6 +2428,7 @@ describe('PersonaEditor', () => {
     updateResource.mockRejectedValue(Object.assign(new Error('nope'), { code: 'invalid_kind' }))
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
+    await openEditor(wrapper)
 
     await wrapper.findAll('input[type="text"]')[0].setValue('Ada')
     await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
@@ -2428,6 +2444,7 @@ describe('PersonaEditor', () => {
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
     expect(listResources).toHaveBeenCalledWith('agent')
+    await openEditor(wrapper)
 
     const save = wrapper.findAll('button').find((b) => /save/i.test(b.text()))
     expect(save).toBeTruthy()
@@ -2445,6 +2462,7 @@ describe('PersonaEditor', () => {
     updateResource.mockReturnValue(new Promise((resolve) => { finish = resolve }))
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
+    await openEditor(wrapper)
 
     // Locate by class: the label changes from "Save persona" to "Saving…".
     const saveButton = () => wrapper.find('button.btn-sm')
@@ -2458,6 +2476,8 @@ describe('PersonaEditor', () => {
 
     expect(saveButton().text()).toBe('Saving…')
     expect(saveButton().attributes('disabled')).toBeDefined()
+    // Leaving edit mode cannot race a save that is already in flight.
+    expect(wrapper.find('button.btn-ghost').attributes('disabled')).toBeDefined()
     expect(wrapper.text()).not.toContain('Saved.')
 
     finish({
@@ -2468,12 +2488,11 @@ describe('PersonaEditor', () => {
     })
     await flushPromises()
 
-    expect(saveButton().text()).toBe('Save persona')
-    expect(saveButton().attributes('disabled')).toBeUndefined()
+    // A finished save lands back on the read-out, which shows what was stored.
+    expect(wrapper.find('textarea').exists()).toBe(false)
     expect(wrapper.text()).toContain('Saved.')
-    // The server trims and normalises: the form must show what was stored.
-    expect(textInputs()[0].element.value).toBe('Ada')
-    expect(textInputs()[1].element.value).toBe('Lead')
+    expect(values(wrapper)[0]).toBe('Ada')
+    expect(values(wrapper)[1]).toBe('Lead')
   })
 
   it('clears the saved notice when another agent is selected', async () => {
@@ -2486,6 +2505,7 @@ describe('PersonaEditor', () => {
     updateResource.mockResolvedValue({})
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
+    await openEditor(wrapper)
 
     await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
     await flushPromises()
@@ -2505,12 +2525,22 @@ describe('PersonaEditor', () => {
     })
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
+    // The read-out is what the screen opens on: the record as the server holds it.
+    expect(values(wrapper)[0]).toBe('First label')
+    expect(values(wrapper)[4]).toBe('be terse')
+
+    await openEditor(wrapper)
     expect(wrapper.find('textarea').element.value).toBe('be terse')
     expect(wrapper.findAll('input[type="text"]')[0].element.value).toBe('First label')
 
+    // Switching agents drops out of edit mode: a draft belongs to one agent.
     await wrapper.findAll('select')[0].setValue('a2')
     await nextTick()
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    expect(values(wrapper)[4]).toBe('be kind')
+    expect(values(wrapper)[5]).toBe('ref://b')
 
+    await openEditor(wrapper)
     expect(wrapper.find('textarea').element.value).toBe('be kind')
     // An agent with no stored label starts with an empty custom name.
     expect(wrapper.findAll('input[type="text"]')[0].element.value).toBe('')
@@ -2528,6 +2558,7 @@ describe('PersonaEditor', () => {
     updateResource.mockResolvedValue({})
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
+    await openEditor(wrapper)
 
     // text inputs are, in order: display name, job title, role, avatar reference.
     const inputs = wrapper.findAll('input[type="text"]')
@@ -2547,6 +2578,7 @@ describe('PersonaEditor', () => {
     updateResource.mockRejectedValue(Object.assign(new Error('nope'), { code: 'forbidden' }))
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
+    await openEditor(wrapper)
 
     const save = wrapper.findAll('button').find((b) => /save/i.test(b.text()))
     await save.trigger('click')
@@ -2573,6 +2605,70 @@ describe('PersonaEditor', () => {
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
     expect(wrapper.text()).toContain('No computers yet.')
+  })
+
+  it('shows the stored persona and offers one Edit action', async () => {
+    // The screen used to be a plain form: it started on a draft, so the operator
+    // could not tell what the agent actually carried without reading the inputs.
+    listResources.mockResolvedValue({
+      resources: [{
+        id: 'a1', name: 'Agent', kind: 'agent', display_name: 'Ada',
+        persona: {
+          title: 'Lead', role: 'Research lead', mbti: 'INTJ',
+          instruction: 'be exact', avatar_ref: 'ref://ada',
+        },
+      }],
+    })
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    // Nothing is editable until Edit is pressed.
+    expect(wrapper.findAll('input[type="text"]')).toHaveLength(0)
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    expect(values(wrapper)).toEqual([
+      'Ada', 'Lead', 'Research lead', 'INTJ', 'be exact', 'ref://ada',
+    ])
+    // Read mode carries the same labels as the form, so it is localised too.
+    expect(wrapper.findAll('.field > span').map((s) => s.text())).toEqual([
+      'Agent Name', 'Display name', 'Job title', 'Role',
+      'Personality (MBTI)', 'Instructions', 'Avatar reference',
+    ])
+    // One action, and it is the way into edit mode.
+    expect(wrapper.findAll('button')).toHaveLength(1)
+    expect(wrapper.find('button').text()).toBe('Edit')
+  })
+
+  it('keeps a row for every field an agent has not filled in', async () => {
+    listResources.mockResolvedValue({
+      resources: [{ id: 'a1', name: 'A', kind: 'agent', persona: { instruction: 'x' } }],
+    })
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    // An empty field is a fact the operator needs to see: it stays as a dash
+    // rather than vanishing from the read-out.
+    expect(values(wrapper)).toEqual(['—', '—', '—', '—', 'x', '—'])
+    expect(wrapper.findAll('.persona-value.is-empty')).toHaveLength(5)
+  })
+
+  it('discards the draft when Edit is cancelled', async () => {
+    listResources.mockResolvedValue({
+      resources: [{ id: 'a1', name: 'Agent', kind: 'agent', persona: { instruction: 'be exact' } }],
+    })
+    updateResource.mockClear()
+    const { wrapper } = mountWith(PersonaEditor)
+    await flushPromises()
+
+    await openEditor(wrapper)
+    await wrapper.find('textarea').setValue('be sloppy')
+    await wrapper.findAll('button').find((b) => /cancel/i.test(b.text())).trigger('click')
+    await nextTick()
+
+    // Back on the read-out, showing what the server holds rather than the draft.
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    expect(values(wrapper)[4]).toBe('be exact')
+    expect(updateResource).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('Saved.')
   })
 })
 
@@ -2860,6 +2956,8 @@ describe('view branch edges', () => {
     listResources.mockResolvedValue({ resources: [{ id: 'a1', name: 'A', kind: 'agent' }] })
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
+    // Read mode only carries the Edit action, so it is the entry point here too.
+    await wrapper.find('button.btn-sm').trigger('click')
     expect(wrapper.find('textarea').element.value).toBe('')
   })
 
@@ -2885,6 +2983,7 @@ describe('view branch edges', () => {
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
 
+    await wrapper.find('button.btn-sm').trigger('click')
     await wrapper.findAll('button').find((b) => /save/i.test(b.text())).trigger('click')
     await flushPromises()
 

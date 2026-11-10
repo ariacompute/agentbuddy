@@ -11,10 +11,24 @@ const loading = ref(true)
 const error = ref('')
 const saving = ref(false)
 const saved = ref(false)
+// The screen opens on what the record holds; changing anything is an explicit
+// step, so the operator never edits a live persona by accident.
+const editing = ref(false)
 
 const form = ref({ display_name: '', role: '', instruction: '', mbti: '', avatar_ref: '', title: '' })
 
 const selected = computed(() => agents.value.find((a) => a.id === selectedId.value) || null)
+
+// Every persona field, in the same order as the edit form. One list drives both
+// the read-out and its labels, so a new field cannot appear in one mode only.
+const READ_FIELDS = [
+  { key: 'display_name', label: 'personaDisplayName' },
+  { key: 'title', label: 'personaJobTitle' },
+  { key: 'role', label: 'personaRole' },
+  { key: 'mbti', label: 'personaMbti' },
+  { key: 'instruction', label: 'personaInstruction' },
+  { key: 'avatar_ref', label: 'personaAvatar' },
+]
 
 async function load() {
   loading.value = true
@@ -47,6 +61,24 @@ function loadForm(agent) {
 
 function onSelect() {
   saved.value = false
+  // A different agent is a different persona: open it read-only rather than
+  // carrying the previous agent's edit mode (and half-typed draft) across.
+  editing.value = false
+  if (selected.value) loadForm(selected.value)
+}
+
+function startEdit() {
+  saved.value = false
+  error.value = ''
+  editing.value = true
+}
+
+function cancelEdit() {
+  editing.value = false
+  saved.value = false
+  error.value = ''
+  // Drop the draft: leaving edit mode must not leave half-typed values on the
+  // read-out, which is meant to show what the server holds.
   if (selected.value) loadForm(selected.value)
 }
 
@@ -67,12 +99,14 @@ async function save() {
     delete persona.displayName
     const stored = await updateResource(agent.id, { ...agent, display_name, persona })
     // The server trims, caps and validates the persona. Mirror what it stored so
-    // the form shows the saved values rather than a half-typed draft.
+    // the read-out shows the saved values rather than a half-typed draft.
     if (stored && stored.id) {
       Object.assign(agent, stored)
       loadForm(agent)
     }
     saved.value = true
+    // Back to the read-out: it now shows exactly what the server kept.
+    editing.value = false
   } catch (e) {
     error.value = errorMessage(e.code) || e.message
   } finally {
@@ -100,37 +134,51 @@ onMounted(load)
           <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
       </label>
-      <label class="field">
-        <span>{{ t('personaDisplayName') }}</span>
-        <input v-model="form.display_name" type="text" />
-      </label>
-      <label class="field">
-        <span>{{ t('personaJobTitle') }}</span>
-        <input v-model="form.title" type="text" />
-      </label>
-      <label class="field">
-        <span>{{ t('personaRole') }}</span>
-        <input v-model="form.role" type="text" />
-      </label>
-      <label class="field">
-        <span>{{ t('personaMbti') }}</span>
-        <select v-model="form.mbti">
-          <option value="">—</option>
-          <option v-for="m in MBTI" :key="m" :value="m">{{ m }}</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>{{ t('personaInstruction') }}</span>
-        <textarea v-model="form.instruction" rows="4" />
-      </label>
-      <label class="field">
-        <span>{{ t('personaAvatar') }}</span>
-        <input v-model="form.avatar_ref" type="text" placeholder="ref://" />
-      </label>
-      <div class="row" style="gap:8px">
-        <button class="btn btn-sm" :disabled="saving || !selected" @click="save">{{ saving ? t('personaSaving') : t('personaSave') }}</button>
-        <span v-if="saved" class="muted" style="font-size:11px">{{ t('personaSaved') }}</span>
+
+      <div v-if="!editing" class="stack">
+        <div v-for="f in READ_FIELDS" :key="f.key" class="field">
+          <span>{{ t(f.label) }}</span>
+          <p class="persona-value" :class="{ 'is-empty': !form[f.key] }">{{ form[f.key] || '—' }}</p>
+        </div>
+        <div class="row" style="gap:8px">
+          <button class="btn btn-sm" @click="startEdit">{{ t('personaEdit') }}</button>
+          <span v-if="saved" class="muted" style="font-size:11px">{{ t('personaSaved') }}</span>
+        </div>
       </div>
+
+      <template v-else>
+        <label class="field">
+          <span>{{ t('personaDisplayName') }}</span>
+          <input v-model="form.display_name" type="text" />
+        </label>
+        <label class="field">
+          <span>{{ t('personaJobTitle') }}</span>
+          <input v-model="form.title" type="text" />
+        </label>
+        <label class="field">
+          <span>{{ t('personaRole') }}</span>
+          <input v-model="form.role" type="text" />
+        </label>
+        <label class="field">
+          <span>{{ t('personaMbti') }}</span>
+          <select v-model="form.mbti">
+            <option value="">—</option>
+            <option v-for="m in MBTI" :key="m" :value="m">{{ m }}</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>{{ t('personaInstruction') }}</span>
+          <textarea v-model="form.instruction" rows="4" />
+        </label>
+        <label class="field">
+          <span>{{ t('personaAvatar') }}</span>
+          <input v-model="form.avatar_ref" type="text" placeholder="ref://" />
+        </label>
+        <div class="row" style="gap:8px">
+          <button class="btn btn-sm" :disabled="saving || !selected" @click="save">{{ saving ? t('personaSaving') : t('personaSave') }}</button>
+          <button class="btn btn-ghost btn-sm" :disabled="saving" @click="cancelEdit">{{ t('personaCancel') }}</button>
+        </div>
+      </template>
     </section>
   </div>
 </template>

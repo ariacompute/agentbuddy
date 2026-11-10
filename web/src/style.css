@@ -2250,3 +2250,22 @@ audio {
   flex: none;
   margin-inline-start: auto;
 }
+
+/* ---- Persona read-out --------------------------------------------------- */
+/* The persona screen opens read-only, so the stored value has to be as legible
+   as the input that replaces it. Instructions keep the line breaks the operator
+   typed (`pre-wrap`) and a long avatar ref wraps instead of pushing the card. */
+.persona-value {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* An empty field is still a fact the operator needs to see; dim it rather than
+   drop the row, otherwise the read-out silently loses a field. */
+.persona-value.is-empty {
+  color: var(--text-3);
+}
