@@ -97,14 +97,32 @@ async function dropSubscription() {
   }
 }
 
+/** Adds one row once: the POST receipt and an SSE replay can carry the same message. */
+function appendMessage(msg) {
+  if (!msg || messages.value.some((m) => m.ID === msg.ID)) return
+  messages.value.push(msg)
+}
+
 async function send() {
   const body = draft.value.trim()
   if (!body) return
   sending.value = true
+  error.value = ''
   try {
     const res = await postThreadMessage(props.id, body)
-    if (res?.delegated) await workbench.refreshTasks()
+    // The event stream replays the history once when it connects and then follows
+    // only the tasks from that snapshot: a message posted on this open page never
+    // arrives as a frame. The POST already returns the persisted row, so put it on
+    // screen now instead of making the user leave and re-enter the thread.
+    appendMessage(res?.message)
     draft.value = ''
+    if (res?.delegated) await workbench.refreshTasks()
+    // Reconnect so the fresh replay also carries any task this send started; its
+    // agent reply would otherwise have no subscriber on the old stream.
+    subscribe()
+  } catch (e) {
+    // Keep the draft: a refused send stays available for a retry.
+    error.value = e.message || String(e)
   } finally {
     sending.value = false
   }
@@ -120,8 +138,8 @@ async function load() {
 function subscribe() {
   if (sub) sub.close()
   sub = subscribeThreadEvents(props.id, {
-    message: (msg) => { if (!messages.value.find((m) => m.ID === msg.ID)) messages.value.push(msg) },
-    agent: (msg) => { if (!messages.value.find((m) => m.ID === msg.ID)) messages.value.push(msg) },
+    message: appendMessage,
+    agent: appendMessage,
   })
 }
 

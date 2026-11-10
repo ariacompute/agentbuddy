@@ -1506,3 +1506,26 @@ v1.3.0 的 GitHub release 实际挂了 **18 个 assets**，并非文档口径的
 - `bun run build` 通过（只有既有的 chunk 体积提示）。
 - 文档同步：`README.md` / `README_cn.md`、`requirements.md`（F3.7 / 验收 46）、
   `AGENTS.md`（测试基线）。
+
+## M37 — Threads 发送后即时回显（2026-11-10）
+
+`POST /api/threads/{id}/messages` 已落库，但打开中的会话页要退出重进才看得到刚发的消息。
+根因是 `GET /api/threads/{id}/events` 只在建连时回放一次历史、随后只跟随该快照里的任务：
+新发的人类消息不会作为帧推送，而客户端把 POST 回执里的 `message` 丢掉了。
+
+### 1. 收口
+
+- `ThreadView.vue`：抽出 `appendMessage()`（按 `ID` 去重）供 SSE 两类帧与 POST 回执共用；
+  `send()` 成功后先把回执消息上屏、清空草稿，再重连 SSE，让新回放把这次发送连带产生的
+  任务纳入订阅范围，回放重复帧也不会出现两行。发送被拒时保留草稿、页内显示原因
+  （`ApiError.message` 已由 `errors.js` 本地化），`sending` 由 `finally` 复位。
+- 不改 API / 外壳 / 服务端：agenthub 的 POST 本就返回 `message`，环回代理按 `/api` 前缀覆盖。
+
+### 2. 用例与验证
+
+- `tests/view-edges.spec.js` 增 4 条：回执即时上屏且重连后回放不重复、空响应不炸、
+  发送被拒保留草稿并显示原因、无 `message` 的异常对象也回落为文本。
+- `bun run test`：**34 spec / 809 用例全绿**；`bun run test:coverage`：语句 / 行 / 分支 / 函数
+  **四项 100%**（11354 语句、1886 分支、447 函数、11319 行），配置无 exclude、无 `v8 ignore`。
+- `bun run build` 通过（只有既有的 chunk 体积提示）。
+- 文档同步：`AGENTS.md`（测试基线）。

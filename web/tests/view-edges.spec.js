@@ -7,6 +7,7 @@
 // and that a happy-path suite cannot reach. They are grouped per screen so the
 // next gap in the same screen lands beside its neighbours.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { nextTick } from 'vue'
 import { flushPromises } from '@vue/test-utils'
 import { mountWith } from './helpers/vue-utils.js'
 import { useWorkbenchStore } from '../src/lib/workbench-store.js'
@@ -195,6 +196,81 @@ describe('ThreadView message and subscription edges', () => {
     expect(listTasks).toHaveBeenCalledTimes(1)
     // The draft is cleared only after the send went through.
     expect(wrapper.find('textarea').element.value).toBe('')
+  })
+
+  it('shows the message the POST returns without leaving the thread', async () => {
+    thread([])
+    const sent = { ID: 'm-new', AuthorType: 'user', AuthorName: 'me', Body: 'sent right now' }
+    postThreadMessage.mockResolvedValueOnce({ message: sent, delegated: [] })
+    const firstClose = vi.fn()
+    let handlers = null
+    subscribeThreadEvents
+      .mockReturnValueOnce({ close: firstClose })
+      .mockImplementationOnce((id, hs) => {
+        handlers = hs
+        return { close: vi.fn() }
+      })
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    await wrapper.find('textarea').setValue('sent right now')
+    await wrapper.findAll('button').find((b) => b.text().includes('Send')).trigger('click')
+    await flushPromises()
+
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'sent right now')
+    expect(wrapper.findAll('.msg')).toHaveLength(1)
+    expect(wrapper.find('.msg').text()).toContain('sent right now')
+    expect(wrapper.find('.msg').classes()).toContain('from-user')
+    expect(wrapper.find('textarea').element.value).toBe('')
+    // The old stream is closed and a fresh one follows the task this send started.
+    expect(firstClose).toHaveBeenCalledTimes(1)
+    expect(subscribeThreadEvents).toHaveBeenCalledTimes(2)
+
+    // That fresh stream replays the whole history: the same row must not double up.
+    handlers.message(sent)
+    await nextTick()
+    expect(wrapper.findAll('.msg')).toHaveLength(1)
+  })
+
+  it('tolerates a POST answer that carries no body', async () => {
+    thread([])
+    postThreadMessage.mockResolvedValueOnce(null)
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    await wrapper.find('textarea').setValue('no echo')
+    await wrapper.findAll('button').find((b) => b.text().includes('Send')).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.msg')).toHaveLength(0)
+    expect(wrapper.find('textarea').element.value).toBe('')
+    expect(subscribeThreadEvents).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the draft and explains a refused send', async () => {
+    thread([])
+    postThreadMessage
+      .mockRejectedValueOnce(new Error('server refused'))
+      .mockRejectedValueOnce({})
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    const sendButton = () => wrapper.findAll('button').find((b) => b.text().includes('Send'))
+    await wrapper.find('textarea').setValue('try again')
+    await sendButton().trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.msg')).toHaveLength(0)
+    expect(wrapper.text()).toContain('server refused')
+    expect(wrapper.find('textarea').element.value).toBe('try again')
+    // A failure must not leave the composer stuck in its sending state.
+    expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeUndefined()
+
+    // A rejection without a message still reaches the screen as text.
+    await sendButton().trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('[object Object]')
+    expect(wrapper.find('textarea').element.value).toBe('try again')
   })
 
   it('shows a failure that is neither "gone" nor "switched off"', async () => {
