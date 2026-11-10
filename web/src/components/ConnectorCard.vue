@@ -4,6 +4,7 @@ import { useCopy } from '../lib/use-copy.js'
 import { enumLabel } from '../lib/use-copy.js'
 import { setConnectorPolicy, runConnectorAction } from '../lib/api.js'
 import { useWorkbenchStore } from '../lib/workbench-store.js'
+import { resourceLabel } from '../lib/format.js'
 import PolicySelect from './PolicySelect.vue'
 import { Play } from 'lucide-vue-next'
 
@@ -42,7 +43,7 @@ async function run() {
   <div class="card card-hover">
     <div class="card-head">
       <span class="kind-mark" data-kind="mcp" />
-      <strong class="truncate">{{ connector.displayName || connector.name }}</strong>
+      <strong class="truncate">{{ resourceLabel(connector) }}</strong>
       <span class="spacer" />
       <span class="chip">{{ enumLabel('health', connector.health?.status || connector.health) }}</span>
     </div>

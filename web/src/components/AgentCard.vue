@@ -1,13 +1,14 @@
 <script setup>
 import { computed } from 'vue'
 import { enumLabel } from '../lib/use-copy.js'
+import { resourceLabel } from '../lib/format.js'
 import PersonaAvatar from './PersonaAvatar.vue'
 
 const props = defineProps({
   agent: { type: Object, required: true },
 })
 
-const display = computed(() => props.agent.persona?.displayName || props.agent.displayName || props.agent.name)
+const display = computed(() => resourceLabel(props.agent))
 const title = computed(() => props.agent.persona?.title || props.agent.persona?.tagline || '')
 const health = computed(() => props.agent.health?.status || props.agent.health || 'unknown')
 // `health` above is never empty, and enumLabel falls back to the raw value, so

@@ -75,7 +75,7 @@ describe('PersonaAvatar', () => {
   })
   it('renders an image when avatarUrl is set', () => {
     const { wrapper } = mountWith(PersonaAvatar, {
-      props: { persona: { displayName: 'X', avatarUrl: 'ref://x' }, name: 'X' },
+      props: { persona: { avatarUrl: 'ref://x' }, name: 'X' },
     })
     const img = wrapper.find('img')
     expect(img.exists()).toBe(true)
@@ -84,6 +84,12 @@ describe('PersonaAvatar', () => {
   it('falls back to a single char for an empty name', () => {
     const { wrapper } = mountWith(PersonaAvatar, { props: { name: '' } })
     expect(wrapper.text().trim()).toBe('?')
+  })
+  it('derives initials from the resolved name, not a legacy persona label', () => {
+    const { wrapper } = mountWith(PersonaAvatar, {
+      props: { persona: { displayName: 'Stale label' }, name: 'Ada Lovelace' },
+    })
+    expect(wrapper.text()).toContain('AL')
   })
 })
 
@@ -222,7 +228,7 @@ describe('AgentCard', () => {
     const { wrapper } = mountWith(AgentCard, {
       props: {
         agent: {
-          name: 'agent-x', displayName: 'Agent X', persona: { title: 'Helper' },
+          name: 'agent-x', display_name: 'Agent X', persona: { title: 'Helper' },
           health: 'healthy', tags: ['a', 'b'],
         },
       },
@@ -236,6 +242,12 @@ describe('AgentCard', () => {
       props: { agent: { name: 'agent-x', health: 'unknown' } },
     })
     expect(wrapper.text()).toContain('agent-x')
+  })
+  it('renders the server display_name rather than the raw registry name', () => {
+    const { wrapper } = mountWith(AgentCard, {
+      props: { agent: { name: 'google-adk', display_name: 'Google ADK（Ubuntu）', health: 'healthy' } },
+    })
+    expect(wrapper.text()).toContain('Google ADK（Ubuntu）')
   })
 })
 
@@ -566,6 +578,12 @@ describe('ConnectorCard', () => {
     })
     expect(wrapper.text()).toContain('Twilio')
     expect(wrapper.findComponent(PolicySelect).exists()).toBe(true)
+  })
+  it('honours a display_name when a connector carries one', () => {
+    const { wrapper } = mountWith(ConnectorCard, {
+      props: { connector: { id: 'k1', name: 'Twilio', display_name: 'SMS gateway' } },
+    })
+    expect(wrapper.text()).toContain('SMS gateway')
   })
   it('runs an action through the API when a name is provided', async () => {
     runConnectorAction.mockResolvedValue({ parked: false })

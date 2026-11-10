@@ -10,7 +10,7 @@ const props = defineProps({
 // No hue anywhere: the grey step is chosen by a deterministic hash so the same
 // identity always renders the same neutral shade.
 const shade = computed(() => {
-  const src = props.persona?.displayName || props.name || '?'
+  const src = props.name || '?'
   let h = 0
   for (let i = 0; i < src.length; i++) h = (h * 31 + src.charCodeAt(i)) >>> 0
   const step = 30 + (h % 9) * 9 // 30%..93% luminance, neutral
@@ -18,7 +18,7 @@ const shade = computed(() => {
 })
 
 const initials = computed(() => {
-  const src = props.persona?.displayName || props.name || '?'
+  const src = props.name || '?'
   const parts = src.trim().split(/\s+/).filter(Boolean)
   if (parts.length === 0) return '?'
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()

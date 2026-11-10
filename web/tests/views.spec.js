@@ -81,7 +81,7 @@ describe('WorkspaceView', () => {
   it('mounts, shows the workbench heading and pulls data', async () => {
     const { wrapper, pinia } = mountWith(WorkspaceView)
     const wb = useWorkbenchStore(pinia)
-    wb.agents = [{ name: 'a', displayName: 'Agent A', health: 'healthy' }]
+    wb.agents = [{ name: 'a', display_name: 'Agent A', health: 'healthy' }]
     await flushPromises()
     expect(wrapper.text().length).toBeGreaterThan(0)
   })
@@ -603,6 +603,15 @@ describe('OrgView', () => {
     await flushPromises()
     expect(listResources).toHaveBeenCalled()
     expect(wrapper.text()).toContain('M')
+  })
+
+  it('shows the server display_name instead of the raw registry name', async () => {
+    listResources.mockResolvedValue({
+      resources: [{ id: 'r1', name: 'google-adk', kind: 'agent', display_name: 'Google ADK（Ubuntu）' }],
+    })
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+    expect(wrapper.text()).toContain('Google ADK（Ubuntu）')
   })
 
   it('sums the fleet workload from the cached tasks', async () => {
@@ -1930,6 +1939,8 @@ describe('PersonaEditor', () => {
     const agent = {
       id: 'a1', name: 'Agent', kind: 'agent', health: 'healthy',
       display_name: 'Registry label',
+      // A legacy record still carrying the old persona label: it must be
+      // ignored on load and never echoed back into a strict PUT body.
       persona: { displayName: 'Ada Lovelace', tagline: 'Keeps the lights on' },
     }
     listResources.mockResolvedValue({ resources: [agent] })
@@ -1937,10 +1948,9 @@ describe('PersonaEditor', () => {
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
 
-    // Text inputs are display name, job title, role, avatar reference. The
-    // persona label wins over the registry display_name when both are stored.
+    // Text inputs are display name, job title, role, avatar reference.
     const inputs = wrapper.findAll('input[type="text"]')
-    expect(inputs[0].element.value).toBe('Ada Lovelace')
+    expect(inputs[0].element.value).toBe('Registry label')
     await inputs[0].setValue('Ada')
     await inputs[1].setValue('Dr Ada')
     await wrapper.findAll('select')[1].setValue('INTJ')
@@ -1953,9 +1963,9 @@ describe('PersonaEditor', () => {
     expect(updateResource).toHaveBeenCalledWith('a1', {
       ...agent,
       display_name: 'Ada',
-      // Persona fields the form does not edit survive the round trip.
+      // The legacy key is dropped; other persona fields survive the round trip.
       persona: {
-        displayName: 'Ada', tagline: 'Keeps the lights on',
+        tagline: 'Keeps the lights on',
         role: '', instruction: 'be exact', mbti: 'INTJ', avatar_ref: 'ref://ada', title: 'Dr Ada',
       },
     })
@@ -1984,10 +1994,7 @@ describe('PersonaEditor', () => {
     expect(updateResource).toHaveBeenCalledWith('example-agent-google-adk-windows', {
       ...agent,
       display_name: 'Google ADK（Windows）',
-      persona: {
-        displayName: 'Google ADK（Windows）',
-        role: '', instruction: '', mbti: '', avatar_ref: '', title: '',
-      },
+      persona: { role: '', instruction: '', mbti: '', avatar_ref: '', title: '' },
     })
   })
 
@@ -2012,8 +2019,10 @@ describe('PersonaEditor', () => {
     expect(updateResource).toHaveBeenCalledWith('a1', expect.objectContaining({
       name: 'google-adk',
       display_name: 'Ada Lovelace',
-      persona: expect.objectContaining({ displayName: 'Ada Lovelace' }),
     }))
+    // The label is written exactly once, never as a second persona key.
+    const [, body] = updateResource.mock.calls.at(-1)
+    expect(body.persona).not.toHaveProperty('displayName')
   })
 
   it('labels every persona field, including the avatar reference', async () => {
@@ -2086,8 +2095,7 @@ describe('PersonaEditor', () => {
     finish({
       id: 'a1', name: 'A', kind: 'agent', display_name: 'Ada',
       persona: {
-        displayName: 'Ada', title: 'Lead', role: '', instruction: '',
-        mbti: '', avatar_ref: '',
+        title: 'Lead', role: '', instruction: '', mbti: '', avatar_ref: '',
       },
     })
     await flushPromises()

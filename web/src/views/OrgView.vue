@@ -4,7 +4,7 @@ import { listResources, createResource } from '../lib/api.js'
 import { useWorkbenchStore } from '../lib/workbench-store.js'
 import { useCopy } from '../lib/use-copy.js'
 import { enumLabel } from '../lib/use-copy.js'
-import { formatBytes, formatDuration } from '../lib/format.js'
+import { formatBytes, formatDuration, resourceLabel } from '../lib/format.js'
 import { errorMessage } from '../lib/errors.js'
 import PersonaAvatar from '../components/PersonaAvatar.vue'
 
@@ -149,8 +149,8 @@ onMounted(async () => {
           </h3>
           <div class="stack" style="gap:8px">
             <div v-for="r in byKind[kind]" :key="r.id" class="row" style="gap:8px">
-              <PersonaAvatar :persona="r.persona" :name="r.displayName || r.name" :size="26" />
-              <span class="truncate">{{ r.displayName || r.name }}</span>
+              <PersonaAvatar :persona="r.persona" :name="resourceLabel(r)" :size="26" />
+              <span class="truncate">{{ resourceLabel(r) }}</span>
               <span class="spacer" />
               <span class="chip">{{ enumLabel('health', r.health?.status || r.health) }}</span>
             </div>
@@ -165,7 +165,7 @@ onMounted(async () => {
       <div v-if="skills.length === 0" class="empty">{{ t('skillsEmpty') }}</div>
       <div class="grid grid-2" v-else>
         <div v-for="s in skills" :key="s.id" class="card card-hover">
-          <strong>{{ s.displayName || s.name }}</strong>
+          <strong>{{ resourceLabel(s) }}</strong>
           <div class="tag-row" style="margin-top:8px">
             <span v-for="cap in (s.capabilities || []).slice(0, 8)" :key="cap" class="chip">{{ cap }}</span>
           </div>

@@ -7,6 +7,7 @@ import {
   formatShortTime,
   formatRows,
   formatRatio,
+  resourceLabel,
 } from '../src/lib/format.js'
 
 describe('format', () => {
@@ -90,5 +91,18 @@ describe('format', () => {
     const today = formatShortTime(new Date(), 'en')
     const older = formatShortTime(new Date('2020-01-01T00:00:00Z'), 'en')
     expect(today).not.toBe(older)
+  })
+
+  it('resourceLabel reads display_name and falls back to the registry name', () => {
+    expect(resourceLabel({ display_name: 'Google ADK', name: 'google-adk' })).toBe('Google ADK')
+    expect(resourceLabel({ name: 'google-adk' })).toBe('google-adk')
+    // A legacy persona label is ignored: display_name is the only source.
+    expect(resourceLabel({ persona: { displayName: 'Ada' }, name: 'google-adk' })).toBe('google-adk')
+  })
+
+  it('resourceLabel is empty when there is no entry or no name at all', () => {
+    expect(resourceLabel(null)).toBe('')
+    expect(resourceLabel(undefined)).toBe('')
+    expect(resourceLabel({})).toBe('')
   })
 })

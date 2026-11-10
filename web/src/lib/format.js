@@ -2,6 +2,18 @@
 // than a misleading zero — every one of these is a pure function.
 export const DASH = '—'
 
+/**
+ * The human-facing label of a registry entry. `display_name` is the single
+ * source of truth; `name` is the stable registry identifier and the fallback
+ * when no label was chosen. Persona carries no second display name and no
+ * camelCase alias is injected onto the entry: PUT bodies are decoded with
+ * DisallowUnknownFields, so an extra key would be refused as bad_request.
+ */
+export function resourceLabel(entry) {
+  if (!entry) return ''
+  return entry.display_name || entry.name || ''
+}
+
 export function formatBytes(value) {
   const n = Number(value)
   if (!Number.isFinite(n) || n < 0) return DASH

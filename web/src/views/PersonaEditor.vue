@@ -12,7 +12,7 @@ const error = ref('')
 const saving = ref(false)
 const saved = ref(false)
 
-const form = ref({ displayName: '', role: '', instruction: '', mbti: '', avatar_ref: '', title: '' })
+const form = ref({ display_name: '', role: '', instruction: '', mbti: '', avatar_ref: '', title: '' })
 
 const selected = computed(() => agents.value.find((a) => a.id === selectedId.value) || null)
 
@@ -35,9 +35,8 @@ async function load() {
 function loadForm(agent) {
   const p = agent.persona || {}
   form.value = {
-    // A persona label wins; older records only carry the registry's
-    // display_name, which is what the form shows until the operator saves.
-    displayName: p.displayName || agent.display_name || '',
+    // The registry column is the only display name; persona carries no label.
+    display_name: agent.display_name || '',
     role: p.role || '',
     instruction: p.instruction || '',
     mbti: p.mbti || '',
@@ -60,14 +59,13 @@ async function save() {
   try {
     // PUT /api/resources/{id} replaces the whole record: a body holding only
     // `persona` has no kind/name to validate and would wipe every other field.
-    // Re-send the entry untouched except for the label and persona this form owns.
-    // Both places carry the label: the registry uses it for exported Agent Cards,
-    // while the workbench and thread cards read persona.displayName first.
-    const stored = await updateResource(agent.id, {
-      ...agent,
-      display_name: form.value.displayName,
-      persona: { ...agent.persona, ...form.value },
-    })
+    // Re-send the entry untouched except for display_name and the persona fields
+    // this form owns. A legacy persona.displayName must never be echoed back:
+    // the server decodes strictly and now rejects that key.
+    const { display_name, ...personaFields } = form.value
+    const persona = { ...(agent.persona || {}), ...personaFields }
+    delete persona.displayName
+    const stored = await updateResource(agent.id, { ...agent, display_name, persona })
     // The server trims, caps and validates the persona. Mirror what it stored so
     // the form shows the saved values rather than a half-typed draft.
     if (stored && stored.id) {
@@ -104,7 +102,7 @@ onMounted(load)
       </label>
       <label class="field">
         <span>{{ t('personaDisplayName') }}</span>
-        <input v-model="form.displayName" type="text" />
+        <input v-model="form.display_name" type="text" />
       </label>
       <label class="field">
         <span>{{ t('personaJobTitle') }}</span>
