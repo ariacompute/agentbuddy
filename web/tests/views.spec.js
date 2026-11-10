@@ -433,8 +433,10 @@ describe('ThreadView delegation and pending replies', () => {
 
     expect(postThreadMessage).toHaveBeenCalledWith('1', 'hi', [])
     expect(wrapper.text()).toContain('No agents yet')
-    // The hint trails the stream; a plain notice carries no pulsing dot.
+    // The hint hangs under the message just posted; a plain notice carries no
+    // pulsing dot.
     expect(wrapper.find('.messages .messages-status').text()).toContain('No agents yet')
+    expect(wrapper.find('.messages-status').classes()).toContain('from-user')
     expect(wrapper.find('.messages-status .state-dot').exists()).toBe(false)
   })
 
@@ -494,7 +496,7 @@ describe('ThreadView delegation and pending replies', () => {
     await flushPromises()
   })
 
-  it('trails the send status at the end of the stream and hides the empty placeholder', async () => {
+  it('trails the send status until the first message lands and hides the empty placeholder', async () => {
     let resolvePost
     postThreadMessage.mockReturnValue(new Promise((resolve) => { resolvePost = resolve }))
     const { wrapper } = mountThread([])
@@ -508,15 +510,41 @@ describe('ThreadView delegation and pending replies', () => {
     await wrapper.findAll('button').find((b) => b.classes('btn-primary')).trigger('click')
     await nextTick()
 
-    // The status is the last row of the message stream, not a bar under the
+    // No user row to hang under yet, so the status trails the stream, not the
     // composer, and the in-flight state is the one that pulses.
     expect(wrapper.find('.messages > .messages-status').text()).toContain('Sending')
+    expect(wrapper.find('.messages-status').classes()).not.toContain('from-user')
     expect(wrapper.find('.messages-status .state-dot').exists()).toBe(true)
     expect(wrapper.find('.composer .messages-status').exists()).toBe(false)
     expect(wrapper.find('.empty').exists()).toBe(false)
 
+    // The landed row takes the status with it: it stops trailing the stream and
+    // hangs under the message instead.
     resolvePost({ message: { ID: 'm1', AuthorType: 'user', Body: '@google-adk hello' }, delegated: [] })
     await flushPromises()
+    expect(wrapper.find('.messages-status').classes()).toContain('from-user')
+    wrapper.unmount()
+  })
+
+  it('hangs the status under the newest user message, not after the stream', async () => {
+    const { wrapper } = mountThread([
+      { ID: 'm1', AuthorType: 'user', AuthorName: 'me', Body: 'first' },
+      { ID: 'm2', AuthorType: 'user', AuthorName: 'me', Body: 'second' },
+      // The server's empty placeholder keeps the wait alive on load.
+      { ID: 'm3', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', TaskID: 't1', Body: '' },
+    ])
+    await flushPromises()
+
+    const status = wrapper.find('.messages-status')
+    expect(status.text()).toContain('Replying…')
+    expect(status.classes()).toContain('from-user')
+    // It sits right after the newest user row, not after the agent placeholder.
+    const previous = status.element.previousElementSibling
+    expect(previous.classList.contains('msg')).toBe(true)
+    expect(previous.textContent).toContain('second')
+    expect(previous.textContent).not.toContain('first')
+    expect(wrapper.find('.messages').element.lastElementChild.classList.contains('messages-status')).toBe(false)
+    expect(wrapper.findAll('.messages-status')).toHaveLength(1)
     wrapper.unmount()
   })
 

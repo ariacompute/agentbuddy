@@ -1094,9 +1094,9 @@ textarea::placeholder {
   gap: 8px;
 }
 
-/* One live line at the end of the message stream: sending, then waiting on an
-   agent. `align-self` is the flow-relative start, so RTL flips with the text,
-   and long translations wrap instead of widening the column. */
+/* One live line under the newest user message, or trailing the stream until the
+   first send lands: sending, then waiting on an agent. Long translations wrap
+   instead of widening the column. */
 .messages-status {
   display: flex;
   align-items: center;
@@ -1107,6 +1107,14 @@ textarea::placeholder {
   align-self: flex-start;
   max-width: 100%;
   overflow-wrap: anywhere;
+}
+
+/* Anchored to a user message: same side as its bubble (flex end in both
+   directions) and pulled inside the stream's 14px gap so it belongs to it. */
+.messages-status.from-user {
+  align-self: flex-end;
+  text-align: end;
+  margin-block-start: -6px;
 }
 
 .thread-side {

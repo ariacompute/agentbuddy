@@ -40,14 +40,24 @@ const refreshTimers = new Set()
 
 const relatedTasks = computed(() => workbench.tasks.filter((task) => task.contextId === props.id))
 
-// The conversation's live status, pinned to the end of the message stream:
-// sending the POST first, then why nothing came back or which agent we are
-// still waiting on.
+// The conversation's live status: sending the POST first, then why nothing came
+// back or which agent we are still waiting on. It renders under the newest
+// message the user posted, so it reads as that message's outcome.
 const statusText = computed(() => {
   if (sending.value) return t('sending')
   if (notice.value) return notice.value
   if (awaitingReply.value) return t('replying')
   return ''
+})
+
+// Index of the row the status hangs under: the last user message. `-1` means
+// none is on screen yet (a first send in an empty thread), which falls back to
+// a trailing line at the end of the stream.
+const lastUserIndex = computed(() => {
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    if (messages.value[i].AuthorType === 'user') return i
+  }
+  return -1
 })
 
 // Mention candidates: agents that already spoke here first, then every agent in
@@ -373,32 +383,41 @@ onUnmounted(() => {
       <div class="thread-main">
         <div class="messages">
           <div v-if="messages.length === 0 && !statusText" class="empty">{{ t('messagesEmpty') }}</div>
-          <div
-            v-for="msg in messages"
-            :key="msg.ID"
-            class="msg"
-            :class="msg.AuthorType === 'user' ? 'from-user' : 'from-agent'"
-          >
-            <PersonaAvatar :name="msg.AuthorName || msg.AuthorID" :size="32" />
-            <div>
-              <div class="msg-meta">
-                <span>{{ msg.AuthorName || msg.AuthorID }}</span>
-                <span v-if="msg.Origin && msg.Origin.startsWith('agent:')" class="chip chip-mono">agent</span>
-                <span>{{ formatTime(msg.CreatedAt) }}</span>
-              </div>
-              <div class="msg-body pre-wrap">
-                <span v-if="msg.Body">{{ msg.Body }}</span>
-                <span v-else-if="pendingReply(msg)" class="msg-pending">
-                  <StateDot state="working" :label="false" />
-                  <span>{{ t('replying') }}</span>
-                </span>
+          <template v-for="(msg, index) in messages" :key="msg.ID">
+            <div
+              class="msg"
+              :class="msg.AuthorType === 'user' ? 'from-user' : 'from-agent'"
+            >
+              <PersonaAvatar :name="msg.AuthorName || msg.AuthorID" :size="32" />
+              <div>
+                <div class="msg-meta">
+                  <span>{{ msg.AuthorName || msg.AuthorID }}</span>
+                  <span v-if="msg.Origin && msg.Origin.startsWith('agent:')" class="chip chip-mono">agent</span>
+                  <span>{{ formatTime(msg.CreatedAt) }}</span>
+                </div>
+                <div class="msg-body pre-wrap">
+                  <span v-if="msg.Body">{{ msg.Body }}</span>
+                  <span v-else-if="pendingReply(msg)" class="msg-pending">
+                    <StateDot state="working" :label="false" />
+                    <span>{{ t('replying') }}</span>
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-          <!-- The live send/reply status trails the message stream instead of
-               sitting under the composer, so it reads as the outcome of the
-               message just posted. -->
-          <p v-if="statusText" class="messages-status" role="status" aria-live="polite">
+            <!-- The live status hangs under the message the user just posted, on
+                 the same side, so it reads as that message's outcome. -->
+            <p
+              v-if="statusText && index === lastUserIndex"
+              class="messages-status from-user"
+              role="status"
+              aria-live="polite"
+            >
+              <StateDot v-if="sending || awaitingReply" state="working" :label="false" />
+              <span>{{ statusText }}</span>
+            </p>
+          </template>
+          <!-- A first send has no user row yet; trail the stream until it lands. -->
+          <p v-if="statusText && lastUserIndex === -1" class="messages-status" role="status" aria-live="polite">
             <StateDot v-if="sending || awaitingReply" state="working" :label="false" />
             <span>{{ statusText }}</span>
           </p>
