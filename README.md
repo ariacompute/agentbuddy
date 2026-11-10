@@ -1,11 +1,55 @@
+<div align="center">
+<a name="readme-top"></a>
+
 # agentbuddy
 
-[English](README.md) | [中文](README_cn.md)
+**A desktop workbench for the agents you can reach**
+
+Point it at any agenthub server: every agent you can ask, every thread you<br/>
+follow and every task waiting on you live in one native window.
+
+**English** · [简体中文](./README_cn.md) · [Releases][releases] · [Gitee mirror][gitee] · [Diagrams][diagrams] · [Issues][issues]
+
+[![][badge-release]][releases] [![][badge-ci]][ci] [![][badge-license]][license]
+<br/>
+[![][badge-platform]][releases] [![][badge-tauri]][tauri] [![][badge-stars]][stars] [![][badge-forks]][forks]
+</div>
+
+<details>
+<summary><kbd>Table of contents</kbd></summary>
+
+#### TOC
+
+**Get started**
+
+- [✨ Features](#-features)
+- [📸 Snapshot](#-snapshot)
+- [🗺 Diagrams](#-diagrams)
+
+**Build & ship**
+
+- [⌨️ Develop](#-develop)
+- [🧪 Test](#-test)
+- [📦 Release](#-release)
+  - [✍️ Signed updates (one-time setup)](#-signed-updates-one-time-setup)
+
+**Run & host**
+
+- [🖥 Execution environments](#-execution-environments)
+  - [🔌 Serving as an execution node (optional, off by default)](#-serving-as-an-execution-node-optional-off-by-default)
+
+**Compare & governance**
+
+- [⚖️ Comparison](#-comparison)
+- [📝 License](#-license)
+- [🤝 Engineering conventions](#-engineering-conventions)
+
+</details>
 
 A desktop client for the [agenthub](https://github.com/ariacompute/agenthub) A2A
 interconnection platform.
 
-## Features
+## ✨ Features
 
 - Connect to any agenthub server by URL. The session lives in an HttpOnly cookie
   and is reused by the loopback proxy, so the workbench just talks same-origin.
@@ -21,14 +65,26 @@ interconnection platform.
   verified upgrade restarts the app. Automatic checks can be turned off and a
   version skipped in Settings.
 
-## Snapshot
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 📸 Snapshot
 
 The Workbench home screen — every agent you can reach, what they are doing,
 and what is waiting on you:
 
 ![agentbuddy workbench](workbench.png)
 
-## Diagrams
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 🗺 Diagrams
 
 Three interactive diagrams cover the runtime architecture, one A2A delegation
 and the task state machine. Each is a single self-contained HTML file: open it
@@ -42,7 +98,13 @@ online, or clone the repo and open `docs/diagrams/` locally with no server.
 
 ![English runtime architecture diagram](diagrams/agenthub-agentbuddy.architecture.en.png)
 
-## Develop
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## ⌨️ Develop
 
 Prerequisites: [bun](https://bun.sh) 1.4+ and a Rust toolchain (edition 2021).
 
@@ -65,7 +127,13 @@ bun run build                           # tauri build for the host platform
 # bun run dev                           # dev mode also needs `bun run icons` first
 ```
 
-## Test
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 🧪 Test
 
 ```bash
 make test                           # web Vitest + release-script Vitest + desktop cargo tests, fully offline
@@ -89,7 +157,13 @@ only — nothing leaves the machine:
   Cookie, `/api` forwarded with the upstream `Set-Cookie` rewritten,
   `/__shell/notify` answers with a machine code, foreign `Origin` → 403.
 
-## Release
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 📦 Release
 
 Publishes installers through [`.github/workflows/release.yml`](.github/workflows/release.yml).
 Each release has exactly nine assets: the six downloads below, `latest.json`,
@@ -102,7 +176,7 @@ no `.sig` asset and no `updater-*.json` on the release page.
 | macOS aarch64 | `macos-aarch64.tar.gz`  | `aarch64.dmg`    |
 | Windows x86_64| `windows-x86_64.zip`    | `x64.msi`        |
 
-### Signed updates (one-time setup)
+### ✍️ Signed updates (one-time setup)
 
 ```bash
 cd desktop
@@ -125,7 +199,13 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
 
-## Execution environments
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 🖥 Execution environments
 
 The console's **Computers** screen is an execution-environment control plane viewer: the
 provider catalogue grouped by isolation layer (container / user-space kernel / microVM /
@@ -134,7 +214,7 @@ unavailable, a five-metric water level, lease cards with a countdown, and an aud
 with a try-it runner. Everything is read from agenthub — the desktop never probes a runtime
 and never decides which backend is safe.
 
-### Serving as an execution node (optional, off by default)
+### 🔌 Serving as an execution node (optional, off by default)
 
 Settings → **Execution node** lets this machine run commands for the server, inside limits
 the desktop enforces locally:
@@ -149,7 +229,13 @@ the desktop enforces locally:
   the direct child and says so instead of pretending;
 - **revocable** — the switch stops the node immediately, and the server shows it offline.
 
-## Comparison
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## ⚖️ Comparison
 
 | Capability | agentbuddy | OpenDots | openmuse | openbot | Octop | openagents | Velozity |
 |---|---|---|---|---|---|---|---|
@@ -165,14 +251,62 @@ the desktop enforces locally:
 | Execution isolation | Server-side leases; this desktop can also serve as a node (BYOM) | — | — | — | — | — | — |
 | Self-host | Yes (desktop + agenthub) | Docker | Docker / Render | Local / server | Single process | Self-host network | No (SaaS) |
 
-## License
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 📝 License
 
 MIT.
 
-## Engineering conventions
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 🤝 Engineering conventions
 
 This repository follows Harness Engineering:
 
 - [`AGENTS.md`](AGENTS.md): entry point and directory index for agent engineering context
 - [`requirements.md`](requirements.md): requirement spec (scope / errors / acceptance, reviewed by a human before coding)
 - [`task.md`](task.md): implementation checklist
+
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+---
+
+<div align="center">
+
+Copyright © 2026 [ariacompute][org]. <br/>
+This project is [MIT](./LICENSE) licensed.
+
+</div>
+
+<!-- LINK GROUP -->
+
+[org]: https://github.com/ariacompute
+[releases]: https://github.com/ariacompute/agentbuddy/releases
+[issues]: https://github.com/ariacompute/agentbuddy/issues
+[ci]: https://github.com/ariacompute/agentbuddy/actions/workflows/ci.yml
+[stars]: https://github.com/ariacompute/agentbuddy/stargazers
+[forks]: https://github.com/ariacompute/agentbuddy/network/members
+[license]: ./LICENSE
+[gitee]: https://gitee.com/ariacompute/agentbuddy
+[tauri]: https://tauri.app
+[diagrams]: https://ariacompute.github.io/agentbuddy/diagrams/agenthub-agentbuddy.architecture.en.html
+[badge-platform]: https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-151515?labelColor=black&style=flat-square
+[badge-tauri]: https://img.shields.io/badge/Tauri-v2-151515?labelColor=black&style=flat-square&logo=tauri
+[badge-release]: https://img.shields.io/github/v/release/ariacompute/agentbuddy?labelColor=black&style=flat-square
+[badge-ci]: https://img.shields.io/github/actions/workflow/status/ariacompute/agentbuddy/ci.yml?labelColor=black&style=flat-square
+[badge-license]: https://img.shields.io/github/license/ariacompute/agentbuddy?labelColor=black&style=flat-square
+[badge-stars]: https://img.shields.io/github/stars/ariacompute/agentbuddy?labelColor=black&style=flat-square
+[badge-forks]: https://img.shields.io/github/forks/ariacompute/agentbuddy?labelColor=black&style=flat-square
+[back-to-top]: https://img.shields.io/badge/-BACK_TO_TOP-151515?style=flat-square

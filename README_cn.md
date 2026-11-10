@@ -1,10 +1,54 @@
+<div align="center">
+<a name="readme-top"></a>
+
 # agentbuddy
 
-[English](README.md) | [中文](README_cn.md)
+**触达每个智能体的桌面工作台**
+
+把任意 agenthub 服务端填进来：你能问的智能体、你跟进的会话、<br/>
+以及等着你处理的任务，都在同一个原生窗口里。
+
+[English](./README.md) · **简体中文** · [发布页][releases] · [Gitee 镜像][gitee] · [图示][diagrams] · [Issue][issues]
+
+[![][badge-release]][releases] [![][badge-ci]][ci] [![][badge-license]][license]
+<br/>
+[![][badge-platform]][releases] [![][badge-tauri]][tauri] [![][badge-stars]][stars] [![][badge-forks]][forks]
+</div>
+
+<details>
+<summary><kbd>Table of contents</kbd></summary>
+
+#### TOC
+
+**上手**
+
+- [✨ 功能](#-功能)
+- [📸 快照](#-快照)
+- [🗺 图示](#-图示)
+
+**构建与发布**
+
+- [⌨️ 开发](#-开发)
+- [🧪 测试](#-测试)
+- [📦 发布](#-发布)
+  - [✍️ 签名更新（一次性配置）](#-签名更新一次性配置)
+
+**运行与托管**
+
+- [🖥 执行环境](#-执行环境)
+  - [🔌 作为执行节点（可选，默认关闭）](#-作为执行节点可选默认关闭)
+
+**对比与治理**
+
+- [⚖️ 对比](#-对比)
+- [📝 许可证](#-许可证)
+- [🤝 工程约定](#-工程约定)
+
+</details>
 
 面向 [agenthub](https://github.com/ariacompute/agenthub)（A2A 互连平台）的桌面客户端。
 
-## 功能
+## ✨ 功能
 
 - 按 URL 连接任意 agenthub 服务端。会话保存在 HttpOnly Cookie 中，由环回代理复用，
   工作台始终以同源方式通信。
@@ -16,13 +60,25 @@
   此后每天一次，按本地操作系统与 CPU 架构匹配签名安装包，一键验签升级后重启。设置里可关闭
   自动检查，也可跳过某个版本。
 
-## 快照
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 📸 快照
 
 工作台首页 —— 你可达的每个智能体、它们正在做的事、以及等待你处理的事项：
 
 ![agentbuddy 工作台](workbench_cn.png)
 
-## 图示
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 🗺 图示
 
 三张可交互图分别说明运行时架构、一次 A2A 委派与任务状态机。每张都是单文件 HTML，
 可在线打开；也可以 clone 仓库后直接打开 `docs/diagrams/` 里的文件，无需服务端，
@@ -36,7 +92,13 @@
 
 ![AgentHub + AgentBuddy 运行时架构](diagrams/agenthub-agentbuddy.architecture.png)
 
-## 开发
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## ⌨️ 开发
 
 前置依赖：[bun](https://bun.sh) 1.4+ 与 Rust 工具链（edition 2021）。
 
@@ -59,7 +121,13 @@ bun run build                           # 针对当前平台执行 tauri build
 # bun run dev                           # 开发模式同样需先运行 bun run icons
 ```
 
-## 测试
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 🧪 测试
 
 ```bash
 make test                           # 前端 Vitest + 发布脚本 Vitest + 桌面 cargo 测试，全程离线
@@ -79,7 +147,13 @@ make smoke                          # 两条跨进程冒烟（见下）
   无 token → 401，bootstrap nonce → Cookie，`/api` 转发且上游 `Set-Cookie` 被重写，
   `/__shell/notify` 回机器码，外来 `Origin` → 403。
 
-## 发布
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 📦 发布
 
 通过 [`.github/workflows/release.yml`](.github/workflows/release.yml) 构建并发布安装包。
 每次 release 恰好 9 个 assets：下表 6 个下载，加 `latest.json`、`latest-gitee.json`
@@ -91,7 +165,7 @@ make smoke                          # 两条跨进程冒烟（见下）
 | macOS aarch64 | `macos-aarch64.tar.gz`  | `aarch64.dmg`   |
 | Windows x86_64| `windows-x86_64.zip`    | `x64.msi`       |
 
-### 签名更新（一次性配置）
+### ✍️ 签名更新（一次性配置）
 
 ```bash
 cd desktop
@@ -112,13 +186,19 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
 
-## 执行环境
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 🖥 执行环境
 
 「计算机」屏是执行环境控制台的只读视图：按隔离层分组的后端目录（容器 / 用户态内核 / microVM /
 进程沙盒 / 平台层 / 远端节点 / off）、每一项的可用性与不可用原因、五指标水位条、带倒计时的租约卡片，
 以及可试跑命令的审计抽屉。全部数据来自 agenthub——桌面端不探测运行时，也不自行判断哪种后端安全。
 
-### 作为执行节点（可选，默认关闭）
+### 🔌 作为执行节点（可选，默认关闭）
 
 设置 → **执行节点** 允许这台机器为服务端执行命令，限制由桌面端在本地强制：
 
@@ -128,7 +208,13 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
   输出截断、并发数受限；Windows 没有进程组语义，退回只杀直接子进程并如实说明，不假装已清场；
 - **可撤销**——关掉开关立即停止，服务端随即显示离线。
 
-## 对比
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## ⚖️ 对比
 
 | 能力 | agentbuddy | OpenDots | openmuse | openbot | Octop | openagents | Velozity |
 |---|---|---|---|---|---|---|---|
@@ -144,14 +230,62 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 | 执行隔离 | 服务端租约；本桌面也可作为节点（BYOM） | — | — | — | — | — | — |
 | 自托管 | 是（桌面 + agenthub） | Docker | Docker / Render | 本地 / 服务器 | 单进程 | 自托管网络 | 否（SaaS） |
 
-## 许可证
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 📝 许可证
 
 MIT.
 
-## 工程约定
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+## 🤝 工程约定
 
 本仓库遵循 Harness Engineering：
 
 - [`AGENTS.md`](AGENTS.md)：Agent 工程上下文入口与目录索引
 - [`requirements.md`](requirements.md)：需求规格（功能边界 / 异常 / 验收，人审后编码）
 - [`task.md`](task.md)：实施清单
+
+<div align="right">
+
+[![][back-to-top]](#readme-top)
+
+</div>
+
+---
+
+<div align="center">
+
+Copyright © 2026 [ariacompute][org]. <br/>
+This project is [MIT](./LICENSE) licensed.
+
+</div>
+
+<!-- LINK GROUP -->
+
+[org]: https://github.com/ariacompute
+[releases]: https://github.com/ariacompute/agentbuddy/releases
+[issues]: https://github.com/ariacompute/agentbuddy/issues
+[ci]: https://github.com/ariacompute/agentbuddy/actions/workflows/ci.yml
+[stars]: https://github.com/ariacompute/agentbuddy/stargazers
+[forks]: https://github.com/ariacompute/agentbuddy/network/members
+[license]: ./LICENSE
+[gitee]: https://gitee.com/ariacompute/agentbuddy
+[tauri]: https://tauri.app
+[diagrams]: https://ariacompute.github.io/agentbuddy/diagrams/agenthub-agentbuddy.architecture.html
+[badge-platform]: https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-151515?labelColor=black&style=flat-square
+[badge-tauri]: https://img.shields.io/badge/Tauri-v2-151515?labelColor=black&style=flat-square&logo=tauri
+[badge-release]: https://img.shields.io/github/v/release/ariacompute/agentbuddy?labelColor=black&style=flat-square
+[badge-ci]: https://img.shields.io/github/actions/workflow/status/ariacompute/agentbuddy/ci.yml?labelColor=black&style=flat-square
+[badge-license]: https://img.shields.io/github/license/ariacompute/agentbuddy?labelColor=black&style=flat-square
+[badge-stars]: https://img.shields.io/github/stars/ariacompute/agentbuddy?labelColor=black&style=flat-square
+[badge-forks]: https://img.shields.io/github/forks/ariacompute/agentbuddy?labelColor=black&style=flat-square
+[back-to-top]: https://img.shields.io/badge/-BACK_TO_TOP-151515?style=flat-square
