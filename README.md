@@ -157,6 +157,30 @@ only — nothing leaves the machine:
   Cookie, `/api` forwarded with the upstream `Set-Cookie` rewritten,
   `/__shell/notify` answers with a machine code, foreign `Origin` → 403.
 
+### Desktop application end-to-end tests
+
+`desktop/e2e` drives the **real desktop client** with `tauri-driver` and the
+platform's WebDriver, asserting only what a user can see: elements, clicks,
+typed text and visible results. It covers the first-run connection page,
+sign-in, all 15 workbench screens, 13 languages with light/dark and RTL,
+notifications and the tray badge, single-instance recall, update checks, and
+the loopback proxy's admission control and forwarding. By default a local
+deterministic `node:http` stub stands in for the server; set
+`E2E_BACKEND=live` to point the same journeys at a real agenthub:
+
+```bash
+make e2e-contract                                       # server contract only, no Rust toolchain or WebDriver
+make e2e                                                # build the debug client + full journeys (stub mode)
+E2E_SERVER_URL=http://127.0.0.1:3500 \
+E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # real agenthub
+```
+
+See `desktop/e2e/README.md` for prerequisites, environment variables, the
+Windows caveats and the artefacts. Linux CI (Ubuntu 22.04) runs the
+authoritative full suite; on a Windows host without `msedgedriver` the desktop
+cases are reported as skipped with a reason, while the contract cases still
+run for real. `make test` and both 100% coverage gates are unaffected.
+
 <div align="right">
 
 [![][back-to-top]](#readme-top)

@@ -147,6 +147,26 @@ make smoke                          # 两条跨进程冒烟（见下）
   无 token → 401，bootstrap nonce → Cookie，`/api` 转发且上游 `Set-Cookie` 被重写，
   `/__shell/notify` 回机器码，外来 `Origin` → 403。
 
+### 桌面应用级端到端测试
+
+`desktop/e2e` 用 `tauri-driver` + 平台 WebDriver 驱动**真实桌面客户端**，只通过
+界面上的元素、点击、输入和可见结果来断言：首次连接页、登录、15 屏工作台、13 语 /
+明暗 / RTL、通知与托盘角标、单实例唤回、更新检查，以及环回代理的准入与回源。
+默认使用本地确定性 `node:http` 模拟服务端；设置 `E2E_BACKEND=live` 即让同一套用例
+改打真实 agenthub：
+
+```bash
+make e2e-contract                                       # 只跑服务端契约，无需 Rust 工具链 / WebDriver
+make e2e                                                # 构建 debug 桌面端 + 全量用户旅程（stub 模式）
+E2E_SERVER_URL=http://127.0.0.1:3500 \
+E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # 真实 agenthub
+```
+
+前置条件、环境变量、Windows 本机差异与产物说明见 `desktop/e2e/README.md`。
+Linux CI（Ubuntu 22.04）跑权威全量；本机 Windows 缺少 `msedgedriver` 时桌面用例
+标记为 skip 并打印原因，纯契约用例仍会真实执行。`make test` 与两个 100%
+覆盖率闸门不受影响。
+
 <div align="right">
 
 [![][back-to-top]](#readme-top)

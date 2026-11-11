@@ -45,6 +45,29 @@ pub struct ShellContext {
     pub proxy_url: Arc<StdRwLock<String>>,
 }
 
+/// Where the shell keeps its config, session and single-instance record.
+///
+/// Normally that is the platform app config dir. A build with the
+/// `e2e-isolation` feature can point it at a throwaway directory instead, so an
+/// automated desktop run never reads or overwrites the user's real settings,
+/// credential-store entries or `instance.json`. Without the feature this
+/// function always returns `None` and the startup path is unchanged.
+#[cfg(feature = "e2e-isolation")]
+fn e2e_config_dir() -> Option<std::path::PathBuf> {
+    let raw = std::env::var_os("AGENTBUDDY_E2E_CONFIG_DIR")?;
+    if raw == std::ffi::OsString::new() {
+        return None;
+    }
+    let dir = std::path::PathBuf::from(raw);
+    let _ = std::fs::create_dir_all(&dir);
+    Some(dir)
+}
+
+#[cfg(not(feature = "e2e-isolation"))]
+fn e2e_config_dir() -> Option<std::path::PathBuf> {
+    None
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
@@ -60,10 +83,11 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
 
-            let dir = app
-                .path()
-                .app_config_dir()
-                .unwrap_or_else(|_| std::env::temp_dir().join("agentbuddy-desktop"));
+            let dir = e2e_config_dir().unwrap_or_else(|| {
+                app.path()
+                    .app_config_dir()
+                    .unwrap_or_else(|_| std::env::temp_dir().join("agentbuddy-desktop"))
+            });
 
             // One copy per user. With "keep running in the tray" on (the
             // default) the window is only parked, so launching the app again
@@ -209,4 +233,54 @@ fn main_window(app: &tauri::App) -> tauri::Result<()> {
         })
         .build()?;
     Ok(())
+}
+
+#[cfg(all(test, feature = "e2e-isolation"))]
+mod e2e_config_dir_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    const KEY: &str = "AGENTBUDDY_E2E_CONFIG_DIR";
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_var(value: Option<&str>, check: impl FnOnce()) {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let previous = std::env::var_os(KEY);
+        match value {
+            Some(next) => std::env::set_var(KEY, next),
+            None => std::env::remove_var(KEY),
+        }
+        check();
+        match previous {
+            Some(original) => std::env::set_var(KEY, original),
+            None => std::env::remove_var(KEY),
+        }
+    }
+
+    /// The default behaviour: a release build, or a debug build whose harness
+    /// did not ask for isolation, must keep using the platform config dir.
+    #[test]
+    fn an_unset_or_empty_override_changes_nothing() {
+        with_var(None, || assert!(e2e_config_dir().is_none()));
+        with_var(Some(""), || assert!(e2e_config_dir().is_none()));
+    }
+
+    /// The isolated path is returned and created, so `single::claim` can write
+    /// `instance.json` there without the harness having to pre-create it.
+    #[test]
+    fn a_set_override_is_created_and_returned() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir()
+            .join(format!("agentbuddy-e2e-dir-{}-{nonce}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let text = dir.to_string_lossy().into_owned();
+        with_var(Some(&text), || {
+            assert_eq!(e2e_config_dir().as_deref(), Some(dir.as_path()));
+            assert!(dir.is_dir(), "the override directory must exist");
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

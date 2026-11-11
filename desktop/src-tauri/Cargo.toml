@@ -15,6 +15,17 @@ rust-version = "1.77"
 name = "agentbuddy_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Test-only seam. Tauri v2 needs no Cargo change to be driven by tauri-driver
+# (the driver speaks the platform's native WebDriver to the built binary), but
+# an app-level E2E run must not touch the real config.json / session.json /
+# instance.json in the user's app config dir. Building with this feature lets
+# AGENTBUDDY_E2E_CONFIG_DIR redirect all three into a throwaway directory.
+# Release builds do not enable it, so the compiled code is byte-for-byte the
+# original startup path.
+[features]
+default = []
+e2e-isolation = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

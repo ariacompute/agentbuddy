@@ -1,12 +1,16 @@
 # agentbuddy — continuous integration.
 #
-# Three jobs, mirroring the offline `make test` targets:
+# Four jobs. The first three mirror the offline `make test` targets:
 #   • web      → Vitest suite (bun) under web/  (tests/style.spec.js monochrome
 #                guard, copy-fallback 13-language completeness, smoke.e2e.spec.js)
 #   • scripts  → Vitest suite (bun) under desktop/ for the release-time scripts
 #                (icon encoder, version stamp, signing secrets, latest.json) —
 #                no Rust toolchain needed, so it stays a one-minute job
 #   • desktop  → `cargo test` under desktop/src-tauri
+#   • e2e      → desktop/e2e: drives the real debug desktop binary through
+#                tauri-driver + WebKitWebDriver against a deterministic stub.
+#                Linux only: this is the authoritative full run; on Windows the
+#                Tauri native test entry cannot launch (see AGENTS.md).
 #
 # The desktop crate embeds the console via rust-embed and calls
 # `tauri::generate_context!`, which reads desktop/src-tauri/icons/ at compile
@@ -172,3 +176,89 @@ jobs:
           name: desktop-test-log
           path: desktop/src-tauri/desktop-test.log
           if-no-files-found: error
+
+  # ------------------------------------------- desktop app E2E (tauri-driver)
+  e2e:
+    name: desktop — user-journey E2E
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      # WebKitWebDriver is the platform driver tauri-driver talks to; xvfb gives
+      # WebKitGTK a display without a physical desktop.
+      - name: Linux build and WebDriver dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev build-essential \
+            curl wget file webkit2gtk-driver xvfb
+
+      - name: Install tauri-driver
+        shell: bash
+        run: cargo install tauri-driver --locked
+
+      - name: Install JS dependencies and derive icons
+        shell: bash
+        run: |
+          (cd web && bun install --frozen-lockfile)
+          (cd desktop && bun install --frozen-lockfile && bun run icons)
+
+      # rust-embed reads ../../web/dist at compile time, so the workbench must
+      # be built before the desktop binary.
+      - name: Build the workbench bundle
+        working-directory: web
+        shell: bash
+        run: bun run build
+
+      - name: Build the debug desktop binary with the E2E isolation seam
+        working-directory: desktop/src-tauri
+        shell: bash
+        run: cargo build --features e2e-isolation
+
+      - name: Unit-test the isolation seam (both paths)
+        working-directory: desktop/src-tauri
+        shell: bash
+        run: cargo test --features e2e-isolation e2e_config_dir
+
+      - name: Run the user journeys
+        working-directory: desktop
+        shell: bash
+        run: bun run test:e2e
+        env:
+          E2E_APP_BIN: ${{ github.workspace }}/desktop/src-tauri/target/debug/AgentBuddy
+
+      - name: Publish the E2E summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### desktop E2E'
+            echo '```'
+            cat desktop/e2e/artifacts/run.json 2>/dev/null || echo 'no run.json produced'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload E2E artefacts (report, failure screenshots, request log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-e2e-artifacts
+          path: desktop/e2e/artifacts/
+          if-no-files-found: ignore
+          retention-days: 7

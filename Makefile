@@ -88,6 +88,32 @@ desktop-smoke: desktop-install icons ## Smoke: bootstrap → cookie → forward 
 icons: desktop-install ## Re-derive every icon size from assets/app-icon.png.
 	cd $(DESK) && $(BUN) run icons
 
+# ------------------------------------------- desktop E2E (tauri-driver / W3C)
+#
+# These targets are deliberately NOT part of `make test`: they build a debug
+# desktop binary and need a platform WebDriver, which the offline unit gates do
+# not. `make e2e-contract` is the exception — it needs no toolchain at all.
+
+.PHONY: e2e-tools
+e2e-tools: ## Install tauri-driver (one-time; matches the Tauri CLI version).
+	cargo install tauri-driver --locked
+
+.PHONY: e2e-build
+e2e-build: desktop-install web-build icons ## Debug desktop binary with the test-only config-dir seam.
+	cd $(DESK)/src-tauri && cargo build --features e2e-isolation
+
+.PHONY: e2e
+e2e: e2e-build ## Drive the real desktop client against the deterministic server.
+	cd $(DESK) && $(BUN) run test:e2e
+
+.PHONY: e2e-live
+e2e-live: e2e-build ## Same journeys against a real agenthub (E2E_SERVER_URL + live credentials).
+	cd $(DESK) && $(BUN) run test:e2e:live
+
+.PHONY: e2e-contract
+e2e-contract: desktop-install ## Backend contract only; no Rust toolchain or WebDriver needed.
+	cd $(DESK) && E2E_CONTRACT_ONLY=1 $(BUN) run test:e2e
+
 .PHONY: stamp
 stamp: desktop-install ## Write $(VERSION) into Cargo.toml + tauri.conf.json.
 	cd $(DESK) && $(BUN) run stamp $(VERSION)
