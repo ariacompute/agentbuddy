@@ -633,7 +633,7 @@ onBeforeUnmount(() => {
       </div>
       <template #footer>
         <button class="btn btn-ghost btn-sm" @click="createOpen = false">{{ t('sbCancel') }}</button>
-        <button class="btn btn-sm" :disabled="creating" @click="create">{{ t('sbCreateSubmit') }}</button>
+        <button class="btn btn-primary btn-sm" :disabled="creating" @click="create">{{ t('sbCreateSubmit') }}</button>
       </template>
     </BaseDialog>
 
@@ -646,7 +646,7 @@ onBeforeUnmount(() => {
       <p class="muted" style="font-size:12px">{{ t('sbTerminateBody') }}</p>
       <template #footer>
         <button class="btn btn-ghost btn-sm" @click="pendingTerminate = null">{{ t('sbCancel') }}</button>
-        <button class="btn btn-sm" :disabled="busy === pendingTerminate?.id" @click="confirmTerminate">
+        <button class="btn btn-danger btn-sm" :disabled="busy === pendingTerminate?.id" @click="confirmTerminate">
           {{ t('sbConfirm') }}
         </button>
       </template>

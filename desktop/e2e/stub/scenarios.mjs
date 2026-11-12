@@ -8,6 +8,9 @@ export const FAILURE_MODES = {
   unauthenticated: { kind: 'fail', status: 401, code: 'unauthenticated' },
   forbidden: { kind: 'fail', status: 403, code: 'forbidden' },
   unavailable: { kind: 'fail', status: 405, code: 'method_not_allowed' },
+  // The workbench renders its "switched off" panels only for this machine code,
+  // not for a generic 405 (which means "route missing on an old server").
+  feature_off: { kind: 'fail', status: 503, code: 'feature_unavailable' },
   server_error: { kind: 'fail', status: 500, code: 'internal_error' },
   payload_too_large: { kind: 'fail', status: 413, code: 'payload_too_large' },
   empty: { kind: 'empty' },

@@ -18,7 +18,7 @@ function onChange(e) {
 
 <style scoped>
 .lang-select {
-  min-height: 34px;
+  min-height: var(--touch-min);
   width: auto;
 }
 </style>

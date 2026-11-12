@@ -412,7 +412,7 @@ pre,
   align-items: center;
   justify-content: center;
   gap: 7px;
-  min-height: 36px;
+  min-height: var(--touch-min);
   min-width: 84px;
   padding: 8px 14px;
   border-radius: var(--radius-sm);
@@ -460,7 +460,7 @@ pre,
 }
 
 .btn-sm {
-  min-height: 30px;
+  min-height: var(--touch-min);
   min-width: 0;
   padding: 5px 10px;
   font-size: 12px;
@@ -557,6 +557,11 @@ textarea {
   transition:
     border-color var(--dur) var(--ease),
     box-shadow var(--dur) var(--ease);
+}
+
+/* A select is a pointer target, unlike a text field: keep the full 44px. */
+select {
+  min-height: var(--touch-min);
 }
 
 textarea {

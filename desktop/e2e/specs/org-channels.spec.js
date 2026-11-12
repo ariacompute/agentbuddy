@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { e2eContext } from '../harness/context.mjs'
 import {
   CSS, cancelDialog, click, confirmDialog, clickContaining, navigateHash,
-  pageText, step, waitForElement, waitForText, waitFor, tryFind, type,
+  pageText, remount, step, waitForElement, waitForText, waitFor, tryFind, type,
 } from '../driver/helpers.mjs'
 import { ariaSelector, errorMessage, t } from '../driver/selectors.mjs'
 
@@ -14,7 +14,9 @@ async function openOrg() {
   await waitForElement(wd, CSS, '.org-grid, .empty', info.timeoutMs)
 }
 async function openChannels() {
-  await navigateHash(wd, '/channels', info.timeoutMs)
+  // Always remount: an unfinished dialog would otherwise stay open (setting the
+  // same hash fires no hashchange) and its backdrop would swallow later clicks.
+  await remount(wd, '/channels', info.timeoutMs)
   await waitForElement(wd, CSS, '.card-wrap, .empty', info.timeoutMs)
 }
 
@@ -52,7 +54,8 @@ describe.skipIf(info.skipped)('F6/F16 · organisation and channels', () => {
       if (info.backend === 'stub') expect((await wd.findAll(CSS, '.card-wrap')).length).toBe(2)
       await clickContaining(wd, t('channel', 'newChannel'), { tag: 'button' })
       await waitForElement(wd, CSS, '[role="dialog"]')
-      await type(wd, CSS, '[role="dialog"] input[type="text"]', 'E2E Slack')
+      // The dialog's name field is a plain <input>; there is no type="text" attribute.
+      await type(wd, CSS, '[role="dialog"] input', 'E2E Slack')
       await confirmDialog(wd, { danger: false })
       if (info.backend === 'stub') {
         await waitFor(async () => (await requests()).some((r) => r.method === 'POST' && r.path === '/api/channels'), 'channel create')
@@ -117,7 +120,8 @@ describe.skipIf(info.skipped)('F6/F16 · organisation and channels', () => {
     await step(wd, 'channel-delete', async () => {
       if (!info.allowDestructive) return
       await openChannels()
-      const buttons = await wd.findAll(CSS, '.card-wrap > .btn-icon.btn-sm')
+      // The delete button lives inside the card's row, not as a direct child.
+      const buttons = await wd.findAll(CSS, '.card-wrap .btn-icon.btn-sm')
       expect(buttons.length).toBeGreaterThan(0)
       await wd.click(buttons[buttons.length - 1])
       if (info.backend === 'stub') {

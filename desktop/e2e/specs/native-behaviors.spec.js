@@ -4,7 +4,7 @@
 // are pinned by the Rust pure-function tests (they need no window).
 import fs from 'node:fs'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { which } from '../harness/config.mjs'
 import { e2eContext } from '../harness/context.mjs'
 import {
@@ -12,7 +12,7 @@ import {
 } from '../harness/lifecycle.mjs'
 import { CSS, rootState, step, waitForElement } from '../driver/helpers.mjs'
 
-const { info, wd, proxy } = e2eContext()
+const { info, wd, proxy, reset } = e2eContext()
 
 /** Launches a second copy with the same isolated config dir. */
 function launchSecondApp() {
@@ -29,6 +29,9 @@ function launchSecondApp() {
 }
 
 describe.skipIf(info.skipped)('desktop shell · native behaviour', () => {
+  // Scenarios live in the shared stub process; a journey that failed half-way
+  // must not hand a 401 /api/workspace to this file's proxy probe.
+  beforeEach(async () => { await reset() })
   afterEach(async () => {
     await proxy.badge(0).catch(() => {})
   })

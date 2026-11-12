@@ -3,13 +3,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { e2eContext } from '../harness/context.mjs'
 import {
-  CSS, click, clickText, navigateHash, pageText, rootState, step, waitForElement,
-  waitForText, waitFor, type, tryFind,
+  CSS, click, clickText, navigateHash, pageText, rootState, setHash, step,
+  waitForElement, waitForText, waitFor, type, tryFind,
 } from '../driver/helpers.mjs'
 import { errorMessage, t } from '../driver/selectors.mjs'
 import { signIn, signOut } from '../driver/session.mjs'
 
-const { info, cfg, wd, proxy, reset } = e2eContext()
+const { info, cfg, wd, proxy, reset, requests } = e2eContext()
 
 async function ensureSignedIn() {
   const state = await rootState(wd)
@@ -45,7 +45,9 @@ describe.skipIf(info.skipped)('F1 · login, registration and route guard', () =>
 
   it('an unauthenticated deep link is redirected to /login with next=', async () => {
     await step(wd, 'guard-next', async () => {
-      await navigateHash(wd, '/files')
+      // The guard rewrites the hash immediately: waiting for '#/files' to stick
+      // can never succeed, so set it and wait for the redirect instead.
+      await setHash(wd, '/files')
       await waitFor(async () => (await rootState(wd)).hash.startsWith('#/login'), 'guard redirect')
       const state = await rootState(wd)
       expect(state.hash).toContain('next=')
@@ -72,11 +74,11 @@ describe.skipIf(info.skipped)('F1 · login, registration and route guard', () =>
 
   it('sign-up mode reveals the name and confirmation fields', async () => {
     await step(wd, 'signup-mode', async () => {
-      await clickText(t('shell', 'loginToggleSignUp'), { tag: 'button' })
+      await clickText(wd, t('shell', 'loginToggleSignUp'), { tag: 'button' })
       await waitForElement(wd, CSS, 'input[autocomplete="name"]')
       await waitForElement(wd, CSS, 'input[autocomplete="new-password"]')
       expect(await pageText(wd)).toContain(t('shell', 'loginSignUp'))
-      await clickText(t('shell', 'loginToggleSignIn'), { tag: 'button' })
+      await clickText(wd, t('shell', 'loginToggleSignIn'), { tag: 'button' })
       await waitFor(async () => (await tryFind(wd, CSS, 'input[autocomplete="name"]')) === null, 'sign-up fields to close')
     })
   })
@@ -85,14 +87,14 @@ describe.skipIf(info.skipped)('F1 · login, registration and route guard', () =>
     await step(wd, 'registration-error', async () => {
       if (!proxy.isStub) return
       await proxy.scenario('/api/auth/register', 'server_error', { status: 409, code: 'email_taken' })
-      await clickText(t('shell', 'loginToggleSignUp'), { tag: 'button' })
+      await clickText(wd, t('shell', 'loginToggleSignUp'), { tag: 'button' })
       await type(wd, CSS, 'input[autocomplete="name"]', 'E2E Operator')
       await type(wd, CSS, 'input[type="email"]', 'e2e@example.test')
       await type(wd, CSS, 'input[autocomplete="new-password"]', 'agentbuddy-e2e')
       await click(wd, CSS, 'button.btn.btn-primary[type="submit"]')
       await waitFor(async () => (await pageText(wd)).includes(errorMessage('email_taken')), 'duplicate-email banner')
       await proxy.scenario('/api/auth/register', 'ok')
-      await clickText(t('shell', 'loginToggleSignIn'), { tag: 'button' })
+      await clickText(wd, t('shell', 'loginToggleSignIn'), { tag: 'button' })
     })
   })
 
@@ -113,13 +115,28 @@ describe.skipIf(info.skipped)('F1 · login, registration and route guard', () =>
   it('a 401 and a dead socket are two different connection states', async () => {
     await step(wd, 'auth-vs-offline', async () => {
       if (!proxy.isStub) return
-      await proxy.scenario('/api/workspace', 'unauthenticated')
-      await wd.execute('window.location.reload()')
-      await waitForText(wd, t('workspace', 'connectionAuthExpired'), info.timeoutMs)
-      await proxy.scenario('/api/workspace', 'drop')
-      await wd.execute('window.location.reload()')
-      await waitForText(wd, t('workspace', 'connectionOffline'), info.timeoutMs)
-      await proxy.scenario('/api/workspace', 'ok')
+      try {
+        // A 401 is an auth failure. The app re-checks the principal (the stub
+        // still answers /api/auth/me), so the session survives and the shell
+        // must NOT claim the server is unreachable. The auth-expired banner is
+        // deliberately transient in that case — App.vue clears it after a
+        // successful re-check (pinned by web/tests/app.spec.js).
+        await proxy.scenario('/api/workspace', 'unauthenticated')
+        await wd.execute('window.location.reload()')
+        await waitFor(async () => (await requests()).some((r) => r.path === '/api/workspace' && r.status === 401), '401 workspace poll', info.timeoutMs)
+        await waitForElement(wd, CSS, '.shell', info.timeoutMs)
+        expect(await pageText(wd)).not.toContain(t('workspace', 'connectionOffline'))
+
+        // A dropped socket is the other state: the localised offline banner.
+        await proxy.scenario('/api/workspace', 'drop')
+        await wd.execute('window.location.reload()')
+        await waitForText(wd, t('workspace', 'connectionOffline'), info.timeoutMs)
+      } finally {
+        // Scenarios live in the shared stub process: never leak a 401 or a drop
+        // into the next spec (its /api/workspace probe would answer 401).
+        await proxy.scenario('/api/workspace', 'ok').catch(() => {})
+        await ensureSignedIn().catch(() => {})
+      }
       await wd.execute('window.location.reload()')
       await waitForElement(wd, CSS, '.shell', info.timeoutMs)
     })

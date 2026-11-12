@@ -91,11 +91,12 @@ describe.skipIf(info.backend !== 'stub' || !base)('deterministic backend contrac
     expect(me.body).toMatchObject({ id: 'user-e2e', isOwner: true })
   })
 
-  it('injects 401 / 403 / 405 / 500 / empty / drop faults and clears them again', async () => {
+  it('injects 401 / 403 / 405 / 503 / 500 / empty / drop faults and clears them again', async () => {
     const cases = [
       ['unauthenticated', 401, 'unauthenticated'],
       ['forbidden', 403, 'forbidden'],
       ['unavailable', 405, 'method_not_allowed'],
+      ['feature_off', 503, 'feature_unavailable'],
       ['server_error', 500, 'internal_error'],
     ]
     for (const [mode, status, code] of cases) {

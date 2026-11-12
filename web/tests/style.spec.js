@@ -104,3 +104,25 @@ describe('connector action form layout', () => {
     expect(card.match(/<input[^>]*type="text"/g)).toHaveLength(2)
   })
 })
+
+// The desktop E2E suite measures real bounding boxes on the settings screen;
+// jsdom has no layout engine, so pin the declarations that keep every button
+// and select at the 44px touch-target floor.
+describe('touch-target floor', () => {
+  const css = readFileSync(join(ROOT, 'style.css'), 'utf8')
+  const switcher = readFileSync(join(ROOT, 'components', 'LanguageSwitcher.vue'), 'utf8')
+  const declarations = (source, selector) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return source.match(new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([^}]*)\\}`))?.[1] || ''
+  }
+
+  it('gives .btn, .btn-sm and select the full touch-min height', () => {
+    for (const selector of ['.btn', '.btn-sm', 'select']) {
+      expect(declarations(css, selector), `${selector} min-height`).toMatch(/min-height:\s*var\(--touch-min\)/)
+    }
+  })
+
+  it('does not shrink the topbar language switcher below touch-min', () => {
+    expect(declarations(switcher, '.lang-select')).toMatch(/min-height:\s*var\(--touch-min\)/)
+  })
+})

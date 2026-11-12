@@ -313,6 +313,15 @@ describe('workbench-store', () => {
       expect(consoleError).toHaveBeenCalled()
     })
 
+    it('recognises a real ApiError 405 whose code came from the JSON body', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      // api.js prefers data.code over res.status, so a real 405 looks like this.
+      clearTasks.mockRejectedValue(Object.assign(new Error('nope'), { code: 'method_not_allowed', status: 405 }))
+      const s = useWorkbenchStore()
+
+      expect(await s.clearTasks()).toEqual({ code: 'feature_unavailable' })
+    })
+
     it('passes the machine code through when the server refuses', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {})
       clearTasks.mockRejectedValue(Object.assign(new Error('nope'), { code: 'forbidden' }))

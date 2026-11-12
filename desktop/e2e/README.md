@@ -94,9 +94,9 @@ stub 的固定凭证：`e2e@example.test` / `agentbuddy-e2e`。
 
 | spec | 覆盖 | 正常 | 异常 |
 | --- | --- | --- | --- |
-| `stub-contract` | 端点、鉴权、SSE `since` 回放、multipart、故障注入、脱敏日志 | 全端点 200、登录换 Cookie、CRUD、`{deleted,kept}` | 401/403/405/500/空态/断连、错误字段名、超限 |
+| `stub-contract` | 端点、鉴权、SSE `since` 回放、multipart、故障注入、脱敏日志 | 全端点 200、登录换 Cookie、CRUD、`{deleted,kept}` | 401/403/405/503 `feature_off`/500/空态/断连、错误字段名、超限 |
 | `connect` | F1 连接页、healthz 探测、证书开关、13 语 / RTL、偏好 | 探测成功并保存地址、13 语表、`ar` 下 `dir=rtl` | 空 / 非法 / 不可达地址各自的本地化提示 |
-| `auth` | 登录、注册、OAuth 配置渲染、路由守卫 `?next=` | 登录后回到工作台、深链回跳 | 密码错误、`email_taken`、401 会话过期 vs 断线（两条不同文案） |
+| `auth` | 登录、注册、OAuth 配置渲染、路由守卫 `?next=` | 登录后回到工作台、深链回跳 | 密码错误、`email_taken`、401 鉴权失败不误报离线 vs 断线离线横幅 |
 | `workbench` | F2/F15 agent 卡片、活动流、待审批 | 批准 / 拒绝 / 查看 / 新建会话 | 空态、5xx banner |
 | `threads` | F3 列表、新建、@提及、SSE 增量、批量删除、清空消息、返回链接 | 创建 / 发送 / 全选删除 / 清空 / 返回 | 取消二次确认不发请求、列表 5xx、`thread_not_found` |
 | `tasks` | F4 状态筛选、追踪 / spans / artifacts、清理全部、resume / cancel | 筛选、`{deleted,kept}` 横幅、取消、恢复 | 旧服务端 405 → `feature_unavailable`、未找到任务 |
@@ -121,7 +121,10 @@ hash 不变、进程退出码、角标数值）钉住。
 ## 双模式差异
 
 - stub 模式：每条用例前重置 fixtures 与故障表，但**保留会话**，避免把 WebView 踢回登录页。
-  `/__e2e/*` 控制面可注入 401/403/405/500/超时/断线/空态/慢速 SSE，并推送 SSE 帧。
+  `/__e2e/*` 控制面可注入 401/403/405/503 `feature_off`/500/超时/断线/空态/慢速 SSE，并推送 SSE 帧。
+  故障只影响**下一次**请求：注入后必须用 `remount()`（先离开路由再回来）触发组件重新挂载，
+  否则同一个 hash 不会产生 `hashchange`，旧视图不会重新请求。
+  功能关闭态要求 `code=feature_unavailable`（503），`unavailable` 只表示旧服务端缺路由（405）。
 - live 模式：不启动 stub，连接页直接填 `E2E_SERVER_URL`；故障注入、SSE 推送、
   固定 fixtures 相关断言自动跳过；破坏性操作需 `E2E_LIVE_ALLOW_DESTRUCTIVE=1`
   且必须使用隔离账号，避免污染真实 PostgreSQL。

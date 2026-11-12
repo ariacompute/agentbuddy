@@ -2,21 +2,25 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { e2eContext } from '../harness/context.mjs'
 import {
-  CSS, click, clickContaining, confirmDialog, navigateHash, pageText, step,
+  CSS, click, clickContaining, confirmDialog, pageText, remount, step,
   waitForElement, waitForText, waitFor, tryFind, type,
 } from '../driver/helpers.mjs'
 import { errorMessage, t } from '../driver/selectors.mjs'
 
 const { info, wd, proxy, reset, requests } = e2eContext()
 
-async function openComputers() {
-  await navigateHash(wd, '/computers', info.timeoutMs)
-  await waitForElement(wd, CSS, '.stats-strip, .empty', info.timeoutMs)
+/** Leave the route and come back every time: a fault only changes the *next*
+ * request, a same-hash navigation fires no hashchange, and an unfinished dialog
+ * from the previous journey would otherwise keep its backdrop. Waiting for the
+ * view's own heading also rules out reading the previous screen for one tick. */
+async function openView(path, heading) {
+  await remount(wd, path, info.timeoutMs)
+  // The heading is always rendered, even when the feature-off panel replaces
+  // the stats strip; waiting on `.stats-strip, .empty` would hang in that state.
+  await waitFor(async () => (await pageText(wd)).includes(heading), `view ${path}`, info.timeoutMs)
 }
-async function openSchedules() {
-  await navigateHash(wd, '/schedules', info.timeoutMs)
-  await waitForElement(wd, CSS, '.stats-strip, .empty', info.timeoutMs)
-}
+const openComputers = () => openView('/computers', t('hub', 'computersTitle'))
+const openSchedules = () => openView('/schedules', t('hub', 'schedulesTitle'))
 
 describe.skipIf(info.skipped)('F11/F13/F17/F18 · computers and schedules', () => {
   beforeEach(async () => { await reset() })
@@ -76,7 +80,7 @@ describe.skipIf(info.skipped)('F11/F13/F17/F18 · computers and schedules', () =
   it('shows the feature-off panel when the server has no sandbox backend', async () => {
     await step(wd, 'computers-feature-off', async () => {
       if (!proxy.isStub) return
-      await proxy.scenario('/api/sandboxes/stats', 'unavailable')
+      await proxy.scenario('/api/sandboxes/stats', 'feature_off')
       await openComputers()
       await waitForText(wd, t('hub', 'sbOffTitle'), info.timeoutMs)
       await proxy.scenario('/api/sandboxes/stats', 'ok')
@@ -86,10 +90,14 @@ describe.skipIf(info.skipped)('F11/F13/F17/F18 · computers and schedules', () =
   it('renders the scheduler water level, run history, trigger stream and policy block', async () => {
     await step(wd, 'schedules-overview', async () => {
       await openSchedules()
-      for (const key of ['routerTitle', 'routerRuns', 'routerTriggers', 'schedulesTitle']) {
+      for (const key of ['routerTitle', 'routerTriggers', 'schedulesTitle']) {
         expect(await pageText(wd)).toContain(t('hub', key))
       }
       expect((await wd.findAll(CSS, '.stats-strip .stat')).length).toBeGreaterThanOrEqual(5)
+      // Run history belongs to one goal: it is rendered only after a row is
+      // selected, so drive that user action instead of expecting it on first paint.
+      await click(wd, CSS, '.schedule-row strong')
+      await waitForText(wd, t('hub', 'routerRuns'), info.timeoutMs)
     })
   })
 
@@ -123,8 +131,17 @@ describe.skipIf(info.skipped)('F11/F13/F17/F18 · computers and schedules', () =
   it('saves a routing policy', async () => {
     await step(wd, 'router-policy', async () => {
       await openSchedules()
-      const select = await waitForElement(wd, CSS, '.field select')
-      await wd.execute(`const el = arguments[0]; el.value = el.options.length > 1 ? el.options[1].value : el.value; el.dispatchEvent(new Event('change', { bubbles: true }));`, [select])
+      await waitForElement(wd, CSS, '.field select')
+      // W3C element arguments must be {"element-6066-…": id}, never a bare id;
+      // look the select up in the page instead of passing a stale reference.
+      const changed = await wd.execute(`
+        const el = document.querySelector('.field select');
+        if (!el) return false;
+        el.value = el.options.length > 1 ? el.options[1].value : el.value;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      `)
+      expect(changed).toBe(true)
       await clickContaining(wd, t('ops', 'policySave'), { tag: 'button' }).catch(() => {})
       if (info.backend === 'stub') {
         await waitFor(async () => (await requests()).some((r) => r.method === 'PUT' && r.path.startsWith('/api/router/policies/')), 'policy save').catch(() => {})
@@ -135,7 +152,7 @@ describe.skipIf(info.skipped)('F11/F13/F17/F18 · computers and schedules', () =
   it('shows the scheduler-off state when the router endpoints are unavailable', async () => {
     await step(wd, 'schedules-feature-off', async () => {
       if (!proxy.isStub) return
-      await proxy.scenario('/api/router/stats', 'unavailable')
+      await proxy.scenario('/api/router/stats', 'feature_off')
       await openSchedules()
       await waitForText(wd, t('hub', 'routerOff'), info.timeoutMs)
       await proxy.scenario('/api/router/stats', 'ok')

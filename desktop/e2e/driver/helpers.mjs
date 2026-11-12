@@ -4,6 +4,11 @@ import { waitFor } from '../harness/lifecycle.mjs'
 import { appendEvent, saveFailureScreenshot } from '../harness/report.mjs'
 import { containsTextXPath, t, textXPath } from './selectors.mjs'
 
+// Specs import every helper from this one module. Re-export the poll loop so a
+// journey never has to know which layer owns it (a missing export silently
+// resolves to undefined under Vite's SSR transform, so guard it statically).
+export { waitFor }
+
 export const CSS = 'css selector'
 export const XPATH = 'xpath'
 
@@ -131,12 +136,28 @@ export async function hash(wd) {
   return (await wd.execute('return window.location.hash')) || ''
 }
 
-/** Hash-router navigation; at least one journey uses a real menu click instead. */
-export async function navigateHash(wd, path, timeoutMs = 10_000) {
+/** Sets the hash without assuming it will stick. A route guard is allowed to
+ * redirect immediately (e.g. an anonymous deep link -> /login?next=), so those
+ * journeys must use setHash() and wait for the redirect instead. */
+export async function setHash(wd, path) {
   const target = path.startsWith('#') ? path : `#${path}`
   await wd.execute(`window.location.hash = ${JSON.stringify(target)}; return true`)
+  return target
+}
+
+/** Hash-router navigation; at least one journey uses a real menu click instead. */
+export async function navigateHash(wd, path, timeoutMs = 10_000) {
+  const target = await setHash(wd, path)
   await waitFor(async () => (await hash(wd)) === target, `route ${target}`, timeoutMs)
   return target
+}
+
+/** Leaves a route and comes back so its component really remounts and re-fetches.
+ * Fault injection only changes what the *next* request returns; setting the same
+ * hash twice fires no hashchange and would leave the old view on screen. */
+export async function remount(wd, path, timeoutMs = 10_000) {
+  await navigateHash(wd, '/', timeoutMs)
+  return navigateHash(wd, path, timeoutMs)
 }
 
 export async function clickNav(wd, label, expectedPath, lang = 'en') {

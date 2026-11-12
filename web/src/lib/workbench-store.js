@@ -197,7 +197,10 @@ export const useWorkbenchStore = defineStore('workbench', {
         return { deleted: data?.deleted || 0, kept: data?.kept || 0 }
       } catch (error) {
         console.error('agentbuddy: clearing tasks failed', error)
-        const code = error?.code === '405' ? 'feature_unavailable' : error?.code || 'internal_error'
+        // api.js prefers the JSON body's machine code over the status, so a real
+        // 405 arrives as code='method_not_allowed' with status=405. Check both.
+        const oldServer = error?.status === 405 || error?.code === '405'
+        const code = oldServer ? 'feature_unavailable' : error?.code || 'internal_error'
         return { code }
       }
     },

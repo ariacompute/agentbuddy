@@ -4,8 +4,8 @@ import path from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { e2eContext } from '../harness/context.mjs'
 import {
-  CSS, click, clickContaining, navigateHash, pageText, step, waitForElement,
-  waitForText, waitFor, tryFind, type,
+  CSS, click, clickContaining, navigateHash, pageText, remount, step,
+  waitForElement, waitForText, waitFor, tryFind, type,
 } from '../driver/helpers.mjs'
 import { errorMessage, t } from '../driver/selectors.mjs'
 
@@ -65,8 +65,8 @@ describe.skipIf(info.skipped)('F8/F10/F14/F19 · persona, knowledge and files', 
   it('shows the feature-off panel when knowledge is unavailable', async () => {
     await step(wd, 'knowledge-feature-off', async () => {
       if (!proxy.isStub) return
-      await proxy.scenario('/api/knowledge', 'unavailable')
-      await open('/knowledge')
+      await proxy.scenario('/api/knowledge', 'feature_off')
+      await remount(wd, '/knowledge', info.timeoutMs)
       await waitForText(wd, t('hub', 'featureOff'), info.timeoutMs)
       await proxy.scenario('/api/knowledge', 'ok')
     })
@@ -127,7 +127,9 @@ describe.skipIf(info.skipped)('F8/F10/F14/F19 · persona, knowledge and files', 
   it('keeps text input usable when voice recording is unavailable', async () => {
     await step(wd, 'voice-degradation', async () => {
       await open('/threads/thread-1')
-      expect(await tryFind(wd, CSS, '.composer textarea')).toBeTruthy()
+      // `open()` waits on a generic `.card, .empty`, which the previous screen
+      // can still satisfy for one tick; wait for the thread's own composer.
+      expect(await waitForElement(wd, CSS, '.composer textarea', info.timeoutMs)).toBeTruthy()
       const voice = await tryFind(wd, CSS, '.voice-btn')
       // Either the recorder is offered or the UI explains why it is not; the
       // text composer must be present in both cases.
@@ -151,7 +153,7 @@ describe.skipIf(info.skipped)('F8/F10/F14/F19 · persona, knowledge and files', 
     await step(wd, 'files-disabled', async () => {
       if (!proxy.isStub) return
       await proxy.scenario('/api/files', 'server_error', { status: 503, code: 'files_disabled' })
-      await open('/files')
+      await remount(wd, '/files', info.timeoutMs)
       await waitFor(async () => (await pageText(wd)).includes(errorMessage('files_disabled')) || (await tryFind(wd, CSS, '.banner')) !== null, 'files disabled')
       await proxy.scenario('/api/files', 'ok')
     })
