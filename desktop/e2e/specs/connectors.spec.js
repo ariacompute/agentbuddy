@@ -90,9 +90,8 @@ describe.skipIf(info.skipped)('F7/F19 · connectors and approvals', () => {
       // Every journey now starts from a fresh (collapsed) view, so expand the
       // declared actions instead of relying on the previous test's UI state.
       await clickContaining(wd, t('ops', 'connectorActions'), { tag: 'button' })
-      const inputs = await waitForElement(wd, CSS, '.connector-actions input', info.timeoutMs)
-      expect(inputs).toBeTruthy()
       await waitFor(async () => (await wd.findAll(CSS, '.connector-actions input')).length >= 2, 'action inputs', info.timeoutMs)
+      const inputs = await wd.findAll(CSS, '.connector-actions input')
       expect(inputs.length).toBeGreaterThanOrEqual(2)
       await wd.type(inputs[0], 'create_issue')
       await click(wd, CSS, '.connector-actions .btn.btn-sm.btn-primary')

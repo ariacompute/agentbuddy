@@ -140,7 +140,9 @@ async function confirmDelete() {
       </div>
     </div>
 
-    <div v-if="error" class="banner banner-error"><span>{{ error }}</span></div>
+    <div v-if="error || workbench.errorCode" class="banner banner-error">
+      <span>{{ error || errorMessage(workbench.errorCode) }}</span>
+    </div>
 
     <div v-if="workbench.threads.length === 0" class="empty">
       <MessageSquare :size="28" />

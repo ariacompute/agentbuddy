@@ -122,6 +122,7 @@ export const useWorkbenchStore = defineStore('workbench', {
       try {
         const data = await listThreads()
         this.threads = data.threads || []
+        this.errorCode = null
       } catch (error) {
         console.error('agentbuddy: threads refresh failed', error)
         this.errorCode = error.code

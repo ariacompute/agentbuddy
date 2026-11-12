@@ -56,7 +56,7 @@ onMounted(() => workbench.refreshAll())
         <div
           v-for="task in workbench.tasks.slice(0, 8)"
           :key="task.id"
-          class="card card-hover row"
+          class="card card-hover row activity-row"
           style="align-items:flex-start;gap:10px;cursor:pointer"
           @click="router.push(`/tasks/${task.id}`)"
         >

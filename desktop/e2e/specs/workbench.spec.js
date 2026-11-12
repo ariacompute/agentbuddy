@@ -34,17 +34,19 @@ describe.skipIf(info.skipped)('F2 · workbench and approvals', () => {
   // ApprovalCard renders its three actions in a scoped row; the labels come from
   // a different copy namespace than the rest of the card, so a CSS selector is
   // the stable locator here (the suite never depends on a possibly blank label).
+  // The `.approval-card` class keeps these locators off the activity rows, which
+  // share `.card.card-hover.row`.
   const APPROVAL = {
-    approve: '.card.card-hover.row .btn.btn-primary',
-    reject: '.card.card-hover.row .btn.btn-danger',
-    view: '.card.card-hover.row .btn.btn-ghost',
+    approve: '.approval-card .btn.btn-primary',
+    reject: '.approval-card .btn.btn-danger',
+    view: '.approval-card .btn.btn-ghost',
   }
 
   it('groups input-required tasks into an approval card and approves one', async () => {
     await step(wd, 'approve-task', async () => {
       await waitForText(wd, t('workspace', 'approvalsTitle'))
       await click(wd, CSS, APPROVAL.approve)
-      await waitFor(async () => (await tryFind(wd, CSS, '.card.card-hover.row')) === null, 'approval card to disappear')
+      await waitFor(async () => (await tryFind(wd, CSS, '.approval-card')) === null, 'approval card to disappear')
       if (info.backend === 'stub') {
         const seen = await requests()
         expect(seen.some((r) => r.method === 'POST' && r.path === '/api/tasks/task-2/resume')).toBe(true)
@@ -56,7 +58,7 @@ describe.skipIf(info.skipped)('F2 · workbench and approvals', () => {
     await step(wd, 'reject-task', async () => {
       await waitForText(wd, t('workspace', 'approvalsTitle'))
       await click(wd, CSS, APPROVAL.reject)
-      await waitFor(async () => (await tryFind(wd, CSS, '.card.card-hover.row')) === null, 'approval card to disappear')
+      await waitFor(async () => (await tryFind(wd, CSS, '.approval-card')) === null, 'approval card to disappear')
       if (info.backend === 'stub') {
         const seen = await requests()
         expect(seen.some((r) => r.method === 'POST' && r.path === '/api/tasks/task-2/cancel')).toBe(true)
@@ -78,7 +80,9 @@ describe.skipIf(info.skipped)('F2 · workbench and approvals', () => {
 
   it('an activity row opens the matching task trace', async () => {
     await step(wd, 'activity-link', async () => {
-      await click(wd, CSS, '.card.card-hover.row')
+      // The first `.card.card-hover.row` is the approval card, which has no click
+      // handler on its body; the activity rows carry `.activity-row`.
+      await click(wd, CSS, '.activity-row')
       await waitFor(async () => (await rootState(wd)).hash.startsWith('#/tasks/'), 'activity deep link')
     })
   })

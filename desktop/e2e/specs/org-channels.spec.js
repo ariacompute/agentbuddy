@@ -79,8 +79,11 @@ describe.skipIf(info.skipped)('F6/F16 · organisation and channels', () => {
   it('toggles a channel on and off through the switch', async () => {
     await step(wd, 'channel-switch', async () => {
       await openChannels()
-      const toggle = await waitForElement(wd, CSS, '.switch input[type="checkbox"]')
-      await wd.click(toggle)
+      await waitForElement(wd, CSS, '.switch input[type="checkbox"]')
+      // The visible control is a 40x22 box whose `::after` knob paints over its
+      // centre, so a hit-tested WebDriver click is reported as intercepted. A
+      // real DOM click on the input toggles it and fires the change handler.
+      await wd.execute(`const el = document.querySelectorAll('.switch input[type="checkbox"]')[0]; el.scrollIntoView({ block: 'center' }); el.click();`)
       if (info.backend === 'stub') {
         await waitFor(async () => (await requests()).some((r) => r.method === 'PUT' && r.path.startsWith('/api/channels/')), 'channel update')
       }

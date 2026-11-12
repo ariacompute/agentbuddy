@@ -28,7 +28,7 @@ async function reject() {
 </script>
 
 <template>
-  <div class="card card-hover row" style="align-items:flex-start;gap:12px">
+  <div class="card card-hover row approval-card" style="align-items:flex-start;gap:12px">
     <div class="state-dot" data-state="input-required" style="margin-top:6px" />
     <div style="min-width:0;flex:1">
       <div class="row" style="gap:8px">

@@ -287,6 +287,17 @@ describe('ThreadListView', () => {
     await flushPromises()
     expect(createThread).toHaveBeenCalledTimes(1)
   })
+
+  it('shows a localised banner when the thread list fails to load', async () => {
+    listThreads.mockRejectedValue(Object.assign(new Error('boom'), { code: 'internal_error' }))
+    const workbench = useWorkbenchStore()
+    const { wrapper } = mountWith(ThreadListView)
+    await flushPromises()
+    const banner = wrapper.find('.banner')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toBe(errorMessage('internal_error'))
+    workbench.errorCode = null
+  })
 })
 
 describe('ThreadView', () => {
