@@ -145,10 +145,23 @@ export async function setHash(wd, path) {
   return target
 }
 
+/** The workbench scrolls its `.content` pane, not the document, and Vue Router
+ * does not reset it on a hash change. Without this a journey that scrolled down
+ * to a row leaves the next screen's top-of-page controls out of view. */
+export async function scrollToTop(wd) {
+  return wd.execute(`
+    window.scrollTo(0, 0);
+    const pane = document.querySelector('.content');
+    if (pane) pane.scrollTop = 0;
+    return true;
+  `)
+}
+
 /** Hash-router navigation; at least one journey uses a real menu click instead. */
 export async function navigateHash(wd, path, timeoutMs = 10_000) {
   const target = await setHash(wd, path)
   await waitFor(async () => (await hash(wd)) === target, `route ${target}`, timeoutMs)
+  await scrollToTop(wd).catch(() => {})
   return target
 }
 

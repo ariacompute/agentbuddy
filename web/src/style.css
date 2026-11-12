@@ -578,6 +578,14 @@ textarea:focus {
   box-shadow: 0 0 0 3px var(--accent-softer);
 }
 
+/* Every other keyboard-focused control (plain buttons, links) needs the same
+   2px / 2px ring. The rules above out-specify this for text fields, which keep
+   their softer box-shadow ring instead. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 input::placeholder,
 textarea::placeholder {
   color: var(--text-3);

@@ -104,7 +104,15 @@ describe.skipIf(info.skipped)('F11/F13/F17/F18 · computers and schedules', () =
   it('kicks a scheduling pass and creates a goal', async () => {
     await step(wd, 'schedule-create-kick', async () => {
       await openSchedules()
-      await clickContaining(wd, t('hub', 'routerKick'), { tag: 'button' })
+      // The kick button is rendered only while the scheduler is on. A stale
+      // feature-off scenario from another journey would hide it, so clear that
+      // state and remount once before giving up.
+      if ((await pageText(wd)).includes(t('hub', 'routerOff'))) {
+        await proxy.scenario('/api/router/stats', 'ok').catch(() => {})
+        await openSchedules()
+      }
+      await waitForElement(wd, CSS, '.page-head .btn.btn-sm', info.timeoutMs)
+      await click(wd, CSS, '.page-head .btn.btn-sm', info.timeoutMs)
       const goal = await waitForElement(wd, CSS, 'input[type="text"]')
       await wd.type(goal, 'E2E hourly check')
       await clickContaining(wd, t('hub', 'scheduleNew'), { tag: 'button' })

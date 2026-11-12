@@ -94,7 +94,7 @@ stub 的固定凭证：`e2e@example.test` / `agentbuddy-e2e`。
 
 | spec | 覆盖 | 正常 | 异常 |
 | --- | --- | --- | --- |
-| `stub-contract` | 端点、鉴权、SSE `since` 回放、multipart、故障注入、脱敏日志 | 全端点 200、登录换 Cookie、CRUD、`{deleted,kept}` | 401/403/405/503 `feature_off`/500/空态/断连、错误字段名、超限 |
+| `stub-contract` | 端点、鉴权、SSE `since` 回放、multipart、故障注入、脱敏日志 | 全端点 200、登录换 Cookie、CRUD、`{deleted,kept}`、按 `taskId` 删除审批 | 401/403/405/503 `feature_off`/500/空态/断连、二次决策 409、错误字段名、超限 |
 | `connect` | F1 连接页、healthz 探测、证书开关、13 语 / RTL、偏好 | 探测成功并保存地址、13 语表、`ar` 下 `dir=rtl` | 空 / 非法 / 不可达地址各自的本地化提示 |
 | `auth` | 登录、注册、OAuth 配置渲染、路由守卫 `?next=` | 登录后回到工作台、深链回跳 | 密码错误、`email_taken`、401 鉴权失败不误报离线 vs 断线离线横幅 |
 | `workbench` | F2/F15 agent 卡片、活动流、待审批 | 批准 / 拒绝 / 查看 / 新建会话 | 空态、5xx banner |
@@ -125,6 +125,12 @@ hash 不变、进程退出码、角标数值）钉住。
   故障只影响**下一次**请求：注入后必须用 `remount()`（先离开路由再回来）触发组件重新挂载，
   否则同一个 hash 不会产生 `hashchange`，旧视图不会重新请求。
   功能关闭态要求 `code=feature_unavailable`（503），`unavailable` 只表示旧服务端缺路由（405）。
+  多用例视图（`tasks` / `connectors` / `computers-schedules` / `settings`）的 `open()`
+  一律先 `remount()`，否则上一条用例缓存的动作目录、展开面板或滚动位置会污染下一条。
+  `navigateHash()` 会把内层 `.content` 滚动容器归零：hash 路由不会自动复位滚动，
+  否则新页面顶部的控件会落在视口外。
+  焦点环是 CSSOM 声明检查（2px `outline` + 2px offset）：WebKit 下程序化 `focus()`
+  不保证命中 `:focus-visible`，读 computed style 会得到假的 0px。
 - live 模式：不启动 stub，连接页直接填 `E2E_SERVER_URL`；故障注入、SSE 推送、
   固定 fixtures 相关断言自动跳过；破坏性操作需 `E2E_LIVE_ALLOW_DESTRUCTIVE=1`
   且必须使用隔离账号，避免污染真实 PostgreSQL。

@@ -60,7 +60,10 @@ function find(list, id) {
 }
 
 function remove(list, id) {
-  const at = list.findIndex((item) => item.id === id || item.ID === id)
+  // Approval rows are keyed by taskId (the URL carries the task id), while the
+  // other fixtures use id / ID. Without taskId an approve answered 200 but the
+  // row stayed in the queue forever.
+  const at = list.findIndex((item) => item.id === id || item.ID === id || item.taskId === id)
   if (at >= 0) return list.splice(at, 1)[0]
   return null
 }

@@ -2,15 +2,20 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { e2eContext } from '../harness/context.mjs'
 import {
-  CSS, cancelDialog, click, confirmDialog, navigateHash, pageText, rootState,
+  CSS, cancelDialog, click, confirmDialog, navigateHash, pageText, remount, rootState,
   step, waitForElement, waitForSelectorText, waitForText, waitFor, tryFind, type,
 } from '../driver/helpers.mjs'
 import { errorMessage, t } from '../driver/selectors.mjs'
 
 const { info, wd, proxy, reset, requests } = e2eContext()
 
+/** A fresh mount is what makes the "GET before clear, GET after clear"
+ * assertion meaningful: re-setting the same hash fires no hashchange. */
 async function openList() {
-  await navigateHash(wd, '/tasks', info.timeoutMs)
+  await remount(wd, '/tasks', info.timeoutMs)
+  if (proxy.isStub) {
+    await waitFor(async () => (await requests()).some((r) => r.method === 'GET' && r.path === '/api/tasks'), 'task list fetch', info.timeoutMs)
+  }
   await waitForElement(wd, CSS, '.grid.grid-2, .empty', info.timeoutMs)
 }
 

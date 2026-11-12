@@ -125,4 +125,10 @@ describe('touch-target floor', () => {
   it('does not shrink the topbar language switcher below touch-min', () => {
     expect(declarations(switcher, '.lang-select')).toMatch(/min-height:\s*var\(--touch-min\)/)
   })
+
+  it('declares a global 2px focus ring with a 2px offset', () => {
+    const ring = declarations(css, ':focus-visible')
+    expect(ring).toMatch(/outline:\s*2px solid var\(--accent\)/)
+    expect(ring).toMatch(/outline-offset:\s*2px/)
+  })
 })

@@ -5,8 +5,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { waitFor } from '../harness/lifecycle.mjs'
 import { newDesktopSession, attachSession } from './webdriver.mjs'
-import { CSS, click, pageFetch, rootState, tryFind, waitForElement } from './helpers.mjs'
-import { byLabel } from './selectors.mjs'
+import { CSS, XPATH, click, pageFetch, rootState, tryFind, waitForElement } from './helpers.mjs'
+import { byLabel, t, textXPath } from './selectors.mjs'
 
 /** Re-attaches the worker to the one session globalSetup created. */
 export function attachFromSessionInfo(info) {
@@ -46,6 +46,10 @@ export async function connectServer(wd, serverUrl, { timeoutMs = 30_000 } = {}) 
 export async function signIn(wd, credentials, { timeoutMs = 30_000 } = {}) {
   const state = await rootState(wd)
   if (!state.hash.startsWith('#/login')) return { signedIn: true, reused: true }
+  // A journey that failed while the form was in sign-up mode must not poison
+  // every later sign-in: the toggle says "Sign in" exactly in that mode.
+  const backToSignIn = await tryFind(wd, XPATH, textXPath(t('shell', 'loginToggleSignIn'), 'button')).catch(() => null)
+  if (backToSignIn) await wd.click(backToSignIn)
   const email = await waitForElement(wd, CSS, 'input[type="email"]', timeoutMs)
   await wd.clear(email)
   await wd.type(email, credentials.email)

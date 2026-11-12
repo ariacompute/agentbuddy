@@ -86,15 +86,24 @@ describe.skipIf(info.skipped)('F1 · login, registration and route guard', () =>
   it('a duplicate registration is reported as a machine code, not a crash', async () => {
     await step(wd, 'registration-error', async () => {
       if (!proxy.isStub) return
-      await proxy.scenario('/api/auth/register', 'server_error', { status: 409, code: 'email_taken' })
-      await clickText(wd, t('shell', 'loginToggleSignUp'), { tag: 'button' })
-      await type(wd, CSS, 'input[autocomplete="name"]', 'E2E Operator')
-      await type(wd, CSS, 'input[type="email"]', 'e2e@example.test')
-      await type(wd, CSS, 'input[autocomplete="new-password"]', 'agentbuddy-e2e')
-      await click(wd, CSS, 'button.btn.btn-primary[type="submit"]')
-      await waitFor(async () => (await pageText(wd)).includes(errorMessage('email_taken')), 'duplicate-email banner')
-      await proxy.scenario('/api/auth/register', 'ok')
-      await clickText(wd, t('shell', 'loginToggleSignIn'), { tag: 'button' })
+      try {
+        await proxy.scenario('/api/auth/register', 'server_error', { status: 409, code: 'email_taken' })
+        await clickText(wd, t('shell', 'loginToggleSignUp'), { tag: 'button' })
+        await type(wd, CSS, 'input[autocomplete="name"]', 'E2E Operator')
+        await type(wd, CSS, 'input[type="email"]', 'e2e@example.test')
+        // Sign-up only enables Submit when password === confirmation, so both
+        // fields must be filled; leaving the main password at the previous
+        // journey's value keeps the button disabled and no request is sent.
+        await type(wd, CSS, 'input[type="password"][autocomplete="current-password"]', 'agentbuddy-e2e')
+        await type(wd, CSS, 'input[autocomplete="new-password"]', 'agentbuddy-e2e')
+        await click(wd, CSS, 'button.btn.btn-primary[type="submit"]')
+        await waitFor(async () => (await pageText(wd)).includes(errorMessage('email_taken')), 'duplicate-email banner')
+      } finally {
+        // A failure must not leave the shared login form in sign-up mode: the
+        // next journey signs in with only email + password.
+        await proxy.scenario('/api/auth/register', 'ok').catch(() => {})
+        await clickText(wd, t('shell', 'loginToggleSignIn'), { tag: 'button' }).catch(() => {})
+      }
     })
   })
 

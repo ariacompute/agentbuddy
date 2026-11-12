@@ -4,15 +4,21 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { e2eContext } from '../harness/context.mjs'
 import {
-  CSS, click, clickContaining, clickWithAlert, navigateHash, pageText, step,
-  waitForElement, waitForText, waitFor, tryFind, type,
+  CSS, click, clickContaining, clickWithAlert, pageText, remount, step,
+  waitForElement, waitForText, waitFor, tryFind,
 } from '../driver/helpers.mjs'
 import { errorMessage, t } from '../driver/selectors.mjs'
 
 const { info, wd, proxy, reset, requests } = e2eContext()
 
+/** Each journey needs a fresh view: the declared-action list is cached per
+ * visit, and an approval decision changes the queue. Setting the same hash
+ * again fires no hashchange, so leave the route and come back. */
 async function open() {
-  await navigateHash(wd, '/connectors', info.timeoutMs)
+  await remount(wd, '/connectors', info.timeoutMs)
+  // `.policy-opt` exists only on this screen, and unlike a translated heading
+  // it stays findable when the preceding journey switched the UI language.
+  await waitFor(async () => (await tryFind(wd, CSS, '.policy-opt')) !== null, 'connectors view', info.timeoutMs)
   await waitForElement(wd, CSS, '.grid.grid-2, .empty', info.timeoutMs)
 }
 
@@ -81,7 +87,12 @@ describe.skipIf(info.skipped)('F7/F19 · connectors and approvals', () => {
 
   it('runs an action and reports whether it was parked for approval', async () => {
     await step(wd, 'connector-run', async () => {
-      const inputs = await wd.findAll(CSS, '.connector-actions input')
+      // Every journey now starts from a fresh (collapsed) view, so expand the
+      // declared actions instead of relying on the previous test's UI state.
+      await clickContaining(wd, t('ops', 'connectorActions'), { tag: 'button' })
+      const inputs = await waitForElement(wd, CSS, '.connector-actions input', info.timeoutMs)
+      expect(inputs).toBeTruthy()
+      await waitFor(async () => (await wd.findAll(CSS, '.connector-actions input')).length >= 2, 'action inputs', info.timeoutMs)
       expect(inputs.length).toBeGreaterThanOrEqual(2)
       await wd.type(inputs[0], 'create_issue')
       await click(wd, CSS, '.connector-actions .btn.btn-sm.btn-primary')
@@ -98,7 +109,9 @@ describe.skipIf(info.skipped)('F7/F19 · connectors and approvals', () => {
       await clickContaining(wd, t('connector', 'approvalApprove'), { tag: 'button' })
       if (info.backend === 'stub') {
         await waitFor(async () => (await requests()).some((r) => r.path === '/api/connectors/approvals/approval-1/approve'), 'approval request')
-        expect((await wd.findAll(CSS, '.trigger-list > .trigger-row')).length).toBe(0)
+        // The request log is written before the client re-reads the queue, so
+        // poll the DOM instead of asserting the row count in the same tick.
+        await waitFor(async () => (await wd.findAll(CSS, '.trigger-list > .trigger-row')).length === 0, 'approval queue to empty', info.timeoutMs)
       }
     })
   })

@@ -166,6 +166,16 @@ describe.skipIf(info.backend !== 'stub' || !base)('deterministic backend contrac
     expect((await get('/api/tasks')).body.tasks.length).toBe(4)
   })
 
+  it('removes a decided approval keyed by taskId and refuses a second decision', async () => {
+    expect((await get('/api/connectors/approvals')).body).toHaveLength(1)
+    const approved = await post('/api/connectors/approvals/approval-1/approve', {})
+    expect(approved.status).toBe(200)
+    expect((await get('/api/connectors/approvals')).body).toHaveLength(0)
+    const again = await post('/api/connectors/approvals/approval-1/approve', {})
+    expect(again.status).toBe(409)
+    expect((await again.json()).code).toBe('connector_approval_closed')
+  })
+
   it('logs only method / path / status / time, never bodies or credentials', async () => {
     await post('/api/auth/login', { email: 'e2e@example.test', password: 'agentbuddy-e2e' })
     const { body } = await get('/__e2e/requests')

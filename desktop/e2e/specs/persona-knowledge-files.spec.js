@@ -130,10 +130,11 @@ describe.skipIf(info.skipped)('F8/F10/F14/F19 · persona, knowledge and files', 
       // `open()` waits on a generic `.card, .empty`, which the previous screen
       // can still satisfy for one tick; wait for the thread's own composer.
       expect(await waitForElement(wd, CSS, '.composer textarea', info.timeoutMs)).toBeTruthy()
-      const voice = await tryFind(wd, CSS, '.voice-btn')
-      // Either the recorder is offered or the UI explains why it is not; the
-      // text composer must be present in both cases.
-      if (!voice) expect(await pageText(wd)).toBeTruthy()
+      // The @mention button shares the .voice-btn class but has no state; only
+      // the recorder carries data-state. When MediaRecorder is missing the UI
+      // explains why instead, and the text composer must still be usable.
+      const voice = await tryFind(wd, CSS, '.voice-btn[data-state]')
+      if (!voice) expect(await pageText(wd)).toContain(t('thread', 'voiceUnavailable'))
       else expect(await wd.attribute(voice, 'data-state')).toBeTruthy()
     })
   })
@@ -154,7 +155,9 @@ describe.skipIf(info.skipped)('F8/F10/F14/F19 · persona, knowledge and files', 
       if (!proxy.isStub) return
       await proxy.scenario('/api/files', 'server_error', { status: 503, code: 'files_disabled' })
       await remount(wd, '/files', info.timeoutMs)
-      await waitFor(async () => (await pageText(wd)).includes(errorMessage('files_disabled')) || (await tryFind(wd, CSS, '.banner')) !== null, 'files disabled')
+      // A disabled store is a configuration panel, not an error banner: the
+      // screen renders the localised explanation plus the switch to turn on.
+      await waitFor(async () => (await pageText(wd)).includes(t('files', 'filesOff')), 'files disabled', info.timeoutMs)
       await proxy.scenario('/api/files', 'ok')
     })
   })
