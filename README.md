@@ -198,10 +198,10 @@ Runtime (check `Microsoft Edge` → About, or the `pv` value of
 For runtime `157.0.4341.46`, for example:
 
 ```bash
-curl -LO https://msedgedriver.azureedge.net/157.0.4341.46/edgedriver_win64.zip
+curl -LO https://msedgedriver.microsoft.com/157.0.4341.46/edgedriver_win64.zip
 unzip edgedriver_win64.zip -d ~/tools      # yields msedgedriver.exe
-# if that exact build is absent, pick the same major version from
-# https://developer.microsoft.com/microsoft-edge/tools/webdriver/
+# download page: https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver
+# full build directory: https://msedgedriver.microsoft.com/catalog/index.html
 export E2E_NATIVE_DRIVER='C:/Users/USERNAME/tools/msedgedriver.exe'
 make e2e
 ```

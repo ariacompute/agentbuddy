@@ -182,10 +182,10 @@ E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # 真实 agenthub
 的 `pv` 值）。以运行时 `157.0.4341.46` 为例：
 
 ```bash
-curl -LO https://msedgedriver.azureedge.net/157.0.4341.46/edgedriver_win64.zip
+curl -LO https://msedgedriver.microsoft.com/157.0.4341.46/edgedriver_win64.zip
 unzip edgedriver_win64.zip -d ~/tools      # 得到 msedgedriver.exe
-# 若该精确构建不存在，从 https://developer.microsoft.com/microsoft-edge/tools/webdriver/
-# 选同一大版本（157.x）
+# 下载页：https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver
+# 完整构建目录：https://msedgedriver.microsoft.com/catalog/index.html
 export E2E_NATIVE_DRIVER='C:/Users/USERNAME/tools/msedgedriver.exe'
 make e2e
 ```
