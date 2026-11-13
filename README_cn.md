@@ -163,9 +163,41 @@ E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # 真实 agenthub
 ```
 
 前置条件、环境变量、Windows 本机差异与产物说明见 `desktop/e2e/README.md`。
-Linux CI（Ubuntu 22.04）跑权威全量；本机 Windows 缺少 `msedgedriver` 时桌面用例
-标记为 skip 并打印原因，纯契约用例仍会真实执行。`make test` 与两个 100%
-覆盖率闸门不受影响。
+
+#### Windows 本机：从 skipped 到全量
+
+`↓` 是 preflight 跳过，**不是失败**。编排器会把主因与每条失败的前置项打到终端，
+完整清单写入 `desktop/e2e/artifacts/run.json`。Windows 上通常按下面顺序缺三项：
+
+- `desktop binary`——`cd desktop && bun run test:e2e` 只跑用例，**不装驱动也不构建
+  桌面端**。改用 `make e2e`，它会按 `icons` → `web/dist` → `e2e-isolation` debug
+  二进制的顺序构建。
+- `tauri-driver`——`make e2e` 现在通过 `e2e-tools` 幂等按需安装；也可单独
+  `make e2e-tools`。
+- `msedgedriver`——平台驱动不由任何 make target 安装。
+
+最后一项需要**与本机 WebView2 Runtime 版本一致**的 Edge WebDriver（版本见
+`Microsoft Edge` → 关于，或注册表
+`HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`
+的 `pv` 值）。以运行时 `157.0.4341.46` 为例：
+
+```bash
+curl -LO https://msedgedriver.azureedge.net/157.0.4341.46/edgedriver_win64.zip
+unzip edgedriver_win64.zip -d ~/tools      # 得到 msedgedriver.exe
+# 若该精确构建不存在，从 https://developer.microsoft.com/microsoft-edge/tools/webdriver/
+# 选同一大版本（157.x）
+export E2E_NATIVE_DRIVER='C:/Users/USERNAME/tools/msedgedriver.exe'
+make e2e
+```
+
+必须显式设置 `E2E_NATIVE_DRIVER`：preflight 也认可 PATH 上的裸 `msedgedriver`，
+但只有这个变量会让编排器把 `--native-driver <path>` 传给 tauri-driver。路径用
+Windows 风格正斜杠，避免 MSYS2 为 Windows 进程转换 `/c/...` 路径。4444 端口
+被占用时设 `E2E_DRIVER_URL`。大版本不匹配不会被 preflight 拦下，会话会在启动时
+报错。
+
+即使主机跑不了桌面客户端，纯契约用例仍会真实执行。Windows 上的
+WebView2 + msedgedriver 属于 best effort，权威全量仍以 Linux CI 为准。
 
 <div align="right">
 

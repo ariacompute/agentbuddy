@@ -175,11 +175,47 @@ E2E_SERVER_URL=http://127.0.0.1:3500 \
 E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # real agenthub
 ```
 
-See `desktop/e2e/README.md` for prerequisites, environment variables, the
-Windows caveats and the artefacts. Linux CI (Ubuntu 22.04) runs the
-authoritative full suite; on a Windows host without `msedgedriver` the desktop
-cases are reported as skipped with a reason, while the contract cases still
-run for real. `make test` and both 100% coverage gates are unaffected.
+See `desktop/e2e/README.md` for prerequisites, environment variables and the
+artefacts.
+
+#### Windows hosts: from skipped to running
+
+A `↓` next to a suite is a preflight skip, not a failure. The orchestrator
+prints the reason and every failing check to the terminal, and writes the full
+checklist to `desktop/e2e/artifacts/run.json`. Three prerequisites commonly
+fail on Windows, in this order:
+
+- `desktop binary` — `cd desktop && bun run test:e2e` only runs the specs; it
+  neither installs the driver nor builds the client. Use `make e2e`, which
+  builds `icons` → `web/dist` → the `e2e-isolation` debug binary.
+- `tauri-driver` — `make e2e` now installs it idempotently through
+  `e2e-tools`; `make e2e-tools` can also be run on its own.
+- `msedgedriver` — the platform driver is not installed by any make target.
+
+The last one needs an Edge WebDriver build matching the installed WebView2
+Runtime (check `Microsoft Edge` → About, or the `pv` value of
+`HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`).
+For runtime `157.0.4341.46`, for example:
+
+```bash
+curl -LO https://msedgedriver.azureedge.net/157.0.4341.46/edgedriver_win64.zip
+unzip edgedriver_win64.zip -d ~/tools      # yields msedgedriver.exe
+# if that exact build is absent, pick the same major version from
+# https://developer.microsoft.com/microsoft-edge/tools/webdriver/
+export E2E_NATIVE_DRIVER='C:/Users/USERNAME/tools/msedgedriver.exe'
+make e2e
+```
+
+Setting `E2E_NATIVE_DRIVER` matters: preflight also accepts a bare
+`msedgedriver` on PATH, but only this variable makes the orchestrator pass
+`--native-driver <path>` to tauri-driver. Use Windows-style forward slashes
+so MSYS2 does not have to translate a `/c/...` path for a Windows process.
+If port 4444 is taken, set `E2E_DRIVER_URL`. A major-version mismatch is not
+caught by preflight; the WebDriver session fails later at startup.
+
+The contract specs always run for real, even on a host that cannot launch the
+desktop client. WebView2 + msedgedriver on Windows is best effort; Linux CI
+remains the authoritative full run.
 
 <div align="right">
 
