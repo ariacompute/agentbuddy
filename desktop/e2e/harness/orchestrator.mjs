@@ -100,6 +100,19 @@ export async function setup() {
       : check.reason
     publish(baseInfo(serverUrl, check, skipped, reason))
     if (skipped) {
+      // Vitest only prints `↓` for a skipped suite. Surface the reason here so
+      // the terminal explains itself instead of sending the reader to run.json.
+      const missing = check.checks.filter((c) => !c.ok)
+      const headline = cfg.skipWebdriver
+        ? reason
+        : `${missing.length} preflight check(s) failed`
+      const detail = missing.length
+        ? `\n${missing.map((c) => `  - ${c.name}: ${c.detail}`).join('\n')}`
+        : '\n  (no preflight failure; skipped by request)'
+      console.warn(
+        `\nagentbuddy e2e: desktop journeys skipped — ${headline}${detail}\n` +
+        'The stub contract specs still run. See desktop/e2e/README.md and artifacts/run.json for the full checklist.\n'
+      )
       // The stub stays up: its own contract specs need no Rust toolchain and are
       // genuinely useful on a machine that cannot run the desktop binary.
       writeRunSummary({ status: 'skipped-desktop', reason, checks: check.checks })

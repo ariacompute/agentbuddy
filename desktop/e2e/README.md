@@ -32,8 +32,8 @@ release 构建不启用该 feature，启动路径与原来完全一致。编排�
 
 | 平台 | 依赖 |
 | --- | --- |
-| Linux（权威全量） | `webkit2gtk-driver`（提供 `WebKitWebDriver`）、`xvfb`（提供 `xvfb-run`）、Tauri 的 WebKitGTK/GTK 构建依赖、`cargo install tauri-driver --locked`、Rust stable |
-| Windows（best effort） | `msedgedriver`（与 WebView2 运行时版本匹配，可用 `E2E_NATIVE_DRIVER` 指定路径）、`cargo install tauri-driver --locked`、Rust stable |
+| Linux（权威全量） | `webkit2gtk-driver`（提供 `WebKitWebDriver`）、`xvfb`（提供 `xvfb-run`）、Tauri 的 WebKitGTK/GTK 构建依赖、`tauri-driver`（`make e2e` 会按需幂等安装）、Rust stable |
+| Windows（best effort） | `msedgedriver`（与 WebView2 运行时版本匹配，可用 `E2E_NATIVE_DRIVER` 指定路径）、`tauri-driver`（同上自动安装）、Rust stable |
 | 通用 | bun ≥ 1.4.4、Node（Vitest 必须由 Node 启动）、`web/dist/index.html`、带 `e2e-isolation` 构建的 `desktop/src-tauri/target/debug/AgentBuddy[.exe]` |
 
 > AGENTS.md 记录的「本机 Windows 无法启动 Rust 测试二进制」指的是 `cargo test` 的
@@ -44,15 +44,13 @@ release 构建不启用该 feature，启动路径与原来完全一致。编排�
 ## 运行
 
 ```bash
-# 一次性
-make e2e-tools                    # cargo install tauri-driver --locked
-
-# 构建（顺序不可颠倒：icons → web/dist → debug 桌面二进制）
-make e2e-build
-
-# 默认：确定性 stub，离线
+# 默认：确定性 stub，离线。自动幂等安装 tauri-driver，再按
+# icons → web/dist → debug 桌面二进制的顺序构建并跑全量用户旅程
 make e2e
-# 等价于 cd desktop && bun run test:e2e
+
+# 只装驱动 / 只构建（可单独执行，但通常不必）
+make e2e-tools                    # 已安装时直接跳过，不会重复联网
+make e2e-build
 
 # 只要服务端契约（无需 Rust 工具链 / WebDriver）
 make e2e-contract
@@ -62,8 +60,11 @@ E2E_SERVER_URL=http://127.0.0.1:3500 \
 E2E_LIVE_EMAIL=ops@example.test \
 E2E_LIVE_PASSWORD=... \
 make e2e-live
-# 等价于 cd desktop && bun run test:e2e:live
 ```
+
+> `cd desktop && bun run test:e2e` 只跑测试，**不构建桌面端也不装驱动**；
+> 想跑桌面用例请用 `make e2e`。skip 时编排器会把原因与失败的前置项直接打到
+> 终端，完整清单仍写入 `artifacts/run.json`。
 
 `make test`（web Vitest + release 脚本 Vitest + cargo test）与 web/desktop 两个
 100% 覆盖率闸门**不受影响**：`desktop/vitest.config.js` 只匹配 `tests/**/*.spec.js`

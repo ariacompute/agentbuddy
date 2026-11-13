@@ -95,19 +95,25 @@ icons: desktop-install ## Re-derive every icon size from assets/app-icon.png.
 # not. `make e2e-contract` is the exception — it needs no toolchain at all.
 
 .PHONY: e2e-tools
-e2e-tools: ## Install tauri-driver (one-time; matches the Tauri CLI version).
-	cargo install tauri-driver --locked
+e2e-tools: ## Install tauri-driver only if it is missing (repeat runs stay offline-safe).
+	@if command -v tauri-driver >/dev/null 2>&1 || \
+	   [ -x "$$HOME/.cargo/bin/tauri-driver" ] || \
+	   [ -x "$$HOME/.cargo/bin/tauri-driver.exe" ]; then \
+		echo "agentbuddy: tauri-driver already installed"; \
+	else \
+		cargo install tauri-driver --locked; \
+	fi
 
 .PHONY: e2e-build
 e2e-build: desktop-install web-build icons ## Debug desktop binary with the test-only config-dir seam.
 	cd $(DESK)/src-tauri && cargo build --features e2e-isolation
 
 .PHONY: e2e
-e2e: e2e-build ## Drive the real desktop client against the deterministic server.
+e2e: e2e-tools e2e-build ## Drive the real desktop client against the deterministic server.
 	cd $(DESK) && $(BUN) run test:e2e
 
 .PHONY: e2e-live
-e2e-live: e2e-build ## Same journeys against a real agenthub (E2E_SERVER_URL + live credentials).
+e2e-live: e2e-tools e2e-build ## Same journeys against a real agenthub (E2E_SERVER_URL + live credentials).
 	cd $(DESK) && $(BUN) run test:e2e:live
 
 .PHONY: e2e-contract
