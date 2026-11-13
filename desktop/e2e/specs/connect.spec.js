@@ -80,7 +80,14 @@ describe.skipIf(info.skipped)('F1 · connection page and server probe', () => {
       await wd.clear(server)
       await wd.type(server, 'http://127.0.0.1:1')
       await click(wd, CSS, '#connect')
-      await waitFor(async () => (await wd.text(await waitForElement(wd, CSS, '#status'))).length > 0, 'probe result')
+      // connect() writes "Checking..." with tone="" before the /__shell/test
+      // round-trip, so waiting for a non-empty status reads that intermediate
+      // text. Every failed probe ends with tone="bad"; poll that terminal state
+      // instead, with a timeout that covers the endpoint's 15s probe timeout.
+      await waitFor(async () => {
+        const status = await tryFind(wd, CSS, '#status')
+        return status ? (await wd.attribute(status, 'data-tone')) === 'bad' : false
+      }, 'probe to finish', info.timeoutMs)
       const message = await wd.text(await waitForElement(wd, CSS, '#status'))
       expect([boot.tables.en.errUnreachable, boot.tables.en.errUnexpected]).toContain(message)
       expect(await tryFind(wd, CSS, '#form-card')).toBeTruthy()

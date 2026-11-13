@@ -163,4 +163,7 @@ export async function teardown() {
   await cleanup(sessionInfo?.skipped ? 'skipped-desktop' : 'finished')
 }
 
-export default setup
+// Vitest 2.x's loadGlobalSetupFile() prefers a `default` export and, when it
+// finds one, ignores the named `teardown` entirely. Exporting setup as default
+// here would therefore leave every run's processes and WebDriver session alive.
+// Keep only the named setup/teardown pair so cleanup is registered.

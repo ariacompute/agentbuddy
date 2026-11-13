@@ -58,8 +58,11 @@ describe.skipIf(info.skipped)('F6/F16 · organisation and channels', () => {
       await type(wd, CSS, '[role="dialog"] input', 'E2E Slack')
       await confirmDialog(wd, { danger: false })
       if (info.backend === 'stub') {
-        await waitFor(async () => (await requests()).some((r) => r.method === 'POST' && r.path === '/api/channels'), 'channel create')
-        expect((await wd.findAll(CSS, '.card-wrap')).length).toBe(3)
+        // A recorded POST only proves the request landed; the refreshed card
+        // list is painted afterwards. Wait for the visible result, then assert
+        // the request was really made.
+        await waitFor(async () => (await wd.findAll(CSS, '.card-wrap')).length === 3, 'the third channel card', info.timeoutMs)
+        expect((await requests()).some((r) => r.method === 'POST' && r.path === '/api/channels')).toBe(true)
       }
     })
   })

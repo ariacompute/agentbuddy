@@ -64,7 +64,9 @@ describe.skipIf(info.skipped)('F1 · login, registration and route guard', () =>
       await wd.clear(password)
       await wd.type(password, 'definitely-wrong')
       await click(wd, CSS, 'button.btn.btn-primary[type="submit"]')
-      await waitFor(async () => (await pageText(wd)).length > 0, 'error banner')
+      // pageText() is the whole body, so a non-empty check is a no-op that can
+      // read the form before the rejected sign-in has painted its error banner.
+      await waitForText(wd, errorMessage('invalid_credentials'), info.timeoutMs)
       const text = await pageText(wd)
       expect(text).toContain(errorMessage('invalid_credentials'))
       expect((await rootState(wd)).hash).toContain('#/login')
