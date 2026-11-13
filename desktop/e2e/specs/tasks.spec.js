@@ -27,12 +27,26 @@ describe.skipIf(info.skipped)('F4 · tasks and traces', () => {
 
   it('lists tasks across the whole state machine and filters completed ones', async () => {
     await step(wd, 'task-filters', async () => {
-      if (info.backend === 'stub') expect((await wd.findAll(CSS, '.grid.grid-2 > .card')).length).toBe(4)
+      const before = (await wd.findAll(CSS, '.grid.grid-2 > .card')).length
+      if (info.backend === 'stub') expect(before).toBe(4)
       for (const label of [t('task', 'filterAll'), t('task', 'filterActive'), t('task', 'filterWaiting'), t('task', 'filterDone')]) {
         expect(await pageText(wd)).toContain(label)
       }
       await click(wd, CSS, '.row.row-wrap > button.btn.btn-sm:nth-of-type(4)')
-      expect((await wd.findAll(CSS, '.grid.grid-2 > .card')).length).toBeLessThanOrEqual(2)
+      // The done filter is a client-side computed list: it can only narrow the
+      // list and every remaining card must be a terminal state. Assert on the
+      // visible state dots instead of the stub's fixed two finished tasks —
+      // a live server has a different number on every run. Polling also waits
+      // for Vue's re-render after the click.
+      const states = await waitFor(async () => {
+        const found = await wd.execute(`
+          return Array.from(document.querySelectorAll('.grid.grid-2 > .card .state-dot'))
+            .map((el) => el.getAttribute('data-state'));
+        `)
+        if (found.length > before) return null
+        return found.every((state) => ['completed', 'failed', 'canceled'].includes(state)) ? found : null
+      }, 'the done filter to show only terminal states', info.timeoutMs)
+      if (info.backend === 'stub') expect(states.length).toBe(2)
     })
   })
 
