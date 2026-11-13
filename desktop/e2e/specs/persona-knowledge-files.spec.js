@@ -9,7 +9,7 @@ import {
 } from '../driver/helpers.mjs'
 import { errorMessage, t } from '../driver/selectors.mjs'
 
-const { info, wd, proxy, reset, requests } = e2eContext()
+const { info, wd, proxy, reset, requests, fixtures } = e2eContext()
 
 async function open(path) {
   await navigateHash(wd, path, info.timeoutMs)
@@ -72,7 +72,7 @@ describe.skipIf(info.skipped)('F8/F10/F14/F19 · persona, knowledge and files', 
     })
   })
 
-  it('lists shared files with a real download link', async () => {
+  it.skipIf(!fixtures)('lists shared files with a real download link', async () => {
     await step(wd, 'files-download', async () => {
       await open('/files')
       const download = await waitForElement(wd, CSS, 'a.btn[download]')
@@ -83,18 +83,24 @@ describe.skipIf(info.skipped)('F8/F10/F14/F19 · persona, knowledge and files', 
     })
   })
 
-  it('uploads a file through the file input and refreshes the table', async () => {
+  it.skipIf(!fixtures)('uploads a file through the file input and refreshes the table', async () => {
     await step(wd, 'files-upload', async () => {
-      const file = path.join(info.artifactsDir, 'e2e-upload.txt')
+      // A fixed name collides with the file a previous Windows run left locked
+      // by the WebView (EPERM on write/remove). A unique name per journey makes
+      // the upload independent of leftovers from an aborted run.
+      const file = path.join(info.artifactsDir, `e2e-upload-${process.pid}-${Date.now()}.txt`)
       fs.mkdirSync(info.artifactsDir, { recursive: true })
       fs.writeFileSync(file, 'agentbuddy e2e upload\n')
-      await open('/files')
-      const input = await waitForElement(wd, CSS, 'input.files-input[type="file"]')
-      await wd.type(input, file)
-      if (info.backend === 'stub') {
+      try {
+        await open('/files')
+        const input = await waitForElement(wd, CSS, 'input.files-input[type="file"]')
+        await wd.type(input, file)
         await waitFor(async () => (await requests()).some((r) => r.method === 'POST' && r.path === '/api/files'), 'file upload')
+      } finally {
+        // Windows may still hold the handle while the WebView uploads. A failed
+        // cleanup leaves one temp file, but must not fail the journey.
+        try { fs.rmSync(file, { force: true }) } catch { /* best effort */ }
       }
-      fs.rmSync(file, { force: true })
     })
   })
 
@@ -124,7 +130,7 @@ describe.skipIf(info.skipped)('F8/F10/F14/F19 · persona, knowledge and files', 
     })
   })
 
-  it('keeps text input usable when voice recording is unavailable', async () => {
+  it.skipIf(!fixtures)('keeps text input usable when voice recording is unavailable', async () => {
     await step(wd, 'voice-degradation', async () => {
       await open('/threads/thread-1')
       // `open()` waits on a generic `.card, .empty`, which the previous screen

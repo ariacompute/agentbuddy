@@ -46,7 +46,16 @@ describe.skipIf(info.skipped)('desktop shell · loopback proxy', () => {
       const workspace = await proxy.forward('/api/workspace')
       expect(workspace.status).toBe(200)
       const a2a = await proxy.forward('/a2a', { method: 'POST', body: { jsonrpc: '2.0' } })
-      expect(a2a.status).toBe(200)
+      // A bare envelope has no method. The stub answers 200 for any POST, while
+      // a real agenthub maps -32601 method_not_found to HTTP 404. Both prove the
+      // prefix was forwarded and the upstream replied (not an SPA fallback).
+      expect(a2a.body.jsonrpc).toBe('2.0')
+      if (info.backend === 'stub') {
+        expect(a2a.status).toBe(200)
+      } else {
+        expect(a2a.status).toBe(404)
+        expect(a2a.body.error?.code).toBe(-32601)
+      }
     })
   })
 

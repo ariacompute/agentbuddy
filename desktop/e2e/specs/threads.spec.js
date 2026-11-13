@@ -8,7 +8,7 @@ import {
 } from '../driver/helpers.mjs'
 import { t } from '../driver/selectors.mjs'
 
-const { info, wd, proxy, reset, requests } = e2eContext()
+const { info, wd, proxy, reset, requests, fixtures } = e2eContext()
 
 async function openList() {
   await navigateHash(wd, '/threads', info.timeoutMs)
@@ -53,7 +53,7 @@ describe.skipIf(info.skipped)('F3 · threads', () => {
     })
   })
 
-  it('shows messages with their origin and streams new ones over SSE', async () => {
+  it.skipIf(!fixtures)('shows messages with their origin and streams new ones over SSE', async () => {
     await step(wd, 'thread-sse', async () => {
       await openDetail()
       expect((await wd.findAll(CSS, '.msg')).length).toBeGreaterThan(0)
@@ -69,7 +69,7 @@ describe.skipIf(info.skipped)('F3 · threads', () => {
     })
   })
 
-  it('@mention opens the agent candidates and delegates on send', async () => {
+  it.skipIf(!fixtures)('@mention opens the agent candidates and delegates on send', async () => {
     await step(wd, 'thread-mention', async () => {
       await openDetail()
       const composer = await waitForElement(wd, CSS, '.composer textarea')
@@ -85,7 +85,7 @@ describe.skipIf(info.skipped)('F3 · threads', () => {
     })
   })
 
-  it('clears all messages after a confirmation, keeping the thread', async () => {
+  it.skipIf(!fixtures)('clears all messages after a confirmation, keeping the thread', async () => {
     await step(wd, 'clear-messages', async () => {
       await openDetail()
       await clickContaining(wd, t('thread', 'clearMessages'), { tag: 'button' })
@@ -100,7 +100,7 @@ describe.skipIf(info.skipped)('F3 · threads', () => {
     })
   })
 
-  it('cancelling clear-messages does not send the delete', async () => {
+  it.skipIf(!fixtures)('cancelling clear-messages does not send the delete', async () => {
     await step(wd, 'cancel-clear-messages', async () => {
       await openDetail()
       await clickContaining(wd, t('thread', 'clearMessages'), { tag: 'button' })
@@ -135,7 +135,7 @@ describe.skipIf(info.skipped)('F3 · threads', () => {
     })
   })
 
-  it('the back link returns to the list even when the thread failed to load', async () => {
+  it.skipIf(!fixtures)('the back link returns to the list even when the thread failed to load', async () => {
     await step(wd, 'thread-back-link', async () => {
       await openDetail()
       expect(await tryFind(wd, CSS, '.thread-back')).toBeTruthy()

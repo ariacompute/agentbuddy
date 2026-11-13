@@ -7,7 +7,7 @@ import {
 } from '../driver/helpers.mjs'
 import { ariaSelector, errorMessage, t } from '../driver/selectors.mjs'
 
-const { info, wd, proxy, reset, requests } = e2eContext()
+const { info, wd, proxy, reset, requests, fixtures } = e2eContext()
 
 async function openOrg() {
   await navigateHash(wd, '/org', info.timeoutMs)
@@ -23,7 +23,7 @@ async function openChannels() {
 describe.skipIf(info.skipped)('F6/F16 · organisation and channels', () => {
   beforeEach(async () => { await reset() })
 
-  it('creates a registry resource and shows the returned id', async () => {
+  it.skipIf(!fixtures)('creates a registry resource and shows the returned id', async () => {
     await step(wd, 'org-create', async () => {
       await openOrg()
       await type(wd, CSS, '.card.stack input[type="text"]', 'e2e-agent')
@@ -79,7 +79,7 @@ describe.skipIf(info.skipped)('F6/F16 · organisation and channels', () => {
     })
   })
 
-  it('toggles a channel on and off through the switch', async () => {
+  it.skipIf(!fixtures)('toggles a channel on and off through the switch', async () => {
     await step(wd, 'channel-switch', async () => {
       await openChannels()
       await waitForElement(wd, CSS, '.switch input[type="checkbox"]')
@@ -93,7 +93,7 @@ describe.skipIf(info.skipped)('F6/F16 · organisation and channels', () => {
     })
   })
 
-  it('expands delivery receipts and retries a failed outbound one', async () => {
+  it.skipIf(!fixtures)('expands delivery receipts and retries a failed outbound one', async () => {
     await step(wd, 'delivery-retry', async () => {
       await openChannels()
       await clickContaining(wd, t('channel', 'deliveriesTitle'), { tag: 'button' })

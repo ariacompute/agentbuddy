@@ -7,7 +7,7 @@ import {
 } from '../driver/helpers.mjs'
 import { errorMessage, t } from '../driver/selectors.mjs'
 
-const { info, wd, proxy, reset, requests } = e2eContext()
+const { info, wd, proxy, reset, requests, fixtures } = e2eContext()
 
 /** A fresh mount is what makes the "GET before clear, GET after clear"
  * assertion meaningful: re-setting the same hash fires no hashchange. */
@@ -78,7 +78,7 @@ describe.skipIf(info.skipped)('F4 · tasks and traces', () => {
     })
   })
 
-  it('the trace view shows timeline, spans and artifacts, and cancels a live task', async () => {
+  it.skipIf(!fixtures)('the trace view shows timeline, spans and artifacts, and cancels a live task', async () => {
     await step(wd, 'task-trace-cancel', async () => {
       await navigateHash(wd, '/tasks/task-1', info.timeoutMs)
       await waitForElement(wd, CSS, '.timeline', info.timeoutMs)
@@ -91,7 +91,7 @@ describe.skipIf(info.skipped)('F4 · tasks and traces', () => {
     })
   })
 
-  it('an input-required task can be resumed with an answer', async () => {
+  it.skipIf(!fixtures)('an input-required task can be resumed with an answer', async () => {
     await step(wd, 'task-resume', async () => {
       await navigateHash(wd, '/tasks/task-2', info.timeoutMs)
       await waitForElement(wd, CSS, 'textarea', info.timeoutMs)

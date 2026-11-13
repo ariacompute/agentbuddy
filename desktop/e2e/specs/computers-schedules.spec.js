@@ -7,7 +7,7 @@ import {
 } from '../driver/helpers.mjs'
 import { errorMessage, t } from '../driver/selectors.mjs'
 
-const { info, wd, proxy, reset, requests } = e2eContext()
+const { info, wd, proxy, reset, requests, fixtures } = e2eContext()
 
 /** Leave the route and come back every time: a fault only changes the *next*
  * request, a same-hash navigation fires no hashchange, and an unfinished dialog
@@ -30,8 +30,13 @@ describe.skipIf(info.skipped)('F11/F13/F17/F18 · computers and schedules', () =
       await openComputers()
       expect((await wd.findAll(CSS, '.stats-strip .stat')).length).toBeGreaterThanOrEqual(5)
       expect(await pageText(wd)).toContain(t('hub', 'sbCatalogTitle'))
-      expect((await wd.findAll(CSS, '.catalog-card')).length).toBeGreaterThan(0)
-      if (info.backend === 'stub') expect((await wd.findAll(CSS, '.lease-card')).length).toBe(1)
+      // A live host with no docker/bwrap/gVisor exposes no provider at all, so
+      // its catalogue rail is legitimately empty; only the stub seeds cards.
+      expect(await tryFind(wd, CSS, '.catalog-rail')).toBeTruthy()
+      if (info.backend === 'stub') {
+        expect((await wd.findAll(CSS, '.catalog-card')).length).toBeGreaterThan(0)
+        expect((await wd.findAll(CSS, '.lease-card')).length).toBe(1)
+      }
     })
   })
 
@@ -95,9 +100,17 @@ describe.skipIf(info.skipped)('F11/F13/F17/F18 · computers and schedules', () =
       }
       expect((await wd.findAll(CSS, '.stats-strip .stat')).length).toBeGreaterThanOrEqual(5)
       // Run history belongs to one goal: it is rendered only after a row is
-      // selected, so drive that user action instead of expecting it on first paint.
-      await click(wd, CSS, '.schedule-row strong')
-      await waitForText(wd, t('hub', 'routerRuns'), info.timeoutMs)
+      // selected, so drive that user action instead of expecting it on first
+      // paint. A live server may legitimately have no goals yet, in which case
+      // the empty state is the correct visible result.
+      const settled = await waitFor(async () => {
+        if (await tryFind(wd, CSS, '.schedule-row strong')) return 'row'
+        return (await pageText(wd)).includes(t('hub', 'schedulesEmpty')) ? 'empty' : null
+      }, 'goals or their empty state', info.timeoutMs)
+      if (settled === 'row') {
+        await click(wd, CSS, '.schedule-row strong')
+        await waitForText(wd, t('hub', 'routerRuns'), info.timeoutMs)
+      }
     })
   })
 
@@ -123,7 +136,7 @@ describe.skipIf(info.skipped)('F11/F13/F17/F18 · computers and schedules', () =
     })
   })
 
-  it('runs a goal now and cancels a ticket', async () => {
+  it.skipIf(!fixtures)('runs a goal now and cancels a ticket', async () => {
     await step(wd, 'schedule-run-cancel', async () => {
       await openSchedules()
       await click(wd, CSS, '.schedule-row')

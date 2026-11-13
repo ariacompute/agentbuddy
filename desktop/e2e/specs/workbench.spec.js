@@ -7,7 +7,7 @@ import {
 } from '../driver/helpers.mjs'
 import { t } from '../driver/selectors.mjs'
 
-const { info, wd, proxy, reset, requests } = e2eContext()
+const { info, wd, proxy, reset, requests, fixtures } = e2eContext()
 
 async function open() {
   await navigateHash(wd, '/', info.timeoutMs)
@@ -42,7 +42,7 @@ describe.skipIf(info.skipped)('F2 · workbench and approvals', () => {
     view: '.approval-card .btn.btn-ghost',
   }
 
-  it('groups input-required tasks into an approval card and approves one', async () => {
+  it.skipIf(!fixtures)('groups input-required tasks into an approval card and approves one', async () => {
     await step(wd, 'approve-task', async () => {
       await waitForText(wd, t('workspace', 'approvalsTitle'))
       await click(wd, CSS, APPROVAL.approve)
@@ -54,7 +54,7 @@ describe.skipIf(info.skipped)('F2 · workbench and approvals', () => {
     })
   })
 
-  it('rejects an approval without running the task', async () => {
+  it.skipIf(!fixtures)('rejects an approval without running the task', async () => {
     await step(wd, 'reject-task', async () => {
       await waitForText(wd, t('workspace', 'approvalsTitle'))
       await click(wd, CSS, APPROVAL.reject)
@@ -67,7 +67,7 @@ describe.skipIf(info.skipped)('F2 · workbench and approvals', () => {
     })
   })
 
-  it('view opens the task trace and new thread opens the thread list', async () => {
+  it.skipIf(!fixtures)('view opens the task trace and new thread opens the thread list', async () => {
     await step(wd, 'workbench-links', async () => {
       await click(wd, CSS, APPROVAL.view)
       await waitFor(async () => (await rootState(wd)).hash.startsWith('#/tasks/'), 'task trace route')

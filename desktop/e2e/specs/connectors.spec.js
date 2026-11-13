@@ -9,7 +9,7 @@ import {
 } from '../driver/helpers.mjs'
 import { errorMessage, t } from '../driver/selectors.mjs'
 
-const { info, wd, proxy, reset, requests } = e2eContext()
+const { info, wd, proxy, reset, requests, fixtures } = e2eContext()
 
 /** Each journey needs a fresh view: the declared-action list is cached per
  * visit, and an approval decision changes the queue. Setting the same hash
@@ -102,7 +102,7 @@ describe.skipIf(info.skipped)('F7/F19 · connectors and approvals', () => {
     })
   })
 
-  it('approves a parked action and removes it from the queue', async () => {
+  it.skipIf(!fixtures)('approves a parked action and removes it from the queue', async () => {
     await step(wd, 'connector-approve', async () => {
       await waitForText(wd, t('connector', 'approvalsTitle'))
       await clickContaining(wd, t('connector', 'approvalApprove'), { tag: 'button' })

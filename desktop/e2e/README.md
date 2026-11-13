@@ -55,7 +55,7 @@ make e2e-build
 # 只要服务端契约（无需 Rust 工具链 / WebDriver）
 make e2e-contract
 
-# 真实 agenthub（同一套用例）
+# 真实 agenthub（同一套用例，fixture-only 旅程显式 skip）
 E2E_SERVER_URL=http://127.0.0.1:3500 \
 E2E_LIVE_EMAIL=ops@example.test \
 E2E_LIVE_PASSWORD=... \
@@ -132,9 +132,15 @@ hash 不变、进程退出码、角标数值）钉住。
   否则新页面顶部的控件会落在视口外。
   焦点环是 CSSOM 声明检查（2px `outline` + 2px offset）：WebKit 下程序化 `focus()`
   不保证命中 `:focus-visible`，读 computed style 会得到假的 0px。
-- live 模式：不启动 stub，连接页直接填 `E2E_SERVER_URL`；故障注入、SSE 推送、
-  固定 fixtures 相关断言自动跳过；破坏性操作需 `E2E_LIVE_ALLOW_DESTRUCTIVE=1`
-  且必须使用隔离账号，避免污染真实 PostgreSQL。
+- live 模式：不启动 stub，连接页直接填 `E2E_SERVER_URL`。依赖确定性 fixtures 的
+  旅程（硬编码 `thread-1` / `task-2` / 审批队列、固定行数、故障注入、SSE 推送）
+  由 `e2eContext().fixtures` 统一标记 `it.skipIf`，报告里是**显式 skip**，不是
+  空跑后假装通过；与数据无关的断言仍按真实服务端契约校验，例如空的 JSON-RPC
+  信封在 agenthub 上是 `404 / -32601 method_not_found`，而不是 stub 的 200，
+  且设置页版本标签要按当前语言解析、值取真实 `/healthz`。破坏性操作需
+  `E2E_LIVE_ALLOW_DESTRUCTIVE=1` 且必须使用隔离账号，避免污染真实 PostgreSQL。
+  文件上传用例使用每次唯一的临时文件名并在 `finally` 中尽力清理，避免 Windows
+  上残留句柄导致的 `EPERM` 让下一条旅程误报失败。
 
 ## 产物
 

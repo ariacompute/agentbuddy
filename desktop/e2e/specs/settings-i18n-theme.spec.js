@@ -48,7 +48,14 @@ describe.skipIf(info.skipped)('settings · 13 languages, theme, RTL, a11y', () =
         await waitForText(wd, 'e2e-stub-1.0', info.timeoutMs)
         expect(await pageText(wd)).toContain('abc1234')
       } else {
-        expect(await pageText(wd)).toContain(t('settings', 'version'))
+        // The shared WebView may be in any of the 13 languages (the sweep
+        // restores en only in afterEach), so resolve the label in the language
+        // the page is actually showing, then pin the value to live /healthz.
+        const lang = (await rootState(wd)).lang || 'en'
+        expect(await pageText(wd)).toContain(t('settings', 'version', lang))
+        const health = await proxy.forward('/healthz')
+        expect(health.status).toBe(200)
+        if (health.body?.version) await waitForText(wd, String(health.body.version), info.timeoutMs)
       }
     })
   })
