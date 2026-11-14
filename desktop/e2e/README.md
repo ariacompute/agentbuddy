@@ -36,7 +36,7 @@ The happy and error paths of this seam are covered by `src-tauri/src/lib.rs`'s
 
 | Platform | Dependencies |
 | --- | --- |
-| Linux (authoritative full run) | `webkit2gtk-driver` (provides `WebKitWebDriver`), `xvfb` (provides `xvfb-run`), Tauri's WebKitGTK/GTK build deps, `tauri-driver` (installed idempotently on demand by `make e2e`), Rust stable |
+| Linux (authoritative full run) | `webkit2gtk-driver` (provides `WebKitWebDriver`), `xvfb` (provides `xvfb-run`), Tauri WebKitGTK/GTK build deps (see install block below), `tauri-driver` (installed idempotently on demand by `make e2e`), Rust stable |
 | Windows (best effort) | WebView2 runtime (Evergreen), `msedgedriver` (matching the WebView2 runtime version; resolved from PATH or via `E2E_NATIVE_DRIVER`), `tauri-driver` (auto-installed likewise), Rust stable |
 | Common | bun ≥ 1.4.4, Node (Vitest must be launched by Node), `web/dist/index.html`, `desktop/src-tauri/target/debug/AgentBuddy[.exe]` built with `e2e-isolation` |
 
@@ -45,6 +45,21 @@ The happy and error paths of this seam are covered by `src-tauri/src/lib.rs`'s
 > process. But if the WebDriver components above are missing on this machine, the
 > orchestrator marks the desktop cases as skipped and prints the specific missing items;
 > `stub-contract.spec.js` is unaffected and always runs for real.
+
+**Linux build dependencies (Ubuntu / Debian / WSL2)** — the Tauri v2 crate links
+WebKitGTK, GTK, D-Bus, appindicator and friends, so install these *before*
+`make e2e-build`:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential curl wget file pkg-config \
+  libwebkit2gtk-4.1-dev libgtk-3-dev libdbus-1-dev libssl-dev \
+  libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+```
+
+(If your Tauri pins `webkit2gtk-4.0` instead of `4.1`, substitute that package name.
+`webkit2gtk-driver` and `xvfb` from the table are the *runtime* WebDriver/display,
+separate from these *build* libraries.)
 
 ## Running
 
