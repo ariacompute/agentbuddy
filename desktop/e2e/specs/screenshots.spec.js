@@ -103,37 +103,44 @@ describe.skipIf(info.skipped)('agentbuddy screenshots (en / zh)', () => {
     let currentLang = null
     let failures = 0
     const failed = []
+    let currentStep = 'open'
 
     for (const { lang, route, name } of order) {
       try {
         if (lang !== currentLang) {
-          await step(wd, `lang-${lang}`, async () => { await selectLanguage(wd, lang) })
+          currentStep = `lang-${lang}`
+          await step(wd, currentStep, async () => { await selectLanguage(wd, lang) })
           currentLang = lang
         }
 
         if (route === '/login') {
           if (signedIn) {
-            await step(wd, 'signout', async () => { await signOut(wd, info.timeoutMs) })
+            currentStep = 'signout'
+            await step(wd, currentStep, async () => { await signOut(wd, info.timeoutMs) })
             signedIn = false
             await selectLanguage(wd, lang).catch(() => {}) // re-assert on the login page
           }
-          await step(wd, `shot-${lang}-login`, async () => {
+          currentStep = `shot-${lang}-login`
+          await step(wd, currentStep, async () => {
             await waitForScreen(wd, '/login')
             await scrollToTop(wd)
             const png = await wd.screenshot()
             saveScreenshot(png, `${lang}/${prefixFor(route)}_${name}`)
           })
-          await step(wd, 'signin', async () => { await signIn(wd, cfg.credentials, { timeoutMs: info.timeoutMs }) })
+          currentStep = 'signin'
+          await step(wd, currentStep, async () => { await signIn(wd, cfg.credentials, { timeoutMs: info.timeoutMs }) })
           signedIn = true
           await waitForElement(wd, CSS, '.shell', info.timeoutMs)
         } else {
           if (!signedIn) {
-            await step(wd, 'signin', async () => { await signIn(wd, cfg.credentials, { timeoutMs: info.timeoutMs }) })
+            currentStep = 'signin'
+            await step(wd, currentStep, async () => { await signIn(wd, cfg.credentials, { timeoutMs: info.timeoutMs }) })
             signedIn = true
             await waitForElement(wd, CSS, '.shell', info.timeoutMs)
             await selectLanguage(wd, lang).catch(() => {})
           }
-          await step(wd, `shot-${lang}-${route}`, async () => {
+          currentStep = `shot-${lang}-${route}`
+          await step(wd, currentStep, async () => {
             const path = await resolveRoute(wd, route)
             await navigateHash(wd, path)
             await waitForScreen(wd, route)
@@ -144,7 +151,7 @@ describe.skipIf(info.skipped)('agentbuddy screenshots (en / zh)', () => {
       } catch {
         // step() already recorded the failure and saved a failure screenshot.
         failures += 1
-        failed.push(`${lang}/${name} (${route})`)
+        failed.push(`${lang}/${name} (${route}) @ ${currentStep}`)
       }
     }
 
