@@ -86,15 +86,17 @@ and what is waiting on you:
 
 ## 🗺 Diagrams
 
-Three interactive diagrams cover the runtime architecture, one A2A delegation
-and the task state machine. Each is a single self-contained HTML file: open it
-online, or clone the repo and open `docs/diagrams/` locally with no server.
+Four interactive diagrams cover the runtime architecture, one A2A delegation,
+the task state machine, and the resource grants shared by both ends. Each is a
+single self-contained HTML file: open it online, or clone the repo and open
+`docs/diagrams/` locally with no server.
 
 | Diagram | Interactive | Static preview |
 | --- | --- | --- |
 | Runtime architecture | [Open](https://ariacompute.github.io/agentbuddy/diagrams/agenthub-agentbuddy.architecture.en.html) | [PNG](diagrams/agenthub-agentbuddy.architecture.en.png) |
 | One A2A delegation (`message/send` → `tasks/resume`) | [Open](https://ariacompute.github.io/agentbuddy/diagrams/agenthub-agentbuddy.sequence.en.html) | [PNG](diagrams/agenthub-agentbuddy.sequence.en.png) |
 | Task state machine | [Open](https://ariacompute.github.io/agentbuddy/diagrams/agenthub-agentbuddy.lifecycle.en.html) | [PNG](diagrams/agenthub-agentbuddy.lifecycle.en.png) |
+| Resource grants | [Open](https://ariacompute.github.io/agentbuddy/diagrams/agenthub-agentbuddy.grants.en.html) | [PNG](diagrams/agenthub-agentbuddy.grants.en.png) |
 
 ![English runtime architecture diagram](diagrams/agenthub-agentbuddy.architecture.en.png)
 

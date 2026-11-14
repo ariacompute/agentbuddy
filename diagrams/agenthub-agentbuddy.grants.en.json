@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AgentHub + AgentBuddy Resource Grants",
+    "output": "docs/diagrams/agenthub-agentbuddy.grants.en.html",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "member", "type": "external", "label": "Member", "sublabel": "Signed-in principal", "pos": [40, 300], "size": [130, 64] },
+    { "id": "session", "type": "security", "label": "Session cookie", "sublabel": "OS keychain / HttpOnly", "pos": [250, 140], "size": [130, 64] },
+    { "id": "picker", "type": "frontend", "label": "Agent picker", "sublabel": "discoverable=true", "pos": [250, 300], "size": [130, 64] },
+    { "id": "reasons", "type": "messagebus", "label": "Reason notice", "sublabel": "13 locales / 4 reasons", "pos": [250, 450], "size": [130, 64] },
+    { "id": "proxy", "type": "security", "label": "Loopback Proxy", "sublabel": "/api/* + cookie jar", "pos": [460, 300], "size": [130, 64] },
+    { "id": "catalog", "type": "backend", "label": "Management list", "sublabel": "no discoverable flag", "pos": [460, 450], "size": [130, 64] },
+    { "id": "lifecycle", "type": "backend", "label": "Registry lifecycle", "sublabel": "EffectiveStatus", "pos": [670, 140], "size": [130, 64] },
+    { "id": "api", "type": "backend", "label": "Resource API", "sublabel": "GET /api/resources", "pos": [670, 300], "size": [130, 64] },
+    { "id": "curation", "type": "security", "label": "Curator endpoints", "sublabel": "/api/grants + /status", "pos": [670, 450], "size": [130, 64] },
+    { "id": "authz", "type": "backend", "label": "authz.Service", "sublabel": "VisibleResourceIDs", "pos": [880, 140], "size": [130, 64] },
+    { "id": "gate", "type": "backend", "label": "Unified gate", "sublabel": "approved + visible", "pos": [880, 300], "size": [130, 64] },
+    { "id": "grantsdb", "type": "database", "label": "resource_grants", "sublabel": "PostgreSQL / RBAC", "pos": [880, 450], "size": [130, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Local: agentbuddy (read-only consumer)", "wraps": ["session", "picker", "reasons", "proxy", "catalog"] },
+    { "kind": "region", "label": "Server: agenthub (grants authority)", "wraps": ["lifecycle", "api", "curation", "authz", "gate", "grantsdb"] }
+  ],
+  "connections": [
+    { "id": "open-picker", "from": "member", "to": "picker", "label": "Open picker", "variant": "emphasis" },
+    { "id": "send-cookie", "from": "picker", "to": "session", "label": "Session cookie" },
+    { "id": "explain", "from": "picker", "to": "reasons", "label": "Reason codes" },
+    { "id": "same-origin", "from": "picker", "to": "proxy", "label": "Same-origin GET" },
+    { "id": "forward", "from": "proxy", "to": "api", "label": "Forward /api/*" },
+    { "id": "approved-only", "from": "api", "to": "lifecycle", "label": "approved only" },
+    { "id": "visible-entries", "from": "api", "to": "gate", "label": "visibleEntries" },
+    { "id": "granted-ids", "from": "authz", "to": "gate", "label": "granted IDs" },
+    { "id": "manage-grants", "from": "api", "to": "curation", "label": "grants:manage" },
+    { "id": "read-grants", "from": "gate", "to": "grantsdb", "label": "Read grants" },
+    { "id": "all-statuses", "from": "curation", "to": "catalog", "label": "All statuses", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "slate",
+      "title": "One server-side gate",
+      "items": [
+        "visibleEntries = authz.VisibleResourceIDs union Entry.IsPublic; a restricted record without a grant stays invisible even when approved.",
+        "registry.Discoverable(entries) then keeps only approved resources; an empty status is treated as approved for legacy rows.",
+        "GET /api/resources?discoverable=true, GET /api/workspace, MCP / Agent Card export and A2A selection all reuse this gate."
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "What the desktop client does",
+      "items": [
+        "ThreadView and PersonaEditor call listResources('agent', { discoverable: true }) and render the response as-is.",
+        "No client-side status filter: a second curation gate would let the desktop override the server's approval.",
+        "A failed @mention is reported by reason code (not_found / not_approved / forbidden / delegate_failed) in 13 locales.",
+        "OrgView uses the unflagged listResources() for curation; it still passes the same visibility filter."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Who can change a grant",
+      "items": [
+        "Curators use GET/POST /api/grants and DELETE /api/grants/{id} (grants:manage); status changes use POST /api/resources/{id}/status (registry:curate).",
+        "Grants live in PostgreSQL resource_grants; creating a resource auto-grants its creator LevelWrite.",
+        "agentbuddy has no grants UI or API wrapper: the loopback proxy only forwards /api, /a2a, /healthz and /.well-known.",
+        "Thread @mention resolution reuses resolvableEntries = Discoverable and canAccess, then delegates via Hub.Send directly."
+      ]
+    }
+  ]
+}

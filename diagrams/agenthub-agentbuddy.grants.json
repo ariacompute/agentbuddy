@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AgentHub + AgentBuddy 资源授权",
+    "output": "docs/diagrams/agenthub-agentbuddy.grants.html",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "member", "type": "external", "label": "成员", "sublabel": "已登录主体", "pos": [40, 300], "size": [130, 64] },
+    { "id": "session", "type": "security", "label": "会话 Cookie", "sublabel": "系统凭据库 / HttpOnly", "pos": [250, 140], "size": [130, 64] },
+    { "id": "picker", "type": "frontend", "label": "Agent 选择器", "sublabel": "discoverable=true", "pos": [250, 300], "size": [130, 64] },
+    { "id": "reasons", "type": "messagebus", "label": "原因提示", "sublabel": "13 语 / 4 类原因", "pos": [250, 450], "size": [130, 64] },
+    { "id": "proxy", "type": "security", "label": "环回代理", "sublabel": "/api/* + Cookie jar", "pos": [460, 300], "size": [130, 64] },
+    { "id": "catalog", "type": "backend", "label": "管理列表", "sublabel": "不带 discoverable", "pos": [460, 450], "size": [130, 64] },
+    { "id": "lifecycle", "type": "backend", "label": "Registry 审批", "sublabel": "EffectiveStatus", "pos": [670, 140], "size": [130, 64] },
+    { "id": "api", "type": "backend", "label": "资源 API", "sublabel": "GET /api/resources", "pos": [670, 300], "size": [130, 64] },
+    { "id": "curation", "type": "security", "label": "策展端点", "sublabel": "/api/grants + /status", "pos": [670, 450], "size": [130, 64] },
+    { "id": "authz", "type": "backend", "label": "authz.Service", "sublabel": "VisibleResourceIDs", "pos": [880, 140], "size": [130, 64] },
+    { "id": "gate", "type": "backend", "label": "统一 gate", "sublabel": "approved + 可见", "pos": [880, 300], "size": [130, 64] },
+    { "id": "grantsdb", "type": "database", "label": "resource_grants", "sublabel": "PostgreSQL / RBAC", "pos": [880, 450], "size": [130, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "本机 · agentbuddy（只读消费端）", "wraps": ["session", "picker", "reasons", "proxy", "catalog"] },
+    { "kind": "region", "label": "服务端 · agenthub（授权权威）", "wraps": ["lifecycle", "api", "curation", "authz", "gate", "grantsdb"] }
+  ],
+  "connections": [
+    { "id": "open-picker", "from": "member", "to": "picker", "label": "打开选择器", "variant": "emphasis" },
+    { "id": "send-cookie", "from": "picker", "to": "session", "label": "携带会话" },
+    { "id": "explain", "from": "picker", "to": "reasons", "label": "原因码" },
+    { "id": "same-origin", "from": "picker", "to": "proxy", "label": "同源 GET" },
+    { "id": "forward", "from": "proxy", "to": "api", "label": "转发 /api/*" },
+    { "id": "approved-only", "from": "api", "to": "lifecycle", "label": "仅 approved" },
+    { "id": "visible-entries", "from": "api", "to": "gate", "label": "visibleEntries" },
+    { "id": "granted-ids", "from": "authz", "to": "gate", "label": "授权 ID" },
+    { "id": "manage-grants", "from": "api", "to": "curation", "label": "grants:manage" },
+    { "id": "read-grants", "from": "gate", "to": "grantsdb", "label": "读取授权" },
+    { "id": "all-statuses", "from": "curation", "to": "catalog", "label": "全状态列表", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "slate",
+      "title": "单一服务端 gate",
+      "items": [
+        "visibleEntries = authz.VisibleResourceIDs 与 Entry.IsPublic 的并集；受限记录没有 grant 时，即使已审批也不可见。",
+        "registry.Discoverable(entries) 随后只保留 approved；空 status 的旧记录按 approved 处理。",
+        "GET /api/resources?discoverable=true、GET /api/workspace、MCP / Agent Card 导出与 A2A 资源选择共用这同一个出口。"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "桌面客户端只消费结果",
+      "items": [
+        "ThreadView 与 PersonaEditor 调用 listResources('agent', { discoverable: true })，原样渲染服务端结果。",
+        "不再本地按 status 过滤：第二道审批闸会让客户端推翻服务端的审批结论。",
+        "@mention 委派失败按 reason 码提示（not_found / not_approved / forbidden / delegate_failed），共 13 语。",
+        "OrgView 用不带参数的 listResources() 看全状态，仍受同一套可见性过滤。"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "谁能修改授权",
+      "items": [
+        "策展人通过 GET/POST /api/grants、DELETE /api/grants/{id} 管理授权（grants:manage）；状态变更走 POST /api/resources/{id}/status（registry:curate）。",
+        "授权落 PostgreSQL 的 resource_grants；新建资源时自动给创建者补 LevelWrite。",
+        "agentbuddy 没有授权界面或 API 封装：环回代理只转发 /api、/a2a、/healthz、/.well-known。",
+        "会话里的 @mention 解析复用 resolvableEntries = Discoverable 且 canAccess，随后经 Hub.Send 直接委派。"
+      ]
+    }
+  ]
+}
