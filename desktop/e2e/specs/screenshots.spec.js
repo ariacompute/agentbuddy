@@ -94,6 +94,7 @@ describe.skipIf(info.skipped)('agentbuddy screenshots (en / zh)', () => {
     let signedIn = true
     let currentLang = null
     let failures = 0
+    const failed = []
 
     for (const { lang, route, name } of order) {
       try {
@@ -135,9 +136,10 @@ describe.skipIf(info.skipped)('agentbuddy screenshots (en / zh)', () => {
       } catch {
         // step() already recorded the failure and saved a failure screenshot.
         failures += 1
+        failed.push(`${lang}/${name} (${route})`)
       }
     }
 
-    expect(failures).toBe(0)
+    expect(failures, `failed screens: ${failed.join(', ') || 'none'}`).toBe(0)
   })
 })
