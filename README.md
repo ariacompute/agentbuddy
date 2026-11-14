@@ -180,6 +180,10 @@ E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # real agenthub
 See `desktop/e2e/README.md` for prerequisites, environment variables and the
 artefacts.
 
+To capture ready-made screenshots of the real desktop client (15 screens × English /
+Chinese), see [Screenshot generation](desktop/e2e/README.md#screenshot-generation-live-mode-only)
+in `desktop/e2e/README.md`.
+
 #### Windows hosts: from skipped to running
 
 A `↓` next to a suite is a preflight skip, not a failure. The orchestrator

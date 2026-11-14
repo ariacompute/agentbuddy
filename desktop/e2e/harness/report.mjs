@@ -51,12 +51,38 @@ export function readRunSummary() {
   try { return JSON.parse(fs.readFileSync(cfg.reportFile, 'utf8')) } catch { return null }
 }
 
+/** Keeps a path safe for the filesystem while preserving Unicode (e.g. CJK) and
+ * the `/` subfolder separator. Each `/`-separated segment keeps letters,
+ * numbers, dot, underscore and hyphen; everything else becomes `_`. */
+export function sanitizePath(name) {
+  return String(name)
+    .split('/')
+    .map((seg) => seg.replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(0, 120))
+    .filter(Boolean)
+    .join('/')
+}
+
 /** Base64 PNG from a WebDriver screenshot, saved only on failure. */
 export function saveFailureScreenshot(base64, name) {
   if (!base64) return null
-  const safe = String(name).replace(/[^a-z0-9._-]+/gi, '_').slice(0, 120)
+  const safe = sanitizePath(name)
   const file = artifactPath(`failure-${safe}-${Date.now()}.png`)
   try {
+    fs.writeFileSync(file, Buffer.from(base64, 'base64'))
+    return file
+  } catch {
+    return null
+  }
+}
+
+/** Base64 PNG written to the screenshots directory (default agentbuddy/screenshots),
+ * under `<name>.png`. `name` may contain a `/` to create a <lang>/ subfolder. */
+export function saveScreenshot(base64, name) {
+  if (!base64) return null
+  const safe = sanitizePath(name)
+  const file = path.join(cfg.screenshotsDir, `${safe}.png`)
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.writeFileSync(file, Buffer.from(base64, 'base64'))
     return file
   } catch {

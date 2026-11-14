@@ -1,162 +1,236 @@
-# 桌面应用级自动化测试（用户视角）
+# Desktop application-level end-to-end testing (user perspective)
 
-从**真实用户的角度**测试 agentbuddy：启动打包后的 debug 桌面客户端，在 WebView 里
-看元素、点击、输入、读可见文案，观察界面变化；不调用 Vue 内部方法、不读 Pinia store、
-不新增任何 IPC 面。覆盖工作台 15 屏与桌面外壳行为，正常与异常双路径，共 13 个 spec /
-115 条用例。
+Test agentbuddy from the perspective of a real user: launch the packaged debug desktop
+client, inspect elements, click, type, and read visible text inside the WebView, and
+observe UI changes. We do not call Vue internals, do not read the Pinia store, and do not
+add any new IPC surface. Coverage spans the 15 workbench screens plus desktop-shell
+behaviors, across both happy and error paths, for a total of 13 specs / 115 cases.
 
-## 架构
+## Architecture
 
 ```
-Vitest(独立配置, 串行) ── W3C WebDriver over fetch ──> tauri-driver
+Vitest (standalone config, serial) ── W3C WebDriver over fetch ──> tauri-driver
         │                                              │
-        │                                              └── AgentBuddy(dev 构建)
-        │                                                     └─ 连接页 / 工作台 WebView
-        ├── /__shell/* 与四前缀回源：页内 fetch（带 bootstrap Cookie）
-        ├── 401/403/CSP/SPA 回退：裸 Node fetch（无凭证或 foreign Origin）
-        ├── 单实例 / 托盘驻留：spawn 第二进程 + instance.json 原始 TCP 握手
-        └── node:http 确定性 stub（含 SSE since 回放、multipart、故障注入）
-                    ↑ E2E_BACKEND=live 时整条替换为真实 agenthub
+        │                                              └── AgentBuddy (dev build)
+        │                                                     └─ connect page / workbench WebView
+        ├── /__shell/* and four-prefix upstream: in-page fetch (with bootstrap Cookie)
+        ├── 401/403/CSP/SPA fallback: bare Node fetch (no credentials or foreign Origin)
+        ├── single-instance / tray residency: spawn second process + raw TCP handshake on instance.json
+        └── node:http deterministic stub (SSE since replay, multipart, fault injection)
+                    ↑ When E2E_BACKEND=live, the entire stub is replaced by a real agenthub
 ```
 
-Tauri v2 的 `tauri-driver` **不需要在 Cargo.toml 启用 `webdriver` feature**（官方文档：
-「without modifying our Tauri application at all」）。唯一的产品侧改动是可选 feature
-`e2e-isolation`：仅在该 feature 下读取 `AGENTBUDDY_E2E_CONFIG_DIR`，把
-`config.json` / `session.json` / `instance.json` 重定向到临时目录，避免污染用户真实配置。
-release 构建不启用该 feature，启动路径与原来完全一致。编排器在连接页保存任何配置**之前**
-会先检查 `instance.json` 落在临时目录里，否则立即终止运行。该缝的正常与异常两条路径由
-`src-tauri/src/lib.rs` 的 `e2e_config_dir_tests` 覆盖，CI 用
-`cargo test --features e2e-isolation e2e_config_dir` 跑它。
+Tauri v2's `tauri-driver` does **not** require enabling the `webdriver` feature in
+Cargo.toml (official docs: "without modifying our Tauri application at all"). The only
+product-side change is the optional `e2e-isolation` feature: only under this feature is
+`AGENTBUDDY_E2E_CONFIG_DIR` read, redirecting `config.json` / `session.json` /
+`instance.json` to a temporary directory so the user's real configuration is not polluted.
+Release builds do not enable this feature, and the startup path is exactly the same as
+before. Before the orchestrator lets the connect page save any config, it first checks
+that `instance.json` landed in the temporary directory, otherwise it aborts immediately.
+The happy and error paths of this seam are covered by `src-tauri/src/lib.rs`'s
+`e2e_config_dir_tests`; CI runs it with
+`cargo test --features e2e-isolation e2e_config_dir`.
 
-## 前置条件
+## Prerequisites
 
-| 平台 | 依赖 |
+| Platform | Dependencies |
 | --- | --- |
-| Linux（权威全量） | `webkit2gtk-driver`（提供 `WebKitWebDriver`）、`xvfb`（提供 `xvfb-run`）、Tauri 的 WebKitGTK/GTK 构建依赖、`tauri-driver`（`make e2e` 会按需幂等安装）、Rust stable |
-| Windows（best effort） | `msedgedriver`（与 WebView2 运行时版本匹配，可用 `E2E_NATIVE_DRIVER` 指定路径）、`tauri-driver`（同上自动安装）、Rust stable |
-| 通用 | bun ≥ 1.4.4、Node（Vitest 必须由 Node 启动）、`web/dist/index.html`、带 `e2e-isolation` 构建的 `desktop/src-tauri/target/debug/AgentBuddy[.exe]` |
+| Linux (authoritative full run) | `webkit2gtk-driver` (provides `WebKitWebDriver`), `xvfb` (provides `xvfb-run`), Tauri's WebKitGTK/GTK build deps, `tauri-driver` (installed idempotently on demand by `make e2e`), Rust stable |
+| Windows (best effort) | WebView2 runtime (Evergreen), `msedgedriver` (matching the WebView2 runtime version; resolved from PATH or via `E2E_NATIVE_DRIVER`), `tauri-driver` (auto-installed likewise), Rust stable |
+| Common | bun ≥ 1.4.4, Node (Vitest must be launched by Node), `web/dist/index.html`, `desktop/src-tauri/target/debug/AgentBuddy[.exe]` built with `e2e-isolation` |
 
-> AGENTS.md 记录的「本机 Windows 无法启动 Rust 测试二进制」指的是 `cargo test` 的
-> test harness 二进制，**不是** dev 构建的桌面应用进程。但本机若没有上述 WebDriver
-> 组件，编排器会把桌面用例标记为 skip 并打印具体缺失项；`stub-contract.spec.js`
-> 不受影响，始终真实执行。
+> The "this machine's Windows cannot launch the Rust test binary" noted in AGENTS.md
+> refers to `cargo test`'s test-harness binary, **not** the dev-built desktop application
+> process. But if the WebDriver components above are missing on this machine, the
+> orchestrator marks the desktop cases as skipped and prints the specific missing items;
+> `stub-contract.spec.js` is unaffected and always runs for real.
 
-## 运行
+## Running
 
 ```bash
-# 默认：确定性 stub，离线。自动幂等安装 tauri-driver，再按
-# icons → web/dist → debug 桌面二进制的顺序构建并跑全量用户旅程
+# Default: deterministic stub, offline. Idempotently installs tauri-driver, then
+# builds in the order icons → web/dist → debug desktop binary and runs the full
+# user journeys.
 make e2e
 
-# 只装驱动 / 只构建（可单独执行，但通常不必）
-make e2e-tools                    # 已安装时直接跳过，不会重复联网
+# Install drivers only / build only (can be run separately, but usually not needed)
+make e2e-tools  # skips if already installed; no repeated network
 make e2e-build
 
-# 只要服务端契约（无需 Rust 工具链 / WebDriver）
+# Server-contract only (no Rust toolchain / WebDriver needed)
 make e2e-contract
 
-# 真实 agenthub（同一套用例，fixture-only 旅程显式 skip）
+# Real agenthub (same set of cases; fixture-only journeys explicitly skip)
 E2E_SERVER_URL=http://127.0.0.1:3500 \
 E2E_LIVE_EMAIL=ops@example.test \
 E2E_LIVE_PASSWORD=... \
 make e2e-live
 ```
 
-> `cd desktop && bun run test:e2e` 只跑测试，**不构建桌面端也不装驱动**；
-> 想跑桌面用例请用 `make e2e`。skip 时编排器会把原因与失败的前置项直接打到
-> 终端，完整清单仍写入 `artifacts/run.json`。
+> `cd desktop && bun run test:e2e` runs only the tests, **without building the desktop
+> app or installing drivers**; to run the desktop cases use `make e2e`. When skipped, the
+> orchestrator prints the reason and the failed prerequisites directly to the terminal;
+> the full checklist is still written to `artifacts/run.json`.
 
-`make test`（web Vitest + release 脚本 Vitest + cargo test）与 web/desktop 两个
-100% 覆盖率闸门**不受影响**：`desktop/vitest.config.js` 只匹配 `tests/**/*.spec.js`
-和 `scripts/**/*.mjs`，`web/vite.config.js` 只匹配 `src/**`，本工程的 `e2e/**`
-落在两者之外，且自身 `coverage.enabled = false`。
+`make test` (web Vitest + release-script Vitest + cargo test) and the web/desktop 100%
+coverage gates **are unaffected**: `desktop/vitest.config.js` only matches
+`tests/**/*.spec.js` and `scripts/**/*.mjs`, and `web/vite.config.js` only matches
+`src/**`. This project's `e2e/**` falls outside both, and its own `coverage.enabled =
+false`.
 
-## 环境变量
+## Environment variables
 
-| 变量 | 默认 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `E2E_BACKEND` | `stub` | `stub` 起本地确定性服务端；`live` 连真实 agenthub |
-| `E2E_SERVER_URL` | — | live 模式必填，形如 `http://host:port` |
-| `E2E_LIVE_EMAIL` / `E2E_LIVE_PASSWORD` | — | live 模式登录凭证 |
-| `E2E_LIVE_ALLOW_DESTRUCTIVE` | `0` | live 模式下默认跳过删线程 / 清任务 / 删文件；设为 `1` 前务必使用隔离账号 |
-| `E2E_APP_BIN` | `desktop/src-tauri/target/debug/AgentBuddy[.exe]` | dev 构建产物路径 |
-| `E2E_DRIVER_URL` | `http://127.0.0.1:4444` | tauri-driver 地址 |
-| `E2E_TAURI_DRIVER` | `~/.cargo/bin/tauri-driver` | tauri-driver 二进制 |
-| `E2E_NATIVE_DRIVER` | — | 平台 WebDriver 路径（Windows `msedgedriver` / Linux `WebKitWebDriver`） |
-| `AGENTBUDDY_E2E_CONFIG_DIR` | 系统临时目录下自动创建 | 显式指定时**不会**在结束时删除 |
-| `E2E_ARTIFACTS` | `desktop/e2e/artifacts` | 报告 / 截图 / 请求日志目录 |
-| `E2E_TIMEOUT_MS` / `E2E_STARTUP_MS` | `30000` / `120000` | 元素等待 / 启动超时 |
-| `E2E_HEADED` | `0` | Linux 下不使用 `xvfb-run` |
-| `E2E_CONTRACT_ONLY` | `0` | 只跑 stub 契约用例 |
+| `E2E_BACKEND` | `stub` | `stub` starts a local deterministic server; `live` connects to a real agenthub |
+| `E2E_SERVER_URL` | — | Required in live mode, e.g. `http://host:port` |
+| `E2E_LIVE_EMAIL` / `E2E_LIVE_PASSWORD` | — | Live-mode login credentials |
+| `E2E_LIVE_ALLOW_DESTRUCTIVE` | `0` | In live mode, destructive ops (delete thread / clear task / delete file) are skipped by default; set to `1` only with an isolated account |
+| `E2E_APP_BIN` | `desktop/src-tauri/target/debug/AgentBuddy[.exe]` | dev build artifact path |
+| `E2E_DRIVER_URL` | `http://127.0.0.1:4444` | tauri-driver address |
+| `E2E_TAURI_DRIVER` | `~/.cargo/bin/tauri-driver` (resolved via PATH if absent) | tauri-driver binary |
+| `E2E_NATIVE_DRIVER` | — (falls back to a PATH-resolved `msedgedriver` / `WebKitWebDriver`) | Platform WebDriver path; if set but the file is missing, the harness falls back to a same-named binary found on PATH |
+| `AGENTBUDDY_E2E_CONFIG_DIR` | auto-created under system temp | When set explicitly it is **not** deleted at the end |
+| `E2E_ARTIFACTS` | `desktop/e2e/artifacts` | reports / request-log directory |
+| `E2E_TIMEOUT_MS` / `E2E_STARTUP_MS` | `30000` / `120000` | element wait / startup timeout |
+| `E2E_HEADED` | `0` | On Linux, do not use `xvfb-run` |
+| `E2E_CONTRACT_ONLY` | `0` | Run only the stub contract cases |
+| `E2E_SCREENSHOTS_DIR` | `agentbuddy/screenshots` (repo root) | screenshot output directory for `shoot.mjs` |
 
-stub 的固定凭证：`e2e@example.test` / `agentbuddy-e2e`。
+stub fixed credentials: `e2e@example.test` / `agentbuddy-e2e`.
 
-## 用例矩阵（13 spec / 115 用例）
+## Case matrix (13 specs / 115 cases)
 
-| spec | 覆盖 | 正常 | 异常 |
+| spec | Coverage | Happy | Error |
 | --- | --- | --- | --- |
-| `stub-contract` | 端点、鉴权、SSE `since` 回放、multipart、故障注入、脱敏日志 | 全端点 200、登录换 Cookie、CRUD、`{deleted,kept}`、按 `taskId` 删除审批 | 401/403/405/503 `feature_off`/500/空态/断连、二次决策 409、错误字段名、超限 |
-| `connect` | F1 连接页、healthz 探测、证书开关、13 语 / RTL、偏好 | 探测成功并保存地址、13 语表、`ar` 下 `dir=rtl` | 空 / 非法 / 不可达地址各自的本地化提示 |
-| `auth` | 登录、注册、OAuth 配置渲染、路由守卫 `?next=` | 登录后回到工作台、深链回跳 | 密码错误、`email_taken`、401 鉴权失败不误报离线 vs 断线离线横幅 |
-| `workbench` | F2/F15 agent 卡片、活动流、待审批 | 批准 / 拒绝 / 查看 / 新建会话 | 空态、5xx banner |
-| `threads` | F3 列表、新建、@提及、SSE 增量、批量删除、清空消息、返回链接 | 创建 / 发送 / 全选删除 / 清空 / 返回 | 取消二次确认不发请求、列表 5xx、`thread_not_found` |
-| `tasks` | F4 状态筛选、追踪 / spans / artifacts、清理全部、resume / cancel | 筛选、`{deleted,kept}` 横幅、取消、恢复 | 旧服务端 405 → `feature_unavailable`、未找到任务 |
-| `org-channels` | F6/F16 资源新建、通道增删改开关、投递回执重试 | 新建资源 / 通道 / 切换 / 重试 | 资源 5xx、`delivery_not_retryable` 409 |
-| `connectors` | F7/F19 策略确认、动作目录、执行、审批队列 | 原生 confirm、一次一取、执行 park、批准 | 目录读取失败、审批 409、队列 5xx 带重试入口 |
-| `computers-schedules` | F11/F13/F17/F18 沙盒水位、试跑、终止、调度四区块、kick / 策略 | 刷新 / 新建 / 试跑 / 终止 / 建目标 / 立即运行 | `sbOffTitle` / `routerOff` 功能关闭态、5xx |
-| `persona-knowledge-files` | F8/F10/F14/F19 人格、知识只读、共享文件、语音降级 | 编辑保存、筛选、上传下载删除 | 保存失败、`files_disabled`、16 MiB 音频 / 文件超限 |
-| `settings-i18n-theme` | 设置页、13 语 + en 兜底、明暗令牌、RTL、通知设置、无障碍、更新状态 | `<html lang\|dir>`、成对令牌全灰、触控目标 ≥44px、焦点环、reduced-motion 规则 | 升级端点不可用降级 |
-| `shell-http` | 代理准入、四前缀回源、SPA 回退、安全头、`/__shell/*` | bootstrap Cookie、配置读写、badge clamp 999、通知 / 执行器 / 升级端点 | 无 token 401、foreign Origin 403、`invalid_count` / `invalid_json` / `disabled` |
-| `native-behaviors` | 隔离目录、单实例唤回、后台驻留、托盘角标、深链、更新状态 | 二次启动退出码 0 且不开新代理、握手 `ok` | 错误 token 返回 `no`、恶意 `link` 不导航 |
+| `stub-contract` | endpoints, auth, SSE `since` replay, multipart, fault injection, redacted logs | all endpoints 200, login swaps Cookie, CRUD, `{deleted,kept}`, delete approvals by `taskId` | 401/403/405/503 `feature_off`/500/empty/down, second decision 409, error field names, limits |
+| `connect` | F1 connect page, healthz probe, cert toggle, 13 languages / RTL, preferences | successful probe and saved address, 13-language table, `ar` sets `dir=rtl` | empty / invalid / unreachable address each with localized message |
+| `auth` | login, registration, OAuth config render, route guard `?next=` | return to workbench after login, deep-link bounce-back | wrong password, `email_taken`, 401 auth failure must not misreport offline vs disconnected offline banner |
+| `workbench` | F2/F15 agent cards, activity feed, pending approvals | approve / reject / view / new thread | empty state, 5xx banner |
+| `threads` | F3 list, create, @mention, SSE delta, batch delete, clear messages, back link | create / send / select-all delete / clear / back | cancel second confirm sends no request, list 5xx, `thread_not_found` |
+| `tasks` | F4 status filter, trace / spans / artifacts, clear all, resume / cancel | filter, `{deleted,kept}` banner, cancel, resume | old server 405 → `feature_unavailable`, task not found |
+| `org-channels` | F6/F16 resource create, channel CRUD toggle, delivery receipt retry | create resource / channel / toggle / retry | resource 5xx, `delivery_not_retryable` 409 |
+| `connectors` | F7/F19 policy confirm, action catalog, execute, approval queue | native confirm, one-at-a-time fetch, execute park, approve | catalog read failure, approval 409, queue 5xx with retry entry |
+| `computers-schedules` | F11/F13/F17/F18 sandbox water level, dry run, terminate, schedule four blocks, kick / policy | refresh / create / dry-run / terminate / create target / run now | `sbOffTitle` / `routerOff` feature-off state, 5xx |
+| `persona-knowledge-files` | F8/F10/F14/F19 persona, knowledge read-only, shared files, voice fallback | edit save, filter, upload download delete | save failure, `files_disabled`, 16 MiB audio / file limit |
+| `settings-i18n-theme` | settings page, 13 languages + en fallback, light/dark tokens, RTL, notification settings, accessibility, update status | `<html lang\|dir>`, paired tokens all gray, touch targets ≥44px, focus ring, reduced-motion rules | upgrade endpoint unavailable degrades |
+| `shell-http` | proxy admission, four-prefix upstream, SPA fallback, security headers, `/__shell/*` | bootstrap Cookie, config read/write, badge clamp 999, notify / executor / upgrade endpoints | no token 401, foreign Origin 403, `invalid_count` / `invalid_json` / `disabled` |
+| `native-behaviors` | isolated dir, single-instance recall, background residency, tray badge, deep link, update status | second launch exit code 0 and no new proxy, handshake `ok` | wrong token returns `no`, malicious `link` does not navigate |
 
-**定位方式**：`driver/selectors.mjs` 直接读取 `web/src/lib/copy/*-copy.js`，按当前语言
-解析按钮 / 标签文案，因此 13 语与 `ar` RTL 共用一套用例，模板里不硬编码自然语言。
-二次确认统一走 `BaseDialog` 页脚作用域，避免误点背景页同文案按钮。
+**Locators**: `driver/selectors.mjs` reads `web/src/lib/copy/*-copy.js` directly and
+resolves button / label text by the current language, so the 13 languages and `ar` RTL
+share one set of cases with no hardcoded natural language in templates. Second confirms go
+through the `BaseDialog` footer scope to avoid mis-clicking a same-text button on the
+background page.
 
-**WebDriver 看不到的语义**（OS toast 点击、`is_in_app_path` 的字符黑名单、
-一次点击只消费一个深链、13 语托盘角标文案、semver 跳过）由
-`desktop/src-tauri/src/{notify,tray,single,upgrade}/*.rs` 里既有的 `#[cfg(test)]`
-纯函数用例覆盖；本套件负责把这些行为在真实进程上的可观察部分（HTTP 应答、
-hash 不变、进程退出码、角标数值）钉住。
+**Semantics WebDriver cannot see** (OS toast clicks, the `is_in_app_path` character
+blacklist, one click consumes only one deep link, 13-language tray badge text, semver
+skip) are covered by the existing `#[cfg(test)]` pure-function cases in
+`desktop/src-tauri/src/{notify,tray,single,upgrade}/*.rs`; this suite is responsible for
+pinning the observable parts of those behaviors on a real process (HTTP responses,
+unchanged hash, process exit code, badge value).
 
-## 双模式差异
+## Dual-mode differences
 
-- stub 模式：每条用例前重置 fixtures 与故障表，但**保留会话**，避免把 WebView 踢回登录页。
-  `/__e2e/*` 控制面可注入 401/403/405/503 `feature_off`/500/超时/断线/空态/慢速 SSE，并推送 SSE 帧。
-  故障只影响**下一次**请求：注入后必须用 `remount()`（先离开路由再回来）触发组件重新挂载，
-  否则同一个 hash 不会产生 `hashchange`，旧视图不会重新请求。
-  功能关闭态要求 `code=feature_unavailable`（503），`unavailable` 只表示旧服务端缺路由（405）。
-  多用例视图（`tasks` / `connectors` / `computers-schedules` / `settings`）的 `open()`
-  一律先 `remount()`，否则上一条用例缓存的动作目录、展开面板或滚动位置会污染下一条。
-  `navigateHash()` 会把内层 `.content` 滚动容器归零：hash 路由不会自动复位滚动，
-  否则新页面顶部的控件会落在视口外。
-  焦点环是 CSSOM 声明检查（2px `outline` + 2px offset）：WebKit 下程序化 `focus()`
-  不保证命中 `:focus-visible`，读 computed style 会得到假的 0px。
-- live 模式：不启动 stub，连接页直接填 `E2E_SERVER_URL`。依赖确定性 fixtures 的
-  旅程（硬编码 `thread-1` / `task-2` / 审批队列、固定行数、故障注入、SSE 推送）
-  由 `e2eContext().fixtures` 统一标记 `it.skipIf`，报告里是**显式 skip**，不是
-  空跑后假装通过；与数据无关的断言仍按真实服务端契约校验，例如空的 JSON-RPC
-  信封在 agenthub 上是 `404 / -32601 method_not_found`，而不是 stub 的 200，
-  且设置页版本标签要按当前语言解析、值取真实 `/healthz`。破坏性操作需
-  `E2E_LIVE_ALLOW_DESTRUCTIVE=1` 且必须使用隔离账号，避免污染真实 PostgreSQL。
-  文件上传用例使用每次唯一的临时文件名并在 `finally` 中尽力清理，避免 Windows
-  上残留句柄导致的 `EPERM` 让下一条旅程误报失败。
+- stub mode: each case resets fixtures and the fault table but **keeps the session**, to
+  avoid kicking the WebView back to the login page. The `/__e2e/*` control plane can
+  inject 401/403/405/503 `feature_off`/500/timeout/disconnect/empty/slow SSE and push SSE
+  frames. A fault affects only the **next** request: after injecting, you must use
+  `remount()` (leave the route then return) to trigger a component remount, otherwise the
+  same hash produces no `hashchange` and the old view does not re-request. Feature-off
+  states require `code=feature_unavailable` (503); `unavailable` only means the old server
+  lacks the route (405). Multi-view cases (`tasks` / `connectors` / `computers-schedules`
+  / `settings`) all `open()` with a `remount()` first, otherwise the previous case's
+  cached action catalog, expanded panel, or scroll position pollutes the next.
+  `navigateHash()` zeroes the inner `.content` scroll container: hash routes do not
+  auto-reset scroll, otherwise the controls at the top of a new page fall outside the
+  viewport. The focus ring is a CSSOM declaration check (2px `outline` + 2px offset):
+  under WebKit, programmatic `focus()` does not guarantee `:focus-visible`, and reading
+  computed style yields a false 0px.
+- live mode: the stub is not started; the connect page is filled directly with
+  `E2E_SERVER_URL`. Journeys that depend on deterministic fixtures (hardcoded `thread-1` /
+  `task-2` / approval queue, fixed row counts, fault injection, SSE push) are uniformly
+  marked `it.skipIf` by `e2eContext().fixtures` — an **explicit skip** in the report, not
+  a silent pass after an empty run. Assertions unrelated to data still validate against
+  the real server contract; for example an empty JSON-RPC envelope is
+  `404 / -32601 method_not_found` on agenthub rather than the stub's 200, and the settings
+  version label must be resolved in the current language with a real `/healthz` value.
+  Destructive operations require `E2E_LIVE_ALLOW_DESTRUCTIVE=1` and an isolated account to
+  avoid polluting the real PostgreSQL. The file-upload case uses a unique temp filename
+  each time and best-effort cleans up in `finally` to avoid an `EPERM` from a lingering
+  Windows handle that would make the next journey falsely fail.
 
-## 产物
+## Screenshot generation (live mode only)
 
-`desktop/e2e/artifacts/`（已 gitignore）：
+`shoot.mjs` runs only `specs/screenshots.spec.js`: it reuses the globalSetup live path
+(build → start tauri-driver → open desktop session → connect to the real server → log in),
+then re-attaches to the single logged-in session and captures one light-theme
+real-desktop screenshot for each of the 15 routes in English (en) and Chinese (zh) — 30
+PNGs total — written to `agentbuddy/screenshots/<lang>/<feature>.png`. Filenames use each
+feature's own language (English feature name / Chinese `navXxx` copy, e.g.
+`en/Workbench.png`, `zh/工作台.png`); the directory is separate from
+`desktop/e2e/artifacts`.
 
-- `run.json` — 本次运行状态、`backend`、代理 origin、每项前置检查结果、skip 原因
-- `session.json` — 供各 spec 重连同一 WebDriver 会话的 URL / sessionId
-- `events.jsonl` — 每个用户步骤的成功 / 失败审计
-- `requests.jsonl` — stub 收到的请求，仅 `method/path/query/status/at`；Cookie、
-  Authorization、密码、邮箱一律脱敏
-- `failure-*.png` — **仅失败时**落盘的 WebView 截图
+Prerequisites are the same as the "Running" section: the debug binary with `e2e-isolation`,
+`tauri-driver`, `webkit2gtk-driver` (provides `WebKitWebDriver`), `xvfb` for headless runs,
+and a reachable `E2E_SERVER_URL`.
 
-## 验收
+Steps:
 
-1. `make e2e-contract` 在任何机器上全绿（8 条契约用例真实执行）。
-2. Linux CI 的 `e2e` job 全量 115 条通过，`run.json` 的 `status` 为 `finished`。
-3. `make e2e-live` 在配置好隔离账号与真实 agenthub 后，同一套用例除显式 skip 外通过。
-4. `make test`、`cd web && bun run test:coverage`、`cd desktop && bun run test:coverage`
-   全部保持原状（语句 / 行 / 分支 / 函数 100%）。
+1. **Build the debug desktop binary** (with `e2e-isolation`; when `web/dist` already
+   exists only the Rust build is needed):
+
+   ```bash
+   make e2e-build
+   # or Rust only: cd desktop/src-tauri && cargo build --features e2e-isolation
+   ```
+
+2. **Install the Linux WebDriver and a virtual display** (Ubuntu / Debian):
+
+   ```bash
+   sudo apt-get update
+   sudo apt-get install -y webkit2gtk-driver xvfb
+   # webkit2gtk-driver provides WebKitWebDriver; xvfb provides xvfb-run for headless runs.
+   # tauri-driver is installed idempotently by `make e2e-tools` (or `cargo install tauri-driver`).
+   ```
+
+   The harness resolves `WebKitWebDriver` from PATH; set `E2E_NATIVE_DRIVER` only to
+   override it explicitly. For a visible window instead of the xvfb headless display,
+   set `E2E_HEADED=1`.
+
+3. **Start the real agenthub and ensure `E2E_SERVER_URL` is reachable**, then run the
+   entry point. The login account is read from `E2E_LIVE_EMAIL` / `E2E_LIVE_PASSWORD`
+   (no committed defaults — set them in your environment before running):
+
+   ```bash
+   E2E_SERVER_URL=http://localhost:3500 node desktop/e2e/shoot.mjs
+
+   # for a visible window instead of xvfb:
+   E2E_HEADED=1 E2E_SERVER_URL=http://localhost:3500 node desktop/e2e/shoot.mjs
+   ```
+
+The exit code reflects the number of failures (non-zero if any screen fails); a
+single-screen failure only writes a failure screenshot and records it in `events.jsonl`,
+without affecting the rest. The `:id` routes (`/threads/:id`, `/tasks/:id`) resolve a real
+id at runtime from `/api/threads` / `/api/tasks`; if none is found, it falls back to a
+placeholder and still captures one.
+
+## Artifacts
+
+`desktop/e2e/artifacts/` (gitignored):
+
+- `run.json` — this run's status, `backend`, proxy origin, each prerequisite check result, skip reason
+- `session.json` — URL / sessionId for each spec to re-attach to the same WebDriver session
+- `events.jsonl` — success / failure audit of each user step
+- `requests.jsonl` — requests the stub received, only `method/path/query/status/at`; Cookie, Authorization, password, and email are all redacted
+- `failure-*.png` — WebView screenshots written **only on failure**
+
+## Acceptance
+
+1. `make e2e-contract` is green on any machine (8 contract cases run for real).
+2. The Linux CI `e2e` job passes all 115 cases; `run.json`'s `status` is `finished`.
+3. `make e2e-live`, after configuring an isolated account and a real agenthub, passes the
+   same set of cases except the explicit skips.
+4. `make test`, `cd web && bun run test:coverage`, and `cd desktop && bun run
+   test:coverage` all remain unchanged (statement / line / branch / function 100%).

@@ -137,7 +137,18 @@ export async function setup() {
     driver = spawnProcess(command, args, {
       env: { ...process.env, AGENTBUDDY_E2E_CONFIG_DIR: cfg.configDir },
     })
-    await waitForHttp(`${cfg.driverUrl}/status`, { timeoutMs: cfg.startupMs })
+    try {
+      await waitForHttp(`${cfg.driverUrl}/status`, { timeoutMs: cfg.startupMs })
+    } catch (error) {
+      const tail = (driver?.log || []).join('').trim()
+      throw new Error(
+        `${error.message}\n` +
+        `tauri-driver did not start. command=${command} args=${JSON.stringify(args)}\n` +
+        (tail
+          ? `tauri-driver output:\n${tail}\n`
+          : '(no output captured — the binary may be missing, fail to launch, or need a different port)')
+      )
+    }
     appendEvent({ event: 'driver-ready', url: cfg.driverUrl })
 
     // openDesktopSession checks that instance.json lands in the isolated dir

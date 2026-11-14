@@ -165,6 +165,9 @@ E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # 真实 agenthub
 
 前置条件、环境变量、Windows 本机差异与产物说明见 `desktop/e2e/README.md`。
 
+如需对真实桌面客户端批量生成截图（15 屏 × 英文 / 中文），见 `desktop/e2e/README.md`
+中的[截图生成](desktop/e2e/README.md#screenshot-generation-live-mode-only)。
+
 #### Windows 本机：从 skipped 到全量
 
 `↓` 是 preflight 跳过，**不是失败**。编排器会把主因与每条失败的前置项打到终端，

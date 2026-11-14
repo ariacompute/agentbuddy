@@ -35,6 +35,18 @@ export function which(bin) {
 }
 
 /**
+ * Resolves the platform WebDriver (Windows `msedgedriver` / Linux `WebKitWebDriver`).
+ * An explicit `E2E_NATIVE_DRIVER` that does not exist is ignored in favour of one
+ * found on PATH, so a misconfigured absolute path does not silently break
+ * `tauri-driver` startup with a cryptic "can not find the supplied binary path".
+ */
+export function resolveNativeDriver(env = process.env) {
+  const explicit = env.E2E_NATIVE_DRIVER
+  if (explicit && fs.existsSync(explicit)) return explicit
+  return which('msedgedriver') || which('WebKitWebDriver') || which('webkit2gtk-driver') || ''
+}
+
+/**
  * Reads the run configuration. In stub mode `serverUrl` is filled in later by
  * the orchestrator once the stub has been bound to an ephemeral port.
  */
@@ -44,6 +56,7 @@ export function readE2eConfig(env = process.env) {
     throw new Error(`E2E_BACKEND must be 'stub' or 'live', got '${backend}'`)
   }
   const artifactsDir = env.E2E_ARTIFACTS || path.join(E2E_ROOT, 'artifacts')
+  const screenshotsDir = env.E2E_SCREENSHOTS_DIR || path.join(REPO_ROOT, 'screenshots')
   return {
     backend,
     serverUrl: backend === 'live' ? (env.E2E_SERVER_URL || '') : '',
@@ -53,10 +66,11 @@ export function readE2eConfig(env = process.env) {
     allowDestructive: backend === 'stub' ? true : truthy(env.E2E_LIVE_ALLOW_DESTRUCTIVE),
     appBinary: env.E2E_APP_BIN || path.join(SRC_TAURI, 'target', 'debug', exe('AgentBuddy')),
     driverUrl: env.E2E_DRIVER_URL || 'http://127.0.0.1:4444',
-    driverBin: env.E2E_TAURI_DRIVER || path.join(os.homedir(), '.cargo', 'bin', exe('tauri-driver')),
-    nativeDriver: env.E2E_NATIVE_DRIVER || '',
+    driverBin: env.E2E_TAURI_DRIVER || which('tauri-driver') || path.join(os.homedir(), '.cargo', 'bin', exe('tauri-driver')),
+    nativeDriver: resolveNativeDriver(env),
     configDir: env.AGENTBUDDY_E2E_CONFIG_DIR || path.join(os.tmpdir(), `agentbuddy-e2e-${process.pid}`),
     artifactsDir,
+    screenshotsDir,
     sessionFile: path.join(artifactsDir, 'session.json'),
     reportFile: path.join(artifactsDir, 'run.json'),
     eventsFile: path.join(artifactsDir, 'events.jsonl'),
