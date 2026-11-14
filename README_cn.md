@@ -23,7 +23,7 @@
 **上手**
 
 - [✨ 功能](#-功能)
-- [📸 快照](#-快照)
+- [📸 截图](#-截图)
 - [🗺 图示](#-图示)
 
 **构建与发布**
@@ -66,11 +66,40 @@
 
 </div>
 
-## 📸 快照
+## 📸 截图
 
 工作台首页 —— 你可达的每个智能体、它们正在做的事、以及等待你处理的事项：
 
-![agentbuddy 工作台](workbench_cn.png)
+![agentbuddy 工作台](screenshots/zh/02_工作台.png)
+
+<details>
+<summary><kbd>全部 15 个界面 · English / 简体中文</kbd></summary>
+
+| # | 界面 | English | 简体中文 |
+| --- | --- | --- | --- |
+| 01 | 登录 | [PNG](screenshots/en/01_Login.png) | [PNG](screenshots/zh/01_登录.png) |
+| 02 | 工作台 | [PNG](screenshots/en/02_Workbench.png) | [PNG](screenshots/zh/02_工作台.png) |
+| 03 | 会话 | [PNG](screenshots/en/03_Threads.png) | [PNG](screenshots/zh/03_会话.png) |
+| 04 | 会话详情 | [PNG](screenshots/en/04_Thread.png) | [PNG](screenshots/zh/04_会话详情.png) |
+| 05 | 任务 | [PNG](screenshots/en/05_Tasks.png) | [PNG](screenshots/zh/05_任务.png) |
+| 06 | 任务详情 | [PNG](screenshots/en/06_Task.png) | [PNG](screenshots/zh/06_任务详情.png) |
+| 07 | 组织 | [PNG](screenshots/en/07_Organisation.png) | [PNG](screenshots/zh/07_组织.png) |
+| 08 | 通道 | [PNG](screenshots/en/08_Channels.png) | [PNG](screenshots/zh/08_通道.png) |
+| 09 | 连接器 | [PNG](screenshots/en/09_Connectors.png) | [PNG](screenshots/zh/09_连接器.png) |
+| 10 | 计算机 | [PNG](screenshots/en/10_Computers.png) | [PNG](screenshots/zh/10_计算机.png) |
+| 11 | 目标调度 | [PNG](screenshots/en/11_Schedules.png) | [PNG](screenshots/zh/11_目标调度.png) |
+| 12 | 知识库 | [PNG](screenshots/en/12_Knowledge.png) | [PNG](screenshots/zh/12_知识库.png) |
+| 13 | 文件 | [PNG](screenshots/en/13_Files.png) | [PNG](screenshots/zh/13_文件.png) |
+| 14 | 人格 | [PNG](screenshots/en/14_Persona.png) | [PNG](screenshots/zh/14_人格.png) |
+| 15 | 设置 | [PNG](screenshots/en/15_Settings.png) | [PNG](screenshots/zh/15_设置.png) |
+
+</details>
+
+截图由 `desktop/e2e/shoot.mjs` 生成：连接并登录真实 agenthub 后，用
+`tauri-driver` 驱动真实桌面客户端逐个界面截取。前置条件与命名规则见
+`desktop/e2e/README.md` 中的[截图生成](desktop/e2e/README.md#screenshot-generation-live-mode-only)。
+原先的独立预览图（`workbench.png`、`workbench_cn.png`、`diagrams/registry_cn.png`
+与 `diagrams/workbench_cn.png`）已移除，请改用 `screenshots/`。
 
 <div align="right">
 
