@@ -42,13 +42,20 @@ export async function connectServer(wd, serverUrl, { timeoutMs = 30_000 } = {}) 
   return { connected: !!config?.body?.serverUrl, reused: false, config: config?.body }
 }
 
+/** The UI language currently applied to <html>, falling back to English. */
+function labelLang(state) {
+  return state.lang || 'en'
+}
+
 /** Signs in through the login form. Anonymous /api/auth/me leads here by design. */
 export async function signIn(wd, credentials, { timeoutMs = 30_000 } = {}) {
   const state = await rootState(wd)
   if (!state.hash.startsWith('#/login')) return { signedIn: true, reused: true }
   // A journey that failed while the form was in sign-up mode must not poison
-  // every later sign-in: the toggle says "Sign in" exactly in that mode.
-  const backToSignIn = await tryFind(wd, XPATH, textXPath(t('shell', 'loginToggleSignIn'), 'button')).catch(() => null)
+  // every later sign-in: the toggle says "Sign in" exactly in that mode. Its
+  // text is translated, so resolve it in the UI's current language.
+  const toggle = t('shell', 'loginToggleSignIn', labelLang(state))
+  const backToSignIn = await tryFind(wd, XPATH, textXPath(toggle, 'button')).catch(() => null)
   if (backToSignIn) await wd.click(backToSignIn)
   const email = await waitForElement(wd, CSS, 'input[type="email"]', timeoutMs)
   await wd.clear(email)
@@ -66,7 +73,11 @@ export async function signIn(wd, credentials, { timeoutMs = 30_000 } = {}) {
 
 /** Signs out through the topbar, for the re-login / guard journeys. */
 export async function signOut(wd, timeoutMs = 15_000) {
-  const signOutButton = await waitForElement(wd, CSS, `.topbar ${byLabel('shell', 'accountSignOut')}`, timeoutMs)
+  // The topbar's aria-label is translated (e.g. 退出登录 for zh), so resolve it
+  // in the UI's current language — a hardcoded English label hangs for the full
+  // timeout on every non-English run.
+  const lang = labelLang(await rootState(wd))
+  const signOutButton = await waitForElement(wd, CSS, `.topbar ${byLabel('shell', 'accountSignOut', lang)}`, timeoutMs)
   await wd.click(signOutButton)
   await waitFor(async () => (await rootState(wd)).hash.startsWith('#/login'), 'sign-out redirect', timeoutMs)
 }
