@@ -414,6 +414,26 @@ describe('ThreadView delegation and pending replies', () => {
     wrapper.unmount()
   })
 
+  it('never hands an unresolved @handle to the default agent', async () => {
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm2', AuthorType: 'user', Body: '@google-adk hi' },
+      delegated: [],
+      routed: false,
+    })
+    const { wrapper } = mountThread([
+      { ID: 'm1', AuthorType: 'agent', AuthorID: 'demo-agent', AuthorName: 'aria-agent-cloud', Body: 'here' },
+    ])
+    await flushPromises()
+
+    await sendDraft(wrapper, '@google-adk hi')
+
+    // Sending the fallback would make aria-agent-cloud's offline mock answer
+    // with a digest instead of the content the person asked google-adk for.
+    expect(postThreadMessage).toHaveBeenCalledWith('1', '@google-adk hi', [])
+    expect(wrapper.find('.messages .messages-status').text()).toContain('Could not reach')
+    wrapper.unmount()
+  })
+
   it('skips user rows and id-less agents when looking for a default agent', async () => {
     postThreadMessage.mockResolvedValue({
       message: { ID: 'm4', AuthorType: 'user', Body: 'again' },
@@ -634,15 +654,17 @@ describe('ThreadView delegation and pending replies', () => {
     await sendDraft(wrapper, 'go @agent-9')
     expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @agent-9', ['agent-9'])
 
-    // A repeated handle yields one target; an unknown handle falls back to the
-    // default agent instead of being sent as a bogus id.
+    // A repeated handle yields one target.
     postThreadMessage.mockClear()
     await sendDraft(wrapper, 'go @scout @scout')
     expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @scout @scout', ['agent-9'])
 
+    // An unknown handle is NOT delegated to the default agent: that used to
+    // make @google-adk answer from aria-agent-cloud's offline mock. The server
+    // gets a second chance to resolve the handle against its own registry.
     postThreadMessage.mockClear()
     await sendDraft(wrapper, 'go @ghost')
-    expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @ghost', ['agent-9'])
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @ghost', [])
   })
 
   it('dedupes candidates and skips agents without an id', async () => {

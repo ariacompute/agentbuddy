@@ -436,8 +436,13 @@ async function send() {
   draft.value = ''
   try {
     // Mentions in the body win; otherwise hand the message to one default agent.
+    // A typed @handle that resolves to nobody must NOT be handed to that default:
+    // doing so used to make @google-adk answer from aria-agent-cloud's offline
+    // mock with a digest instead of the content the person asked for. The server
+    // resolves the handle against its own registry as a second chance.
+    const hasHandles = /(?:^|\s)@[^\s@]+/.test(body)
     const mentions = resolveMentions(body)
-    if (mentions.length === 0) {
+    if (mentions.length === 0 && !hasHandles) {
       // A cold start can reach this point before the workspace poll has filled the
       // list; one refresh turns a silent no-op into a real delegation.
       if (workbench.agents.length === 0) await workbench.refreshWorkspace()
@@ -460,8 +465,9 @@ async function send() {
       awaitingReply.value = true
       if (delegated.length > 0) await workbench.refreshTasks()
     } else if (mentions.length === 0) {
-      // Nothing to hand the message to: it is still posted, but say why.
-      notice.value = t('participantsEmpty')
+      // Nothing to hand the message to: it is still posted, but say why. An
+      // unresolved @handle is an unreachable agent, not an empty workspace.
+      notice.value = hasHandles ? t('delegateFailed') : t('participantsEmpty')
     } else {
       // The message was posted but every mention failed to delegate: say so
       // rather than leave the composer looking like it ignored the user.
