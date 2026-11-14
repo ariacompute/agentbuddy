@@ -3,7 +3,7 @@
 // per screen to agentbuddy/screenshots/<lang>/<feature>.png. It does NOT assert
 // on app behaviour — a failed shot is logged (events.jsonl + failure screenshot)
 // and skipped so the remaining 29 still land.
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { e2eContext } from '../harness/context.mjs'
 import {
   CSS, navigateHash, pageFetch, scrollToTop, selectLanguage, step, waitForElement,

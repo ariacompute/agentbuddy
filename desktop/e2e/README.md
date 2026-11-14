@@ -201,18 +201,22 @@ Steps:
    # or Rust only: cd desktop/src-tauri && cargo build --features e2e-isolation
    ```
 
-2. **Install the Linux WebDriver and a virtual display** (Ubuntu / Debian):
+2. **Install the Linux WebDriver, a virtual display, and `tauri-driver`** (Ubuntu / Debian):
 
    ```bash
+   # runtime WebDriver + virtual display
    sudo apt-get update
    sudo apt-get install -y webkit2gtk-driver xvfb
    # webkit2gtk-driver provides WebKitWebDriver; xvfb provides xvfb-run for headless runs.
-   # tauri-driver is installed idempotently by `make e2e-tools` (or `cargo install tauri-driver`).
+
+   # tauri-driver — installs idempotently (skips if already present); falls back to
+   # `cargo install tauri-driver --version '^2'` if the Make target is unavailable.
+   make e2e-tools
    ```
 
-   The harness resolves `WebKitWebDriver` from PATH; set `E2E_NATIVE_DRIVER` only to
-   override it explicitly. For a visible window instead of the xvfb headless display,
-   set `E2E_HEADED=1`.
+   The harness resolves `WebKitWebDriver` and `tauri-driver` from PATH; set
+   `E2E_NATIVE_DRIVER` only to override the native driver explicitly. For a visible
+   window instead of the xvfb headless display, set `E2E_HEADED=1`.
 
 3. **Start the real agenthub and ensure `E2E_SERVER_URL` is reachable**, then run the
    entry point. The login account is read from `E2E_LIVE_EMAIL` / `E2E_LIVE_PASSWORD`
