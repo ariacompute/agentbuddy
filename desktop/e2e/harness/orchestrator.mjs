@@ -6,25 +6,48 @@
 // Vitest's in-process `provide`: globalSetup and the specs live in different
 // processes, and the specs only need serializable URLs/ids to re-attach.
 import fs from 'node:fs'
+import net from 'node:net'
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { preflight, readE2eConfig, which } from './config.mjs'
 import {
   freePort, killAppByRecord, makeConfigDir, removeDir, spawnProcess, stopAllProcesses,
-  stopProcess, waitForHttp, writeJson,
+  stopProcess, waitFor, waitForHttp, writeJson,
 } from './lifecycle.mjs'
 import { appendEvent, writeRequestLog, writeRunSummary } from './report.mjs'
 import { startStub } from '../stub/server.mjs'
 import { openDesktopSession } from '../driver/session.mjs'
 
-// A leaked tauri-driver from an interrupted run keeps its ports bound — including
-// a hardcoded secondary port (4445) that `--port` does NOT control — so the next
-// driver cannot bind and every run times out at New Session. Best-effort kill any
-// leftover tauri-driver before spawning a fresh one.
-async function killStaleDrivers() {
-  const bin = process.platform === 'win32' ? 'taskkill' : 'pkill'
-  const args = process.platform === 'win32'
-    ? ['/F', '/IM', 'tauri-driver.exe']
-    : ['-f', 'tauri-driver']
-  await spawnProcess(bin, args).catch(() => {})
+// tauri-driver binds its own WebDriver endpoint on `--port`, but the native
+// driver it spawns (WebKitWebDriver / msedgedriver) uses a hardcoded secondary
+// port (4445) that `--port` cannot move. A leaked process from an interrupted
+// run keeps one of those ports bound, so the next New Session hangs until the
+// startup timeout. Kill the leftovers synchronously before spawning a fresh
+// driver, then verify 4445 is actually bindable.
+const NATIVE_DRIVER_PORT = 4445
+
+function killStaleDrivers(appName) {
+  const win = process.platform === 'win32'
+  const names = win
+    ? ['tauri-driver.exe', 'msedgedriver.exe', appName]
+    : ['tauri-driver', 'WebKitWebDriver', 'webkit2gtk-driver', 'msedgedriver', appName]
+  for (const name of names) {
+    if (!name) continue
+    try {
+      spawnSync(win ? 'taskkill' : 'pkill', win ? ['/F', '/IM', name] : ['-9', '-f', name], {
+        stdio: 'ignore', timeout: 5_000,
+      })
+    } catch { /* best effort: pkill/taskkill may be absent or match nothing */ }
+  }
+}
+
+/** Resolves true when `port` can be bound on loopback right now. */
+function portIsFree(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer()
+    server.once('error', () => resolve(false))
+    server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)))
+  })
 }
 
 let cfg = null
@@ -136,10 +159,28 @@ export async function setup() {
     ownsConfigDir = !process.env.AGENTBUDDY_E2E_CONFIG_DIR
     makeConfigDir(cfg.configDir)
 
-    // Kill any leaked tauri-driver from an interrupted run before spawning a new
-    // one. It holds a hardcoded secondary port (4445) that `--port` cannot move,
-    // so without this the next driver fails to bind and hangs at New Session.
-    await killStaleDrivers()
+    // Leaked drivers from interrupted runs hold tauri-driver's own port and the
+    // native WebDriver's hardcoded 4445 (which `--port` cannot move), so the next
+    // New Session would hang for the full startup timeout. Kill synchronously,
+    // then wait for 4445 to become bindable and fail fast if a foreign process
+    // still owns it — instead of spending 120s on an opaque timeout. With an
+    // explicit E2E_DRIVER_URL the driver is managed externally, so leave it alone.
+    if (!process.env.E2E_DRIVER_URL) {
+      killStaleDrivers(path.basename(cfg.appBinary))
+      try {
+        await waitFor(
+          () => portIsFree(NATIVE_DRIVER_PORT),
+          `port ${NATIVE_DRIVER_PORT} to be released`,
+          5_000,
+        )
+      } catch {
+        throw new Error(
+          `port ${NATIVE_DRIVER_PORT} is still in use after killing stale drivers. ` +
+          'tauri-driver binds its native WebDriver there, independent of --port. ' +
+          'Free it with `pkill -9 -f WebKitWebDriver` (or msedgedriver) and retry.',
+        )
+      }
+    }
 
     // tauri-driver inherits the isolated config dir and passes it to the app it
     // spawns. On Linux a headless run needs a display for WebKitGTK.

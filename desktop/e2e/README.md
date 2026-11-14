@@ -252,12 +252,15 @@ placeholder and still captures one.
 
 **Troubleshooting the desktop run:** `E2E_NATIVE_DRIVER` is optional on Linux — when unset
 (or pointing at a missing file) the harness falls back to a `WebKitWebDriver` on PATH, and
-`tauri-driver` is likewise resolved from PATH. The orchestrator kills any leaked
-`tauri-driver` still holding ports (including its hardcoded secondary port) before spawning
-a fresh one, and binds a **free port** for the WebDriver endpoint instead of assuming `4444`
-is free — so a leaked driver from an interrupted run can no longer block the next run. If a
-run is interrupted, you can also clean up manually: `pkill -f tauri-driver; pkill -f AgentBuddy`.
-If `tauri-driver` still fails to bind, its own stderr is echoed (and written to
+`tauri-driver` is likewise resolved from PATH. Before spawning, the orchestrator kills any
+leaked `tauri-driver` / native WebDriver / app processes, then binds a **free port** for the
+WebDriver endpoint instead of assuming `4444` is free. Note the native WebDriver uses a
+**hardcoded `4445`** that `--port` cannot move, so the harness also waits for that port to be
+free and fails fast with a clear message if a foreign process still owns it (rather than
+hanging until the 120s startup timeout). Set `E2E_DRIVER_URL` to manage the driver externally
+— cleanup is skipped in that case. If a run is interrupted, you can also clean up manually:
+`pkill -9 -f tauri-driver; pkill -9 -f WebKitWebDriver; pkill -9 -f AgentBuddy`. If
+`tauri-driver` still fails to bind, its own stderr is echoed (and written to
 `artifacts/run.json`) so the real cause shows instead of a bare 120s timeout.
 
 ## Artifacts
