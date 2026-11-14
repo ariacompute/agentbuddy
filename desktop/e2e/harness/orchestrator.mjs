@@ -8,7 +8,7 @@
 import fs from 'node:fs'
 import { preflight, readE2eConfig, which } from './config.mjs'
 import {
-  killAppByRecord, makeConfigDir, removeDir, spawnProcess, stopAllProcesses,
+  freePort, killAppByRecord, makeConfigDir, removeDir, spawnProcess, stopAllProcesses,
   stopProcess, waitForHttp, writeJson,
 } from './lifecycle.mjs'
 import { appendEvent, writeRequestLog, writeRunSummary } from './report.mjs'
@@ -126,8 +126,20 @@ export async function setup() {
 
     // tauri-driver inherits the isolated config dir and passes it to the app it
     // spawns. On Linux a headless run needs a display for WebKitGTK.
+    //
+    // Bind a free port instead of assuming 4444 is available: a leaked
+    // tauri-driver from an interrupted run holds the default port, which would
+    // make every subsequent run fail to bind and then time out at New Session.
     const args = []
     let command = cfg.driverBin
+    let driverUrl = cfg.driverUrl
+    if (!process.env.E2E_DRIVER_URL) {
+      const port = await freePort()
+      driverUrl = `http://127.0.0.1:${port}`
+      cfg.driverUrl = driverUrl
+    }
+    const portMatch = driverUrl.match(/:(\d+)(?:\/|$)/)
+    if (portMatch) args.push('--port', portMatch[1])
     if (cfg.nativeDriver) args.push('--native-driver', cfg.nativeDriver)
     const xvfb = process.platform === 'linux' && !cfg.headed ? which('xvfb-run') : null
     if (xvfb) {
