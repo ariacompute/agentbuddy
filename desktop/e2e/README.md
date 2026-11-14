@@ -218,6 +218,18 @@ Steps:
    `E2E_NATIVE_DRIVER` only to override the native driver explicitly. For a visible
    window instead of the xvfb headless display, set `E2E_HEADED=1`.
 
+   **Chinese (`zh`) text**: the WebKitGTK webview renders with system fonts, so a
+   machine without CJK fonts produces `zh/*.png` full of tofu boxes / garbled glyphs
+   (the `en/*.png` are unaffected because Latin fonts exist). Install them once and
+   refresh fontconfig:
+
+   ```bash
+   sudo apt-get install -y fonts-noto-cjk fonts-wqy-zenhei fonts-wqy-microhei
+   fc-cache -fv
+   ```
+
+   then re-run `shoot.mjs`.
+
 3. **Start the real agenthub and ensure `E2E_SERVER_URL` is reachable**, then run the
    entry point. The login account is read from `E2E_LIVE_EMAIL` / `E2E_LIVE_PASSWORD`
    (no committed defaults — set them in your environment before running):
