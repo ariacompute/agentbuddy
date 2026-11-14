@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { getThread, postThreadMessage, subscribeThreadEvents, dropRouterSubscription } from '../lib/api.js'
+import { getThread, postThreadMessage, subscribeThreadEvents, dropRouterSubscription, listResources } from '../lib/api.js'
 import { useWorkbenchStore } from '../lib/workbench-store.js'
 import { useAuthStore } from '../lib/auth-store.js'
 import { useCopy } from '../lib/use-copy.js'
@@ -65,31 +65,67 @@ const lastUserIndex = computed(() => {
   return -1
 })
 
+// The agent catalogue agentbuddy reads straight from agenthub's registry.
+// Opening the picker takes a fresh snapshot; the workspace poll in the store
+// keeps the rest of the workbench (and this list) current between openings.
+const liveAgents = ref([])
+
+/**
+ * Re-reads agenthub's agent catalogue (`GET /api/resources?kind=agent`). A
+ * failure deliberately keeps the last good list: the store's poll and this
+ * thread's speakers are still addressable, and a transient 500 must not turn
+ * into an empty picker or a send error.
+ */
+async function syncAgentCatalog() {
+  try {
+    const data = await listResources('agent')
+    liveAgents.value = Array.isArray(data) ? data : data?.resources || []
+  } catch {
+    // The composer owns the draft, not connectivity reporting.
+  }
+}
+
+// Merge by resource id: a registry entry read when the picker opened replaces
+// the poll's older copy, so renames and new registrations show immediately,
+// while agents the poll alone knows about stay in the list.
+const agentCatalog = computed(() => {
+  const byId = new Map()
+  for (const agent of [...workbench.agents, ...liveAgents.value]) {
+    if (agent?.id) byId.set(agent.id, agent)
+  }
+  return [...byId.values()]
+})
+
 // Mention candidates: agents that already spoke here first, then every agent in
-// the workspace. The server addresses agents by resource id, so each candidate
+// the catalogue. The server addresses agents by resource id, so each candidate
 // carries the id to send plus a whitespace-free token inserted into the draft.
 const mentionCandidates = computed(() => {
   const out = []
   const seen = new Set()
-  const push = (id, token, label) => {
+  const push = (id, token, label, aliases = []) => {
     if (!id || seen.has(id)) return
     seen.add(id)
-    out.push({ id, token, label: label || token })
+    out.push({ id, token, label: label || token, aliases })
   }
+  const byId = new Map(agentCatalog.value.map((agent) => [agent.id, agent]))
   for (const m of messages.value) {
     if (m.AuthorType === 'user') continue
     const id = m.ResourceID || m.AuthorID
     if (!id) continue
-    const token = m.AuthorName || id
-    push(id, token, token)
+    // A rename in agenthub wins over the name frozen into the message; the old
+    // handle stays an alias so a draft typed before the rename still delegates.
+    const agent = byId.get(id)
+    const token = agent?.name || m.AuthorName || id
+    push(id, token, agent ? resourceLabel(agent) : (m.AuthorName || id),
+      agent ? [m.AuthorName].filter(Boolean) : [])
   }
-  // Declared participants stay addressable even when the workspace list does not
+  // Declared participants stay addressable even when the catalogue does not
   // show the caller that agent, so offer them by id as a fallback.
   for (const pid of thread.value?.Participants || []) {
-    const agent = workbench.agents.find((a) => a.id === pid)
-    push(pid, pid, agent ? resourceLabel(agent) : pid)
+    const agent = byId.get(pid)
+    push(pid, agent ? agent.name || pid : pid, agent ? resourceLabel(agent) : pid)
   }
-  for (const agent of workbench.agents) {
+  for (const agent of agentCatalog.value) {
     push(agent.id, agent.name || agent.id, resourceLabel(agent))
   }
   return out
@@ -108,7 +144,9 @@ const mentionMatches = computed(() => {
   const q = mentionQuery.value
   if (q === null) return []
   return mentionCandidates.value
-    .filter((c) => c.label.toLowerCase().includes(q) || c.token.toLowerCase().includes(q))
+    .filter((c) => c.label.toLowerCase().includes(q) ||
+      c.token.toLowerCase().includes(q) ||
+      c.aliases.some((alias) => alias.toLowerCase().includes(q)))
     .slice(0, 6)
 })
 
@@ -133,10 +171,20 @@ const mentionActive = computed(() => mentionOpen.value && mentionMatches.value.l
 const activeMentionId = computed(() => (mentionActive.value ? `mention-option-${mentionIndex.value}` : null))
 
 // A new query re-filters the list, so the cursor goes back to the first row and a
-// dismissed picker opens again.
-watch(mentionQuery, () => {
+// dismissed picker opens again. Opening it (rather than every keystroke) also
+// re-reads agenthub, so a registration, removal or rename lands without waiting
+// for the next workspace poll; the poll keeps the list live while it stays open.
+watch(mentionQuery, (query, previous) => {
   mentionIndex.value = 0
   mentionDismissed.value = false
+  if (query !== null && previous === null) syncAgentCatalog()
+})
+
+// The workspace poll replaces `agents` on every tick. While the picker is open,
+// follow it with a fresh registry read so a registration, removal or rename on
+// agenthub is reflected automatically rather than only at the next opening.
+watch(() => workbench.agents, () => {
+  if (mentionQuery.value !== null) syncAgentCatalog()
 })
 
 /**
@@ -202,8 +250,9 @@ function addMentions() {
 
 /**
  * Maps every `@token` in the draft back to a resource id. A token may match the
- * inserted token, the display label or the id itself, so a hand-typed mention
- * still resolves. Returns unique ids in first-seen order.
+ * inserted token, the display label, the id or a handle the agent used before a
+ * rename, so a hand-typed mention still resolves. Returns unique ids in
+ * first-seen order.
  */
 function resolveMentions(body) {
   const ids = []
@@ -213,7 +262,8 @@ function resolveMentions(body) {
     const hit = mentionCandidates.value.find(
       (c) => c.token.toLowerCase() === token ||
         c.label.toLowerCase() === token ||
-        c.id.toLowerCase() === token,
+        c.id.toLowerCase() === token ||
+        c.aliases.some((alias) => alias.toLowerCase() === token),
     )
     if (hit && !seen.has(hit.id)) {
       seen.add(hit.id)
@@ -233,7 +283,7 @@ function defaultAgentId() {
   }
   const declared = thread.value?.Participants || []
   if (declared.length > 0) return declared[declared.length - 1]
-  return workbench.agents[0]?.id || null
+  return agentCatalog.value[0]?.id || null
 }
 
 /**
@@ -528,9 +578,9 @@ onUnmounted(() => {
               @keydown="onComposerKeydown"
             />
           </div>
-          <!-- Mention picker: agents already in this thread first, then the whole
-               workspace. It shows only while a `@token` is being typed; the arrow
-               keys move the armed row, Enter/Tab complete it. -->
+          <!-- Mention picker: agents already in this thread first, then the agent
+               catalogue synced from agenthub. It shows only while a `@token` is
+               being typed; the arrow keys move the armed row, Enter/Tab complete. -->
           <div
             v-if="mentionOpen"
             id="mention-listbox"
