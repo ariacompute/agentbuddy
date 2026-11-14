@@ -67,6 +67,20 @@ describe('ThreadView @ picker syncs agenthub agents', () => {
     wrapper.unmount()
   })
 
+  it('hides agents that are still being curated from the picker', async () => {
+    listResources.mockResolvedValue({
+      resources: [
+        { id: 'agent-ok', name: 'ok', display_name: 'Approved', kind: 'agent', status: 'approved' },
+        { id: 'agent-pending', name: 'pending', display_name: 'Pending', kind: 'agent', status: 'pending' },
+      ],
+    })
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+    await openPicker(wrapper)
+    expect(labels(wrapper)).toEqual(['Approved'])
+    wrapper.unmount()
+  })
+
   it('reads the registry once per opening, not on every keystroke', async () => {
     const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
     await flushPromises()

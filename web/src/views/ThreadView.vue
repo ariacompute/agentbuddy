@@ -79,7 +79,13 @@ const liveAgents = ref([])
 async function syncAgentCatalog() {
   try {
     const data = await listResources('agent')
-    liveAgents.value = Array.isArray(data) ? data : data?.resources || []
+    const all = Array.isArray(data) ? data : data?.resources || []
+    // The picker only offers agents the caller may reach: a resource still being
+    // curated (draft/pending) is not discoverable, so it is hidden here just as
+    // it is from the playground and the workspace — an @mention of it would
+    // otherwise resolve to nobody and look broken. An empty status is read as
+    // approved by the registry, so it stays listed.
+    liveAgents.value = all.filter((a) => !a.status || a.status === 'approved')
   } catch {
     // The composer owns the draft, not connectivity reporting.
   }

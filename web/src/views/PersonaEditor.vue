@@ -34,7 +34,10 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    agents.value = (await listResources('agent')).resources || []
+    const data = await listResources('agent')
+    // Only approved agents may carry a persona; a resource still being curated
+    // is not reachable, so it is excluded here as everywhere else.
+    agents.value = (data?.resources || []).filter((a) => !a.status || a.status === 'approved')
     if (agents.value.length) {
       selectedId.value = agents.value[0].id
       loadForm(agents.value[0])
