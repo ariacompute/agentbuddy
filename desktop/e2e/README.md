@@ -182,9 +182,12 @@ unchanged hash, process exit code, badge value).
 (build → start tauri-driver → open desktop session → connect to the real server → log in),
 then re-attaches to the single logged-in session and captures one light-theme
 real-desktop screenshot for each of the 15 routes in English (en) and Chinese (zh) — 30
-PNGs total — written to `agentbuddy/screenshots/<lang>/<feature>.png`. Filenames use each
+PNGs total — written to `agentbuddy/screenshots/<lang>/<NN>_<feature>.png`. Each file name
+is prefixed with a zero-padded index (`01_`, `02_`, …) following the route order
+Login, Workbench, Threads, Thread, Tasks, Task, Organisation, Channels, Connectors,
+Computers, Schedules, Knowledge, Files, Persona, Settings. The `<feature>` part uses the
 feature's own language (English feature name / Chinese `navXxx` copy, e.g.
-`en/Workbench.png`, `zh/工作台.png`); the directory is separate from
+`en/02_Workbench.png`, `zh/02_工作台.png`); the directory is separate from
 `desktop/e2e/artifacts`.
 
 Prerequisites are the same as the "Running" section: the debug binary with `e2e-isolation`,

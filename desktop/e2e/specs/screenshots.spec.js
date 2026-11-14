@@ -14,10 +14,13 @@ import { saveScreenshot } from '../harness/report.mjs'
 const { info, cfg, wd } = e2eContext()
 
 const LANGS = ['en', 'zh']
+// ROUTES order also defines the zero-padded file prefix (01_, 02_, …):
+// Login, Workbench, Threads, Thread, Tasks, Task, Organisation, Channels,
+// Connectors, Computers, Schedules, Knowledge, Files, Persona, Settings.
 const ROUTES = [
   '/login', '/', '/threads', '/threads/:id', '/tasks', '/tasks/:id',
-  '/org', '/channels', '/connectors', '/settings', '/computers',
-  '/schedules', '/persona', '/knowledge', '/files',
+  '/org', '/channels', '/connectors', '/computers', '/schedules',
+  '/knowledge', '/files', '/persona', '/settings',
 ]
 // File names use the feature's own language, matching the sidebar navXxx copy.
 const ROUTE_NAMES = {
@@ -36,6 +39,11 @@ const ROUTE_NAMES = {
   '/persona': { en: 'Persona', zh: '人格' },
   '/knowledge': { en: 'Knowledge', zh: '知识库' },
   '/files': { en: 'Files', zh: '文件' },
+}
+
+// Zero-padded display index for the file name (01_, 02_, …), from ROUTES order.
+function prefixFor(route) {
+  return String(ROUTES.indexOf(route) + 1).padStart(2, '0')
 }
 
 function pickId(item) {
@@ -113,7 +121,7 @@ describe.skipIf(info.skipped)('agentbuddy screenshots (en / zh)', () => {
             await waitForScreen(wd, '/login')
             await scrollToTop(wd)
             const png = await wd.screenshot()
-            saveScreenshot(png, `${lang}/${name}`)
+            saveScreenshot(png, `${lang}/${prefixFor(route)}_${name}`)
           })
           await step(wd, 'signin', async () => { await signIn(wd, cfg.credentials, { timeoutMs: info.timeoutMs }) })
           signedIn = true
@@ -130,7 +138,7 @@ describe.skipIf(info.skipped)('agentbuddy screenshots (en / zh)', () => {
             await navigateHash(wd, path)
             await waitForScreen(wd, route)
             const png = await wd.screenshot()
-            saveScreenshot(png, `${lang}/${name}`)
+            saveScreenshot(png, `${lang}/${prefixFor(route)}_${name}`)
           })
         }
       } catch {
