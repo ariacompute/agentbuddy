@@ -370,9 +370,17 @@ describe('ThreadView mentions and live frames', () => {
 })
 
 describe('ThreadView delegation and pending replies', () => {
-  function mountThread(messages) {
+  // `agents` is the workspace/registry catalogue. It is deliberately empty by
+  // default: a speaker in the thread history is no longer addressable on its
+  // own, so a case that expects delegation has to say which agents are visible.
+  function mountThread(messages, agents = []) {
     getThread.mockResolvedValue({ thread: { ID: '1', Title: 't' }, messages })
-    return mountWith(ThreadView, { props: { id: '1' } })
+    // ThreadView does not poll the workspace itself; the store is seeded here
+    // (and the same answer is kept for the send-time cold-start refresh).
+    getWorkspace.mockResolvedValue({ agents })
+    const mounted = mountWith(ThreadView, { props: { id: '1' } })
+    useWorkbenchStore(mounted.pinia).agents = agents
+    return mounted
   }
 
   async function sendDraft(wrapper, value) {
@@ -388,7 +396,7 @@ describe('ThreadView delegation and pending replies', () => {
     })
     const { wrapper } = mountThread([
       { ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', Body: 'here' },
-    ])
+    ], [{ id: 'agent-1', name: 'scout', display_name: 'Scout' }])
     await flushPromises()
 
     await sendDraft(wrapper, 'go @scout')
@@ -405,7 +413,7 @@ describe('ThreadView delegation and pending replies', () => {
     })
     const { wrapper } = mountThread([
       { ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-7', AuthorName: 'scribe', Body: 'noted' },
-    ])
+    ], [{ id: 'agent-7', name: 'scribe', display_name: 'Scribe' }])
     await flushPromises()
 
     await sendDraft(wrapper, 'hi')
@@ -434,6 +442,88 @@ describe('ThreadView delegation and pending replies', () => {
     wrapper.unmount()
   })
 
+  // The server now returns a machine-readable reason. Each one maps to its own
+  // localized notice so a grant problem is not mistaken for an offline agent.
+  it.each([
+    ['forbidden', 'No access to this agent'],
+    ['not_approved', 'not approved yet'],
+    ['delegate_failed', 'could not complete'],
+  ])('shows the %s reason instead of a generic failure', async (reason, text) => {
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm2', AuthorType: 'user', Body: '@google-adk hi' },
+      delegated: [],
+      routed: false,
+      reason,
+      reasons: { 'google-adk': reason },
+    })
+    const { wrapper } = mountThread([
+      { ID: 'm1', AuthorType: 'agent', AuthorID: 'demo-agent', AuthorName: 'aria-agent-cloud', Body: 'here' },
+    ])
+    await flushPromises()
+
+    await sendDraft(wrapper, '@google-adk hi')
+
+    expect(wrapper.find('.messages .messages-status').text()).toContain(text)
+    wrapper.unmount()
+  })
+
+  it('falls back to the reasons map when the primary reason is empty', async () => {
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm2', AuthorType: 'user', Body: '@google-adk hi' },
+      delegated: [],
+      routed: false,
+      reason: '',
+      reasons: { 'google-adk': 'forbidden' },
+    })
+    const { wrapper } = mountThread([
+      { ID: 'm1', AuthorType: 'agent', AuthorID: 'demo-agent', AuthorName: 'aria-agent-cloud', Body: 'here' },
+    ])
+    await flushPromises()
+
+    await sendDraft(wrapper, '@google-adk hi')
+
+    expect(wrapper.find('.messages .messages-status').text()).toContain('No access to this agent')
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['an unknown reason', { reason: 'not_found', reasons: {} }],
+    ['no reason at all', {}],
+    ['a non-string reason', { reason: 42, reasons: 'malformed' }],
+    ['a null response', null],
+  ])('keeps the generic notice for %s', async (_label, res) => {
+    postThreadMessage.mockResolvedValue(res)
+    const { wrapper } = mountThread([
+      { ID: 'm1', AuthorType: 'agent', AuthorID: 'demo-agent', AuthorName: 'aria-agent-cloud', Body: 'here' },
+    ])
+    await flushPromises()
+
+    await sendDraft(wrapper, '@google-adk hi')
+
+    expect(wrapper.find('.messages .messages-status').text()).toContain('Could not reach')
+    wrapper.unmount()
+  })
+
+  it('explains a failed delegation even when a mention was resolved', async () => {
+    postThreadMessage.mockResolvedValue({
+      message: { ID: 'm2', AuthorType: 'user', Body: 'go @scout' },
+      delegated: [],
+      routed: false,
+      reason: 'delegate_failed',
+      reasons: { 'agent-1': 'delegate_failed' },
+    })
+    const { wrapper } = mountThread([
+      { ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'scout', Body: 'here' },
+    ], [{ id: 'agent-1', name: 'scout', display_name: 'Scout' }])
+    await flushPromises()
+
+    await sendDraft(wrapper, 'go @scout')
+
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @scout', ['agent-1'])
+    expect(wrapper.find('.messages .messages-status').text()).toContain('could not complete')
+    wrapper.unmount()
+  })
+
   it('skips user rows and id-less agents when looking for a default agent', async () => {
     postThreadMessage.mockResolvedValue({
       message: { ID: 'm4', AuthorType: 'user', Body: 'again' },
@@ -443,7 +533,7 @@ describe('ThreadView delegation and pending replies', () => {
       { ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-2', AuthorName: 'scribe', Body: 'noted' },
       { ID: 'm2', AuthorType: 'agent', Body: 'no id' },
       { ID: 'm3', AuthorType: 'user', AuthorName: 'me', Body: 'thanks' },
-    ])
+    ], [{ id: 'agent-2' }])
     await flushPromises()
 
     await sendDraft(wrapper, 'again')
@@ -818,7 +908,10 @@ describe('ThreadView delegation and pending replies', () => {
     wrapper.unmount()
   })
 
-  it('offers declared thread participants even when the workspace omits them', async () => {
+  it('hides declared participants the catalogue does not list', async () => {
+    // A declared participant is a hint about who took part, not an authority to
+    // invoke: listing an unapproved or ungranted agent here would offer a handle
+    // the server refuses. Only the catalogued one is visible or delegated to.
     getThread.mockResolvedValue({
       thread: { ID: '1', Participants: ['agent-p', 'agent-missing'] },
       messages: [],
@@ -834,10 +927,14 @@ describe('ThreadView delegation and pending replies', () => {
 
     await wrapper.find('textarea').setValue('@')
     await nextTick()
-    expect(wrapper.findAll('.mention-item .truncate').map((s) => s.text())).toEqual(['Planner', 'agent-missing'])
+    expect(wrapper.findAll('.mention-item .truncate').map((s) => s.text())).toEqual(['Planner'])
 
     await sendDraft(wrapper, 'hi')
-    expect(postThreadMessage).toHaveBeenCalledWith('1', 'hi', ['agent-missing'])
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'hi', ['agent-p'])
+
+    postThreadMessage.mockClear()
+    await sendDraft(wrapper, 'go @agent-missing')
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @agent-missing', [])
   })
 })
 
@@ -2558,7 +2655,7 @@ describe('PersonaEditor', () => {
     updateResource.mockResolvedValue({})
     const { wrapper } = mountWith(PersonaEditor)
     await flushPromises()
-    expect(listResources).toHaveBeenCalledWith('agent')
+    expect(listResources).toHaveBeenCalledWith('agent', { discoverable: true })
     await openEditor(wrapper)
 
     const save = wrapper.findAll('button').find((b) => /save/i.test(b.text()))

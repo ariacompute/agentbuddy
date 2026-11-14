@@ -34,10 +34,11 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const data = await listResources('agent')
-    // Only approved agents may carry a persona; a resource still being curated
-    // is not reachable, so it is excluded here as everywhere else.
-    agents.value = (data?.resources || []).filter((a) => !a.status || a.status === 'approved')
+    const data = await listResources('agent', { discoverable: true })
+    // The server's discoverable view already contains only approved agents that
+    // this caller may reach; re-filtering here would let the client overrule the
+    // registry's curation decision.
+    agents.value = data?.resources || []
     if (agents.value.length) {
       selectedId.value = agents.value[0].id
       loadForm(agents.value[0])

@@ -266,8 +266,15 @@ export function subscribeTaskEvents(id, since, handlers = {}) {
 
 // ---- Resources (org + connectors) ----------------------------------------
 
-export const listResources = (kind) =>
-  get(kind ? `/api/resources?kind=${encodeURIComponent(kind)}` : '/api/resources')
+// `discoverable` asks agenthub for its approved-only view. Consumer pickers
+// never re-filter statuses locally: the playground, /api/workspace and this
+// workbench then all read the same server-side gate.
+export const listResources = (kind, options) => {
+  const params = []
+  if (kind) params.push(`kind=${encodeURIComponent(kind)}`)
+  if (options?.discoverable) params.push('discoverable=true')
+  return get(params.length ? `/api/resources?${params.join('&')}` : '/api/resources')
+}
 export const createResource = (body) => post('/api/resources', body)
 export const updateResource = (id, patch) => put(`/api/resources/${id}`, patch)
 

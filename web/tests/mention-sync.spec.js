@@ -5,6 +5,8 @@
 // current while it stays open, and a failed read never empties the composer.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { mountWith } from './helpers/vue-utils.js'
 import { useWorkbenchStore } from '../src/lib/workbench-store.js'
 import { setLang } from '../src/lib/use-copy.js'
@@ -62,21 +64,22 @@ describe('ThreadView @ picker syncs agenthub agents', () => {
 
     await openPicker(wrapper)
 
-    expect(listResources).toHaveBeenCalledWith('agent')
+    expect(listResources).toHaveBeenCalledWith('agent', { discoverable: true })
     expect(labels(wrapper)).toEqual(['Newcomer'])
     wrapper.unmount()
   })
 
-  it('hides agents that are still being curated from the picker', async () => {
+  it('reads the server-side discoverable view instead of filtering locally', async () => {
+    // agenthub already hid the curated record. The picker asks for that view and
+    // renders exactly what came back — a local status check would let the client
+    // overrule the registry's curation decision.
     listResources.mockResolvedValue({
-      resources: [
-        { id: 'agent-ok', name: 'ok', display_name: 'Approved', kind: 'agent', status: 'approved' },
-        { id: 'agent-pending', name: 'pending', display_name: 'Pending', kind: 'agent', status: 'pending' },
-      ],
+      resources: [{ id: 'agent-ok', name: 'ok', display_name: 'Approved', kind: 'agent' }],
     })
     const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
     await flushPromises()
     await openPicker(wrapper)
+    expect(listResources).toHaveBeenCalledWith('agent', { discoverable: true })
     expect(labels(wrapper)).toEqual(['Approved'])
     wrapper.unmount()
   })
@@ -231,5 +234,70 @@ describe('ThreadView @ picker syncs agenthub agents', () => {
     await sendDraft(wrapper, 'go @agent-x')
     expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @agent-x', ['agent-x'])
     wrapper.unmount()
+  })
+
+  it('does not resurrect a past speaker the catalogue hides', async () => {
+    // A draft, pending or ungranted agent can still have spoken here before its
+    // status changed. Neither history nor the declared participant list may put
+    // it back in the picker or make it the default target: the server would
+    // refuse that delegation.
+    getThread.mockResolvedValue({
+      thread: { ID: '1', Participants: ['ghost'] },
+      messages: [
+        { ID: 'm0', AuthorType: 'agent', AuthorID: 'ghost', AuthorName: 'ghost', Body: 'old reply' },
+      ],
+    })
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    await openPicker(wrapper)
+    expect(wrapper.find('.mention-pop').exists()).toBe(true)
+    expect(wrapper.findAll('.mention-item')).toHaveLength(0)
+
+    await sendDraft(wrapper, 'hello')
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'hello', [])
+    wrapper.unmount()
+  })
+
+  it('keeps history names as aliases, never as extra candidates', async () => {
+    getThread.mockResolvedValue({
+      thread: { ID: '1', Participants: ['ghost'] },
+      messages: [
+        { ID: 'm0', AuthorType: 'agent', AuthorID: 'ghost', AuthorName: 'ghost', Body: 'old' },
+        { ID: 'm1', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'legacy', Body: 'new' },
+        { ID: 'm2', AuthorType: 'agent', AuthorID: 'agent-1', AuthorName: 'also-legacy', Body: 'newer' },
+      ],
+    })
+    listResources.mockResolvedValue({ resources: [agent('agent-1', 'renamed', 'Renamed')] })
+    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    await flushPromises()
+
+    await openPicker(wrapper)
+    expect(labels(wrapper)).toEqual(['Renamed'])
+
+    // A name from a catalogued agent stays searchable after a rename; one from
+    // a hidden agent does not open a row at all.
+    await openPicker(wrapper, 'hey @legacy')
+    expect(labels(wrapper)).toEqual(['Renamed'])
+    await openPicker(wrapper, 'hey @ghost')
+    expect(wrapper.find('.mention-pop').exists()).toBe(false)
+
+    await sendDraft(wrapper, 'hello')
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'hello', ['agent-1'])
+
+    postThreadMessage.mockClear()
+    await sendDraft(wrapper, 'go @ghost')
+    expect(postThreadMessage).toHaveBeenCalledWith('1', 'go @ghost', [])
+    wrapper.unmount()
+  })
+
+  it('keeps the approval gate out of every agent picker', () => {
+    // Both surfaces that list agents read the same server-side view. A local
+    // status check would quietly create a second catalogue again.
+    for (const path of ['../src/views/ThreadView.vue', '../src/views/PersonaEditor.vue']) {
+      const source = readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
+      expect(source).toContain('{ discoverable: true }')
+      expect(source).not.toContain("status === 'approved'")
+    }
   })
 })

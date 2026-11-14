@@ -42,6 +42,7 @@ beforeEach(() => {
   listRouterTriggers.mockResolvedValue({ triggers: [] })
   listRouterTickets.mockResolvedValue({ tickets: [] })
   listRouterPolicies.mockResolvedValue({ policies: [] })
+  getWorkspace.mockResolvedValue({ agents: [] })
   getThread.mockResolvedValue({ thread: { ID: '1', Title: 't' }, messages: [] })
   subscribeThreadEvents.mockReturnValue({ close: vi.fn() })
   subscribeRouterEvents.mockReturnValue({ close: vi.fn() })
@@ -413,7 +414,16 @@ describe('ThreadView mention picker and unsubscribe', () => {
         { ID: 'm3', AuthorType: 'user', AuthorName: 'me', Body: 'hi' },
       ],
     })
-    return mountWith(ThreadView, { props: { id: '1' } })
+    // Both speakers are also approved, visible agents in the workspace
+    // catalogue. Thread history alone no longer makes an agent addressable.
+    const agents = [
+      { id: 'scout', name: 'scout', display_name: 'scout' },
+      { id: 'scribe', name: 'scribe', display_name: 'scribe' },
+    ]
+    getWorkspace.mockResolvedValue({ agents })
+    const mounted = mountWith(ThreadView, { props: { id: '1' } })
+    useWorkbenchStore(mounted.pinia).agents = agents
+    return mounted
   }
 
   it('offers the names that have spoken in this thread', async () => {
@@ -603,7 +613,6 @@ describe('ThreadView mention picker and unsubscribe', () => {
   })
 
   it('sends on a bare Enter once no token is being typed', async () => {
-    getWorkspace.mockResolvedValue({ agents: [] })
     const { wrapper } = mountWithThread()
     await flushPromises()
 

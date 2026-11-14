@@ -357,6 +357,20 @@ describe('api endpoint helpers', () => {
     expect(lastCall()[0]).toBe('/api/resources')
   })
 
+  it('listResources asks for the server-side discoverable view', async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]))
+    await listResources('agent', { discoverable: true })
+    expect(lastCall()[0]).toBe('/api/resources?kind=agent&discoverable=true')
+    await listResources(undefined, { discoverable: true })
+    expect(lastCall()[0]).toBe('/api/resources?discoverable=true')
+    // An empty options object (or no options at all) keeps the management
+    // listing, which still has to show drafts and pending records.
+    await listResources('agent', {})
+    expect(lastCall()[0]).toBe('/api/resources?kind=agent')
+    await listResources(undefined, {})
+    expect(lastCall()[0]).toBe('/api/resources')
+  })
+
   it('channel mutation helpers and delivery retry', async () => {
     fetchMock.mockResolvedValue(jsonResponse({}))
     await updateChannel('c1', { name: 'x' })

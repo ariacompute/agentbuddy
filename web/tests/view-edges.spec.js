@@ -171,9 +171,14 @@ describe('OrgView form edges', () => {
 describe('ThreadView message and subscription edges', () => {
   const thread = (messages) => getThread.mockResolvedValue({ thread: { ID: '1', Title: 't' }, messages })
 
-  it('offers a handle for an author that never sent a display name', async () => {
+  it('offers a catalogue entry by id when it has no display name', async () => {
     thread([{ ID: 'm1', AuthorID: 'agent-raw', AuthorName: '', AuthorType: 'agent', Body: 'hi' }])
-    const { wrapper } = mountWith(ThreadView, { props: { id: '1' } })
+    // An id-only registry row must still be pickable: an empty label would make
+    // a perfectly addressable agent invisible in the picker.
+    const agents = [{ id: 'agent-raw' }]
+    getWorkspace.mockResolvedValue({ agents })
+    const { wrapper, pinia } = mountWith(ThreadView, { props: { id: '1' } })
+    useWorkbenchStore(pinia).agents = agents
     await flushPromises()
 
     await wrapper.find('textarea').setValue('@')

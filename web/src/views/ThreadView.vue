@@ -71,21 +71,19 @@ const lastUserIndex = computed(() => {
 const liveAgents = ref([])
 
 /**
- * Re-reads agenthub's agent catalogue (`GET /api/resources?kind=agent`). A
- * failure deliberately keeps the last good list: the store's poll and this
- * thread's speakers are still addressable, and a transient 500 must not turn
- * into an empty picker or a send error.
+ * Re-reads agenthub's agent catalogue
+ * (`GET /api/resources?kind=agent&discoverable=true`). The server applies the
+ * same Discoverable gate as /api/workspace and the playground, so the client
+ * renders the answer as-is and never filters by status. A failure deliberately
+ * keeps the last good list: the workspace poll still carries approved agents,
+ * and a transient 500 must not turn into an empty picker or a send error.
  */
 async function syncAgentCatalog() {
   try {
-    const data = await listResources('agent')
-    const all = Array.isArray(data) ? data : data?.resources || []
-    // The picker only offers agents the caller may reach: a resource still being
-    // curated (draft/pending) is not discoverable, so it is hidden here just as
-    // it is from the playground and the workspace — an @mention of it would
-    // otherwise resolve to nobody and look broken. An empty status is read as
-    // approved by the registry, so it stays listed.
-    liveAgents.value = all.filter((a) => !a.status || a.status === 'approved')
+    const data = await listResources('agent', { discoverable: true })
+    // Both the wrapped and the bare array shape are accepted; either way the
+    // curation decision has already been made on the server.
+    liveAgents.value = Array.isArray(data) ? data : data?.resources || []
   } catch {
     // The composer owns the draft, not connectivity reporting.
   }
@@ -102,39 +100,30 @@ const agentCatalog = computed(() => {
   return [...byId.values()]
 })
 
-// Mention candidates: agents that already spoke here first, then every agent in
-// the catalogue. The server addresses agents by resource id, so each candidate
-// carries the id to send plus a whitespace-free token inserted into the draft.
+// Mention candidates come from exactly one place: the catalogue, which is
+// already filtered to approved resources this caller may see and invoke — the
+// same set the playground offers. Thread history and declared participants may
+// contribute a *name* an agent used before a rename, but never an address of
+// their own: an agent the registry hides (draft, pending, or no grant) must not
+// be offerable here, because the server will refuse that delegation anyway.
 const mentionCandidates = computed(() => {
-  const out = []
-  const seen = new Set()
-  const push = (id, token, label, aliases = []) => {
-    if (!id || seen.has(id)) return
-    seen.add(id)
-    out.push({ id, token, label: label || token, aliases })
-  }
-  const byId = new Map(agentCatalog.value.map((agent) => [agent.id, agent]))
+  const known = new Set(agentCatalog.value.map((agent) => agent.id))
+  const aliases = new Map()
   for (const m of messages.value) {
     if (m.AuthorType === 'user') continue
     const id = m.ResourceID || m.AuthorID
-    if (!id) continue
-    // A rename in agenthub wins over the name frozen into the message; the old
-    // handle stays an alias so a draft typed before the rename still delegates.
-    const agent = byId.get(id)
-    const token = agent?.name || m.AuthorName || id
-    push(id, token, agent ? resourceLabel(agent) : (m.AuthorName || id),
-      agent ? [m.AuthorName].filter(Boolean) : [])
+    if (!id || !m.AuthorName || !known.has(id)) continue
+    if (!aliases.has(id)) aliases.set(id, new Set())
+    aliases.get(id).add(m.AuthorName)
   }
-  // Declared participants stay addressable even when the catalogue does not
-  // show the caller that agent, so offer them by id as a fallback.
-  for (const pid of thread.value?.Participants || []) {
-    const agent = byId.get(pid)
-    push(pid, agent ? agent.name || pid : pid, agent ? resourceLabel(agent) : pid)
-  }
-  for (const agent of agentCatalog.value) {
-    push(agent.id, agent.name || agent.id, resourceLabel(agent))
-  }
-  return out
+  return agentCatalog.value.map((agent) => ({
+    id: agent.id,
+    token: agent.name || agent.id,
+    // A catalogue entry may carry only its id. Showing an empty row would make
+    // an addressable agent invisible, so the id itself is the last label.
+    label: resourceLabel(agent) || agent.id,
+    aliases: [...(aliases.get(agent.id) || [])],
+  }))
 })
 
 // The token being typed after the last space, or null when the caret is not in a
@@ -279,16 +268,22 @@ function resolveMentions(body) {
   return ids
 }
 
-/** The agent a plain (unmentioned) message goes to: latest speaker, declared participant, first agent. */
+/** The agent a plain (unmentioned) message goes to: latest *catalogued* speaker,
+ *  last catalogued participant, then the first catalogued agent. History and
+ *  declared participants are hints about who is in the conversation, never a
+ *  way around the catalogue's approval and grant filter. */
 function defaultAgentId() {
+  const known = new Set(agentCatalog.value.map((agent) => agent.id))
   for (let i = messages.value.length - 1; i >= 0; i -= 1) {
     const m = messages.value[i]
     if (m.AuthorType === 'user') continue
     const id = m.ResourceID || m.AuthorID
-    if (id) return id
+    if (id && known.has(id)) return id
   }
   const declared = thread.value?.Participants || []
-  if (declared.length > 0) return declared[declared.length - 1]
+  for (let i = declared.length - 1; i >= 0; i -= 1) {
+    if (known.has(declared[i])) return declared[i]
+  }
   return agentCatalog.value[0]?.id || null
 }
 
@@ -419,6 +414,23 @@ async function confirmClear() {
   }
 }
 
+// The server now says *why* a message could not be handed over. Keep the old
+// generic copy for unknown reasons and for older servers that omit the field.
+const failureCopy = {
+  forbidden: 'delegateForbidden',
+  not_approved: 'delegateNotApproved',
+  delegate_failed: 'delegateUnavailable',
+}
+
+function failureNotice(res) {
+  const reason = typeof res?.reason === 'string' ? res.reason : ''
+  const fallback = res?.reasons && typeof res.reasons === 'object'
+    ? Object.values(res.reasons).map((value) => failureCopy[value]).find(Boolean)
+    : ''
+  const key = failureCopy[reason] || fallback
+  return key ? t(key) : t('delegateFailed')
+}
+
 async function send() {
   const body = draft.value.trim()
   if (!body) return
@@ -473,11 +485,11 @@ async function send() {
     } else if (mentions.length === 0) {
       // Nothing to hand the message to: it is still posted, but say why. An
       // unresolved @handle is an unreachable agent, not an empty workspace.
-      notice.value = hasHandles ? t('delegateFailed') : t('participantsEmpty')
+      notice.value = hasHandles ? failureNotice(res) : t('participantsEmpty')
     } else {
       // The message was posted but every mention failed to delegate: say so
       // rather than leave the composer looking like it ignored the user.
-      notice.value = t('delegateFailed')
+      notice.value = failureNotice(res)
     }
     // Reconnect so the fresh replay also carries any task this send started.
     subscribe()
