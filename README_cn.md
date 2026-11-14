@@ -95,11 +95,7 @@
 
 </details>
 
-截图由 `desktop/e2e/shoot.mjs` 生成：连接并登录真实 agenthub 后，用
-`tauri-driver` 驱动真实桌面客户端逐个界面截取。前置条件与命名规则见
-`desktop/e2e/README.md` 中的[截图生成](desktop/e2e/README.md#screenshot-generation-live-mode-only)。
-原先的独立预览图（`workbench.png`、`workbench_cn.png`、`diagrams/registry_cn.png`
-与 `diagrams/workbench_cn.png`）已移除，请改用 `screenshots/`。
+截图由 `desktop/e2e/shoot.mjs` 生成。
 
 <div align="right">
 
