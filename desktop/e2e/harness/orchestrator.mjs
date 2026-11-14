@@ -165,8 +165,14 @@ export async function setup() {
     appendEvent({ event: 'session-ready', proxyOrigin: opened.proxyOrigin, sessionId: wd.sessionId })
     writeRunSummary({ status: 'running', proxyOrigin: opened.proxyOrigin, checks: check.checks })
   } catch (error) {
-    await cleanup('setup-failed', { reason: error.message })
-    throw error
+    // /status already answered, so tauri-driver itself is alive; a failure here means
+    // the New Session (app launch) hung or the app crashed. Surface tauri-driver's
+    // stderr so the real cause — missing/invalid binary, no display, a zombie
+    // single-instance, or a capability error — is visible instead of a bare 120s timeout.
+    const tail = (driver?.log || []).slice(-40).join('').trim()
+    const reason = tail ? `${error.message}\n\ntauri-driver output:\n${tail}` : error.message
+    await cleanup('setup-failed', { reason })
+    throw new Error(reason)
   }
 }
 
