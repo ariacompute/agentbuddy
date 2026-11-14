@@ -15,6 +15,18 @@ import { appendEvent, writeRequestLog, writeRunSummary } from './report.mjs'
 import { startStub } from '../stub/server.mjs'
 import { openDesktopSession } from '../driver/session.mjs'
 
+// A leaked tauri-driver from an interrupted run keeps its ports bound — including
+// a hardcoded secondary port (4445) that `--port` does NOT control — so the next
+// driver cannot bind and every run times out at New Session. Best-effort kill any
+// leftover tauri-driver before spawning a fresh one.
+async function killStaleDrivers() {
+  const bin = process.platform === 'win32' ? 'taskkill' : 'pkill'
+  const args = process.platform === 'win32'
+    ? ['/F', '/IM', 'tauri-driver.exe']
+    : ['-f', 'tauri-driver']
+  await spawnProcess(bin, args).catch(() => {})
+}
+
 let cfg = null
 let stub = null
 let driver = null
@@ -123,6 +135,11 @@ export async function setup() {
 
     ownsConfigDir = !process.env.AGENTBUDDY_E2E_CONFIG_DIR
     makeConfigDir(cfg.configDir)
+
+    // Kill any leaked tauri-driver from an interrupted run before spawning a new
+    // one. It holds a hardcoded secondary port (4445) that `--port` cannot move,
+    // so without this the next driver fails to bind and hangs at New Session.
+    await killStaleDrivers()
 
     // tauri-driver inherits the isolated config dir and passes it to the app it
     // spawns. On Linux a headless run needs a display for WebKitGTK.
