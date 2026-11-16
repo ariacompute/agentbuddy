@@ -37,7 +37,7 @@ The happy and error paths of this seam are covered by `src-tauri/src/lib.rs`'s
 | Platform | Dependencies |
 | --- | --- |
 | Linux (authoritative full run) | `webkit2gtk-driver` (provides `WebKitWebDriver`), `xvfb` (provides `xvfb-run`), Tauri WebKitGTK/GTK build deps (see install block below), `tauri-driver` (installed idempotently on demand by `make e2e`), Rust stable |
-| Windows (best effort) | WebView2 runtime (Evergreen), `msedgedriver` (matching the WebView2 runtime version; resolved from PATH or via `E2E_NATIVE_DRIVER`), `tauri-driver` (auto-installed likewise), Rust stable |
+| Windows (advisory, needs `E2E_ALLOW_BEST_EFFORT=1`) | WebView2 runtime (Evergreen), `msedgedriver` (matching the WebView2 runtime version; resolved from PATH or via `E2E_NATIVE_DRIVER`), `tauri-driver` (auto-installed likewise), Rust stable |
 | Common | bun ≥ 1.4.4, Node (Vitest must be launched by Node), `web/dist/index.html`, `desktop/src-tauri/target/debug/AgentBuddy[.exe]` built with `e2e-isolation` |
 
 > The "this machine's Windows cannot launch the Rust test binary" noted in AGENTS.md
@@ -45,6 +45,21 @@ The happy and error paths of this seam are covered by `src-tauri/src/lib.rs`'s
 > process. But if the WebDriver components above are missing on this machine, the
 > orchestrator marks the desktop cases as skipped and prints the specific missing items;
 > `stub-contract.spec.js` is unaffected and always runs for real.
+
+### Which platform's result counts
+
+Only the **Linux** run (WebKitGTK + xvfb) is authoritative: it is the one CI runs, and a
+green run is supposed to mean that one. The Windows path (WebView2 + msedgedriver) is
+useful locally but advisory — letting both count as equal evidence would make "E2E green"
+mean two different things depending on who ran it. So:
+
+- `linux` → runs, `authoritative: true` in `artifacts/run.json`.
+- any other platform → preflight fails the `authoritative platform` check and the desktop
+  suites skip, **unless** `E2E_ALLOW_BEST_EFFORT=1` is set; then they run with
+  `authoritative: false` (advisory) and the reason says so.
+- `E2E_REQUIRE_DESKTOP=1` (CI) turns "the desktop journeys were skipped" into a setup
+  failure. Without it a missing WebDriver would skip eleven suites and still exit 0 — a
+  green run that proves nothing.
 
 **Linux build dependencies (Ubuntu / Debian / WSL2)** — the Tauri v2 crate links
 WebKitGTK, GTK, D-Bus, appindicator and friends, so install these *before*
@@ -110,6 +125,8 @@ false`.
 | `E2E_ARTIFACTS` | `desktop/e2e/artifacts` | reports / request-log directory |
 | `E2E_TIMEOUT_MS` / `E2E_STARTUP_MS` | `30000` / `120000` | element wait / startup timeout |
 | `E2E_HEADED` | `0` | On Linux, do not use `xvfb-run` |
+| `E2E_ALLOW_BEST_EFFORT` | `0` | On a non-Linux platform, run the advisory desktop journeys; the report is still `authoritative: false` |
+| `E2E_REQUIRE_DESKTOP` | `0` | Turn a skipped desktop run into a failure (CI sets it; a skip there is a red job) |
 | `E2E_CONTRACT_ONLY` | `0` | Run only the stub contract cases |
 | `E2E_SCREENSHOTS_DIR` | `agentbuddy/screenshots` (repo root) | screenshot output directory for `shoot.mjs` |
 
@@ -276,8 +293,12 @@ hanging until the 120s startup timeout). Set `E2E_DRIVER_URL` to manage the driv
 ## Acceptance
 
 1. `make e2e-contract` is green on any machine (8 contract cases run for real).
-2. The Linux CI `e2e` job passes all 115 cases; `run.json`'s `status` is `finished`.
+2. The Linux CI `e2e` job passes all cases; `run.json`'s `status` is `finished` with
+   `authoritative: true`. Because the job sets `E2E_REQUIRE_DESKTOP=1`, a preflight failure
+   fails the job instead of skipping every desktop suite.
 3. `make e2e-live`, after configuring an isolated account and a real agenthub, passes the
    same set of cases except the explicit skips.
-4. `make test`, `cd web && bun run test:coverage`, and `cd desktop && bun run
+4. On Windows the journeys run only with `E2E_ALLOW_BEST_EFFORT=1`, and the report says
+   `authoritative: false`: nothing local can be mistaken for the Linux result.
+5. `make test`, `cd web && bun run test:coverage`, and `cd desktop && bun run
    test:coverage` all remain unchanged (statement / line / branch / function 100%).

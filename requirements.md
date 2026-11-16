@@ -133,7 +133,7 @@
 | F9.2 | 技能册：`kind=skill` + capabilities |
 | F9.3 | 预算：由 `/api/tasks` 派生（任务数、状态分布、产物字节、span 时长），固定展示「派生估算，非真实计费」 |
 | F9.4 | **目录分页**：目录按服务端窗口读取（`?limit=25/50/100&offset=`，`limit=0` 为全量），翻页条只陈述服务端回报的 `total`（「x–y / 共 N」）；kind 页签用 `counts`（与 kind 过滤无关的全目录计数），健康汇总用 `health`；搜索走服务端 `q`，250ms 防抖，改筛选/页大小回第一页；空页（offset 越过结尾）照实显示 |
-| F9.5 | **批量读取**：`POST /api/resources/batch`（≤100 id，按请求顺序去重）把一页里引用的 `resourceId` 一次解析成名字（Tasks 列表），`missing` 中的 id 回落显示原 id；批量失败不影响列表 |
+| F9.5 | **批量读取**：`POST /api/resources/batch`（≤100 id，按请求顺序去重）把一页里引用的 `resourceId` 一次解析成名字（Tasks 列表），`missing` 中的 id 回落显示原 id（服务端的确定回答，不重试）；整次调用失败自动重试一次，仍失败则保留裸 id 并显示「名称暂不可用 + 重试」提示，批量失败不影响列表本身 |
 
 ## 2B. 融合标杆项目的扩展特性（F10–F18）
 

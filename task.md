@@ -1823,3 +1823,60 @@ agenthub 让 `GET /api/resources` 支持 `limit`（0..200，0=全量）/ `offset
 - `cd web && bun run test`：**36 spec / 935 用例全绿**；`bun run test:coverage`：
   语句 / 分支 / 函数 / 行 **四项 100%**（12529 语句、2189 分支、487 函数、12494 行）。
 - `cd desktop` 未改动：9 spec / 133 用例、四项 100%（1015 语句、306 分支、56 函数）不变。
+
+## M45 — E2E 权威口径与任务列表取名兜底（第八轮评估 §9 第 2、3 条，2026-11-16）
+
+第八轮评估点出两件事：桌面 E2E 的 13 个 spec 里只有 1 个能不靠 WebKitGTK/tauri-driver 真跑，
+Windows 路线又是「best effort」，于是「绿」到底证明了什么取决于谁在跑；以及 `TaskListView` 的批量
+取名失败时只回落成裸 id，跨页 id 连提示都没有。本轮只动 `desktop/e2e` 的判定与工作台的一个屏。
+
+### 1. 桌面 E2E：Linux 权威，且 CI 不许静默跳过
+
+- **判定抽成纯函数**（`harness/config.mjs`）：`desktopPlatformDecision(platform, env)` 给出
+  `{allowed, authoritative, reason}`——Linux 恒授权且权威；其他平台默认 `allowed=false` 并给出
+  `E2E_ALLOW_BEST_EFFORT=1` 的开启方式，显式开启后 `authoritative=false`（advisory）。
+  `readE2eConfig(env, platform)` 把三个字段（`platform` / `authoritative` / `bestEffortAllowed`）
+  连同 `requireDesktop`（`E2E_REQUIRE_DESKTOP`）一起交给后续步骤；平台参数默认 `process.platform`，
+  测试可注入。`preflight` 在非权威且未开启时新增一条失败检查 `authoritative platform`，
+  于是现有的「跳过并打印原因」路径自然生效。
+- **跳过即失败**：`requireDesktopOrThrow(cfg, skipped, reason)` 在 `E2E_REQUIRE_DESKTOP=1` 且本次
+  preflight 失败时抛错；orchestrator 在写完备忘（`run.json` 的 `status: skipped-desktop`）后调用它，
+  于是 CI 的失败信息既有原因也有出口。`run.json` / `session.json` 现在都带
+  `platform` / `authoritative` / `requireDesktop`。
+- **CI**：`ci.yml` 的 e2e job 增加 `E2E_REQUIRE_DESKTOP: "1"`，注释与 summary 都写明「Linux 是权威
+  结果，跳过即失败」。
+- **顺手修掉一个真缺陷（`e2e/run.mjs`）**：Vitest 2.1.9 把 globalSetup 抛出的错误记为 *unhandled
+  error* 而不是失败用例（`state.getUnhandledErrors()` 实测返回 `[]`），`run.mjs` 于是按
+  「0 个失败用例」退出 **0**——上面那道闸门本来会被它吞掉。现在三项都算失败：失败用例数、
+  unhandled error 数、以及「session 里 `requireDesktop` 为真而 `skipped` 也为真」。
+- `desktop/e2e/README.md` 新增「Which platform's result counts」小节，环境变量表补
+  `E2E_ALLOW_BEST_EFFORT` / `E2E_REQUIRE_DESKTOP`，验收标准改成 5 条（Linux 权威、Windows 需显式
+  开启、CI 禁止静默跳过）；`AGENTS.md` 增一条硬性约定（判定必须在纯函数里，不得只活在
+  orchestrator 的分支里）。
+
+### 2. 任务列表：一次重试 + 13 语提示
+
+- `TaskListView.vue`：`resolveNames()` 拆出 `lookupNames()`，失败后**立即再问一次**（不指数退避：
+  最常见的失败是外壳与 agenthub 重连时的瞬时错误，重发一次就够）；两次都失败才把 `names` 清空并
+  置 `namesStale`。`missing` 的 id 不重试——那是服务端的确定回答，再问只会得到同一个答案。
+- 模板在筛选行下新增一行 `data-test="names-stale"` 的浅色提示 + 重试按钮（复用 13 语齐全的
+  `shell.actionRetry`），点击再调 `resolveNames()`；成功即清标记。
+- `copy/task-copy.js` 新增 `namesUnavailable` × 13 语（每语都不同，`copy-fallback.spec.js` 照过）。
+
+### 3. 验证（本机 Windows，Node 起 Vitest）
+
+| 项 | 结果 |
+| --- | --- |
+| `cd web && bun run test` | **36 spec / 936 用例全绿** |
+| `cd web && bun run test:coverage` | 语句 / 分支 / 函数 / 行 **四项 100%**（12566 语句、2194 分支、488 函数、12531 行） |
+| `cd desktop && bun run test` | **10 spec / 145 用例全绿**（+1 spec / +12 用例） |
+| `cd desktop && bun run test:coverage` | 四项 100%（1015 语句、306 分支、56 函数）——`scripts/**` 闸门未被新文件影响 |
+| `cd desktop && node e2e/run.mjs`（默认） | 退出 **0**：1 spec / 9 用例真跑，13 个套件 skipped，原因写明「Windows 是 best-effort，设 `E2E_ALLOW_BEST_EFFORT=1`」 |
+| `E2E_REQUIRE_DESKTOP=1 node e2e/run.mjs` | 退出 **1**，错误信息带完整 preflight 原因（闸门实测有效） |
+
+- 新增用例：`desktop/tests/e2e-platform.spec.js`（12 条：Linux 权威、Windows 默认拒绝与开启、
+  `E2E_REQUIRE_DESKTOP` 解析、`requireDesktopOrThrow` 的三条路径、preflight 的平台检查在
+  三种配置下的出现与消失）；`web/tests/views.spec.js` 由 1 条「失败保留 id」拆成 2 条
+  （重试成功 → 显示名字且无提示；两次失败 → 保留 id + 提示 + 手动重试后恢复）。
+- 未验证：真 Linux 上的权威结果（本机无 `webkit2gtk-driver`/xvfb），本轮只钉住判定与退出码；
+  CI 的 e2e job 实跑结果不在本机可见范围。

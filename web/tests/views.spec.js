@@ -162,7 +162,28 @@ describe('TaskListView', () => {
     expect(widths.every((width) => width <= 100)).toBe(true)
   })
 
-  it('keeps the ids on the cards when the batch read fails', async () => {
+  // A failed lookup is not a failed list, but it is also not nothing: one retry
+  // covers the common case (the shell reconnecting to the server mid-flight),
+  // and a page of bare ids after that has to say why it looks like that.
+  it('retries the batch read once and shows the names when the second attempt answers', async () => {
+    batchGetResources
+      .mockRejectedValueOnce(new Error('down'))
+      .mockResolvedValue({ resources: [{ id: 'res-7', name: 'mail-bot', kind: 'agent' }], missing: [] })
+    listTasks.mockResolvedValue({
+      tasks: [{ id: 't1', resourceId: 'res-7', status: { state: 'working' } }],
+    })
+    const { wrapper } = mountWith(TaskListView)
+    await flushPromises()
+
+    // The first refusal is retried; the view does not depend on the exact
+    // number of resolves (a task refresh re-asks too).
+    expect(batchGetResources.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(wrapper.text()).toContain('mail-bot')
+    // The retry worked, so there is nothing to explain and nothing to click.
+    expect(wrapper.find('[data-test="names-stale"]').exists()).toBe(false)
+  })
+
+  it('keeps the ids, explains why, and offers a retry when both attempts fail', async () => {
     batchGetResources.mockRejectedValue(new Error('down'))
     listTasks.mockResolvedValue({
       tasks: [{ id: 't1', resourceId: 'res-7', status: { state: 'working' } }],
@@ -170,7 +191,25 @@ describe('TaskListView', () => {
     const { wrapper } = mountWith(TaskListView)
     await flushPromises()
 
+    const before = batchGetResources.mock.calls.length
+    // A hint on screen means at least one resolve reached its second attempt,
+    // so the retry really is what happened before the fallback.
+    expect(before).toBeGreaterThanOrEqual(2)
     expect(wrapper.text()).toContain('res-7')
+    const hint = wrapper.find('[data-test="names-stale"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('Agent names could not be loaded')
+
+    // The manual retry is the same call: the answer arrives, the hint goes.
+    batchGetResources.mockResolvedValue({
+      resources: [{ id: 'res-7', name: 'mail-bot', kind: 'agent' }],
+      missing: [],
+    })
+    await hint.find('button').trigger('click')
+    await flushPromises()
+    expect(batchGetResources.mock.calls.length).toBeGreaterThan(before)
+    expect(wrapper.text()).toContain('mail-bot')
+    expect(wrapper.find('[data-test="names-stale"]').exists()).toBe(false)
   })
 
   it('narrows the list by state, one filter at a time', async () => {

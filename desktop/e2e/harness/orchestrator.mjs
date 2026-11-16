@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { preflight, readE2eConfig, which } from './config.mjs'
+import { preflight, readE2eConfig, requireDesktopOrThrow, which } from './config.mjs'
 import {
   freePort, killAppByRecord, makeConfigDir, removeDir, spawnProcess, stopAllProcesses,
   stopProcess, waitFor, waitForHttp, writeJson,
@@ -70,11 +70,21 @@ function publish(info) {
   writeJson(cfg.sessionFile, info)
 }
 
+/** The platform half of every report: whether this run's result counts. */
+function platformMeta() {
+  return {
+    platform: cfg.platform,
+    authoritative: cfg.authoritative,
+    requireDesktop: cfg.requireDesktop,
+  }
+}
+
 function baseInfo(serverUrl, check, skipped, reason) {
   return {
     skipped,
     reason,
     checks: check.checks,
+    ...platformMeta(),
     backend: cfg.backend,
     serverUrl,
     stubUrl: stub?.url || '',
@@ -150,8 +160,11 @@ export async function setup() {
       )
       // The stub stays up: its own contract specs need no Rust toolchain and are
       // genuinely useful on a machine that cannot run the desktop binary.
-      writeRunSummary({ status: 'skipped-desktop', reason, checks: check.checks })
+      writeRunSummary({ status: 'skipped-desktop', reason, checks: check.checks, ...platformMeta() })
       appendEvent({ event: 'preflight', ok: false, reason })
+      // …unless the caller said the journeys must run. Twelve skipped suites and
+      // exit code 0 is exactly what CI must not accept.
+      requireDesktopOrThrow(cfg, skipped, reason)
       return
     }
     appendEvent({ event: 'preflight', ok: true })
@@ -233,7 +246,7 @@ export async function setup() {
       connection: opened.connection,
     })
     appendEvent({ event: 'session-ready', proxyOrigin: opened.proxyOrigin, sessionId: wd.sessionId })
-    writeRunSummary({ status: 'running', proxyOrigin: opened.proxyOrigin, checks: check.checks })
+    writeRunSummary({ status: 'running', proxyOrigin: opened.proxyOrigin, checks: check.checks, ...platformMeta() })
   } catch (error) {
     // /status already answered, so tauri-driver itself is alive; a failure here means
     // the New Session (app launch) hung or the app crashed. Surface tauri-driver's

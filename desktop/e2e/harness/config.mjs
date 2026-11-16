@@ -22,6 +22,49 @@ export const STUB_CREDENTIALS = { email: 'e2e@example.test', password: 'agentbud
 const truthy = (v) => v === '1' || v === 'true' || v === 'yes'
 const exe = (name) => (process.platform === 'win32' ? `${name}.exe` : name)
 
+/**
+ * Which platform owns the authoritative result.
+ *
+ * The desktop journeys drive a real WebView through `tauri-driver`, and only the
+ * Linux path (WebKitGTK + xvfb) is the one CI runs and a green run is supposed
+ * to mean. Windows (WebView2 + msedgedriver) works often enough to be useful
+ * locally, but it is *advisory*: letting its result count as equal evidence
+ * would make "E2E green" mean two different things depending on who ran it.
+ * So the advisory path needs an explicit opt-in, and the report says which kind
+ * of result this run produced.
+ */
+export function desktopPlatformDecision(platform = process.platform, env = process.env) {
+  if (platform === 'linux') return { allowed: true, authoritative: true, reason: '' }
+  const name = platform === 'win32' ? 'Windows (WebView2)' : platform
+  if (truthy(env.E2E_ALLOW_BEST_EFFORT)) {
+    return {
+      allowed: true,
+      authoritative: false,
+      reason: `${name} is a best-effort platform (E2E_ALLOW_BEST_EFFORT=1): the result is advisory, Linux is authoritative`,
+    }
+  }
+  return {
+    allowed: false,
+    authoritative: false,
+    reason: `${name} is best-effort only; set E2E_ALLOW_BEST_EFFORT=1 to run the advisory journeys (Linux is authoritative)`,
+  }
+}
+
+/**
+ * Refuses a skipped desktop run when the caller said it must not be skipped.
+ *
+ * In CI every desktop suite is `describe.skipIf(info.skipped)`, so a run where
+ * preflight failed is indistinguishable from a green one: all of them skipped
+ * and exit code 0. `E2E_REQUIRE_DESKTOP=1` is how the job says "a skip is a
+ * failure here", and this is the single place that turns it into one.
+ */
+export function requireDesktopOrThrow(cfg, skipped, reason) {
+  if (!cfg?.requireDesktop || !skipped) return
+  throw new Error(
+    `desktop journeys were skipped (${reason || 'no reason recorded'}) but E2E_REQUIRE_DESKTOP=1 forbids a skipped run`,
+  )
+}
+
 /** Locates a binary on PATH, or returns null. */
 export function which(bin) {
   if (path.isAbsolute(bin) || bin.includes(path.sep)) return fs.existsSync(bin) ? bin : null
@@ -49,14 +92,18 @@ export function resolveNativeDriver(env = process.env) {
 /**
  * Reads the run configuration. In stub mode `serverUrl` is filled in later by
  * the orchestrator once the stub has been bound to an ephemeral port.
+ *
+ * `platform` is a parameter so the platform policy can be exercised off Linux;
+ * every caller passes the default.
  */
-export function readE2eConfig(env = process.env) {
+export function readE2eConfig(env = process.env, platform = process.platform) {
   const backend = (env.E2E_BACKEND || 'stub').toLowerCase()
   if (backend !== 'stub' && backend !== 'live') {
     throw new Error(`E2E_BACKEND must be 'stub' or 'live', got '${backend}'`)
   }
   const artifactsDir = env.E2E_ARTIFACTS || path.join(E2E_ROOT, 'artifacts')
   const screenshotsDir = env.E2E_SCREENSHOTS_DIR || path.join(REPO_ROOT, 'screenshots')
+  const policy = desktopPlatformDecision(platform, env)
   return {
     backend,
     serverUrl: backend === 'live' ? (env.E2E_SERVER_URL || '') : '',
@@ -79,6 +126,13 @@ export function readE2eConfig(env = process.env) {
     startupMs: Number(env.E2E_STARTUP_MS || 120_000),
     headed: truthy(env.E2E_HEADED),
     skipWebdriver: truthy(env.E2E_CONTRACT_ONLY),
+    // The platform policy, resolved once: `authoritative` is what the report
+    // publishes, `bestEffortAllowed` is what the preflight can refuse on.
+    platform,
+    authoritative: policy.authoritative,
+    bestEffortAllowed: policy.allowed,
+    platformReason: policy.reason,
+    requireDesktop: truthy(env.E2E_REQUIRE_DESKTOP),
   }
 }
 
@@ -97,10 +151,15 @@ export async function preflight(cfg, serverUrl) {
   add('desktop binary', fs.existsSync(cfg.appBinary), cfg.appBinary)
   add('tauri-driver', fs.existsSync(cfg.driverBin) || !!which('tauri-driver'), cfg.driverBin)
 
-  if (process.platform === 'win32') {
+  // Linux is the platform whose result counts. Everywhere else the journeys are
+  // advisory and need an explicit opt-in, so "the suite was green" cannot mean
+  // the WebView2 path once and the WebKitGTK path the next time.
+  if (!cfg.bestEffortAllowed) add('authoritative platform', false, cfg.platformReason)
+
+  if (cfg.platform === 'win32') {
     const edge = cfg.nativeDriver || which('msedgedriver')
     add('msedgedriver', !!edge, edge || 'not on PATH; set E2E_NATIVE_DRIVER')
-  } else if (process.platform === 'linux') {
+  } else if (cfg.platform === 'linux') {
     const webkit = cfg.nativeDriver || which('WebKitWebDriver') || which('webkit2gtk-driver')
     add('WebKitWebDriver', !!webkit, webkit || 'install webkit2gtk-driver')
     if (!cfg.headed) add('xvfb-run', !!which('xvfb-run'), which('xvfb-run') || 'install xvfb')

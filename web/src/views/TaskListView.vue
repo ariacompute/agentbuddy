@@ -43,6 +43,10 @@ const shown = computed(() => {
 // card shows anyway when the registry cannot name one.
 const BATCH_LIMIT = 100
 const names = ref({})
+// True only when the whole lookup failed. A `missing` id is the server's
+// definitive answer, so a card showing an id is not an error — but every card
+// showing one because the call died is, and the page has to say so.
+const namesStale = ref(false)
 
 const resourceIds = computed(() => {
   const ids = []
@@ -55,21 +59,37 @@ const resourceIds = computed(() => {
   return ids
 })
 
+async function lookupNames(ids) {
+  const data = await batchGetResources(ids)
+  const next = {}
+  for (const resource of data?.resources || []) next[resource.id] = resourceLabel(resource)
+  return next
+}
+
 async function resolveNames() {
   const ids = resourceIds.value.slice(0, BATCH_LIMIT)
   if (ids.length === 0) {
     names.value = {}
+    namesStale.value = false
     return
   }
-  try {
-    const data = await batchGetResources(ids)
-    const next = {}
-    for (const resource of data?.resources || []) next[resource.id] = resourceLabel(resource)
-    names.value = next
-  } catch {
-    // A failed lookup is not a failed list: the cards fall back to their ids.
-    names.value = {}
+  // One retry, no backoff: the usual failure is the shell reconnecting to the
+  // server mid-flight, and one re-ask costs a single request. Ids that come
+  // back in `missing` are never retried — the server answered about them, and
+  // asking again would only repeat the same answer.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      names.value = await lookupNames(ids)
+      namesStale.value = false
+      return
+    } catch {
+      // Fall through to the retry; the second failure is reported below.
+    }
   }
+  // A failed lookup is still not a failed list: the cards keep their ids, and
+  // the page offers a retry instead of silently showing identifiers.
+  names.value = {}
+  namesStale.value = true
 }
 
 watch(resourceIds, resolveNames, { immediate: true })
@@ -134,6 +154,11 @@ async function confirmClear() {
         {{ f.label }}
       </button>
     </div>
+
+    <p v-if="namesStale" class="muted row names-stale" data-test="names-stale">
+      <span>{{ t('namesUnavailable') }}</span>
+      <button class="btn btn-ghost btn-sm" @click="resolveNames">{{ ts('actionRetry') }}</button>
+    </p>
 
     <div v-if="workbench.tasks.length === 0" class="empty">
       <p>{{ t('listEmpty') }}</p>

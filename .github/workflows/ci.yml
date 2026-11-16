@@ -10,7 +10,9 @@
 #   • e2e      → desktop/e2e: drives the real debug desktop binary through
 #                tauri-driver + WebKitWebDriver against a deterministic stub.
 #                Linux only: this is the authoritative full run; on Windows the
-#                Tauri native test entry cannot launch (see AGENTS.md).
+#                Tauri native test entry cannot launch (see AGENTS.md). The job
+#                also sets E2E_REQUIRE_DESKTOP=1, so a run where preflight
+#                skipped every desktop suite fails instead of reporting green.
 #
 # The desktop crate embeds the console via rust-embed and calls
 # `tauri::generate_context!`, which reads desktop/src-tauri/icons/ at compile
@@ -263,6 +265,10 @@ jobs:
         run: bun run test:e2e
         env:
           E2E_APP_BIN: ${{ github.workspace }}/desktop/src-tauri/target/debug/AgentBuddy
+          # Linux is the authoritative platform, and every desktop suite is
+          # describe.skipIf(info.skipped): without this, a preflight failure
+          # would skip them all and still exit 0. A skip is a failure here.
+          E2E_REQUIRE_DESKTOP: "1"
 
       - name: Publish the E2E summary
         if: always()
@@ -274,6 +280,8 @@ jobs:
             echo "run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (attempt ${GITHUB_RUN_ATTEMPT})"
             echo "commit: ${GITHUB_SHA}"
             echo "job: ${GITHUB_JOB}"
+            echo
+            echo "platform: linux (authoritative); E2E_REQUIRE_DESKTOP=1 — a skipped run fails the job"
             echo
             echo '```'
             cat desktop/e2e/artifacts/run.json 2>/dev/null || echo 'no run.json produced'

@@ -54,6 +54,7 @@ web/                        Vue 3 工作台（bun + vite）
 desktop/
   scripts/                  发布期 Node 脚本（stamp / make-icon / 签名注入与校验 / latest-json）
   tests/                    Vitest：上述脚本的**进程内**用例 + cli.spec.js 的真子进程入口用例
+                            + e2e-platform.spec.js（E2E 平台权威判定，纯函数、无驱动）
   vitest.config.js          仅覆盖 scripts/**，与 web 的 src 闸门互不相干
   src-tauri/src/            Rust：config / session / single / proxy / executor / tray / notify / i18n
   src-tauri/assets/         shell.html（连接页 + 关于页）
@@ -94,8 +95,8 @@ desktop/
   `xxx.mockResolvedValue is not a function`，而同一份代码用 node 跑 773 条全绿）。
   新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线（36 个 spec、**935** 条用例）：
-  语句/行 **100%**、分支 **100%**、函数 **100%**（12529 条语句、2189 个分支、487 个函数、12494 行）；
+  `text-summary` + `text`，不写报告目录），当前基线（36 个 spec、**936** 条用例）：
+  语句/行 **100%**、分支 **100%**、函数 **100%**（12566 条语句、2194 个分支、488 个函数、12531 行）；
   `vitest` 与 `@vitest/coverage-v8` **版本必须完全一致**（当前同为 `2.1.9`，写死不用 `^`）：
   混版本会打印 "Running mixed versions is not supported"，且覆盖率数字不可信；
   **四项须保持 100%**，回落时先看报告里的未覆盖行再补用例，`test.coverage` **没有 exclude**，
@@ -131,7 +132,7 @@ desktop/
   经 `GITHUB_ENV` 传递）、`latest-json.mjs`（三腿 collect → manifest → verify，产出恰好 9 个资产）。
   它们跑在三个 CI 主机与 release job 自己的文件上，**工作台测不到**，因此 `desktop/` 自成一个
   Vitest 工程：`vitest.config.js` 的 `coverage.include` 就是 `scripts/**/*.mjs`，四项 **100%**
-  （9 spec / **133** 用例、1015 语句、306 分支、56 函数），`bun run test:coverage` 验，
+  （10 spec / **145** 用例、1015 语句、306 分支、56 函数），`bun run test:coverage` 验，
   CI 的 `scripts` job 不需要 Rust 工具链。
 - **公钥跨文件契约必须编译前断言**：`UPDATER_PUBKEY` 同时落在 `src/upgrade/mod.rs` 的常量与
   `tauri.conf.json` 的 `plugins.updater.pubkey`，`verify-updater-pubkey.mjs` 是唯一比较点。
@@ -142,6 +143,13 @@ desktop/
 - **验证留痕**：Rust 侧以 CI 的 Linux job 实跑为准；`task.md` 的 M43 记录真实 run/job 直链、
   提交与稳定入口，`ci.yml` 的 cargo / E2E summary 自带 run URL、attempt、commit 与 job 名。
   不抄写看不到的测试行数，链接与 artifact 就是证据。
+- **桌面 E2E 只有 Linux 权威**：`desktop/e2e` 的 13 个桌面 spec 都写 `describe.skipIf(info.skipped)`，
+  于是「preflight 失败 → 全跳过」与「全绿」在退出码上无从区分。规则是：Linux（WebKitGTK + xvfb）
+  跑出的结果是**权威**；其他平台默认跳过并给出 `E2E_ALLOW_BEST_EFFORT=1` 的开启方式，显式开启后
+  `run.json` 记 `authoritative: false`（advisory）；CI 的 e2e job 带 `E2E_REQUIRE_DESKTOP=1`，
+  跳过即 setup 失败。三条判定都在 `harness/config.mjs` 的纯函数里（`desktopPlatformDecision` /
+  `preflight` / `requireDesktopOrThrow`），由 `desktop/tests/e2e-platform.spec.js` 钉住——
+  不要让这段逻辑只活在 orchestrator 的分支里。
 - **进程内可测是脚本的形态要求**：每个脚本导出纯函数 + 一个 `main()`，末尾只有一句
   `runAsEntry(import.meta.url, main)`（`scripts/lib/entry.mjs`）。
   目录 / 根路径 / 环境变量 / argv 一律走 `main` 的**默认参数**注入
