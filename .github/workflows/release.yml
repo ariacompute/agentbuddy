@@ -31,6 +31,9 @@
 # The matching public key comes from the UPDATER_PUBKEY secret and is written
 # into BOTH desktop/src-tauri/src/upgrade/mod.rs (runtime verification) and
 # tauri.conf.json's plugins.updater.pubkey; neither file holds a key in git.
+# A read-only assertion runs between the injection and `tauri build`: the two
+# files must agree and the value must be a usable minisign box, so a one-sided
+# write (M25-M28 regressed here four times) fails before bundling starts.
 # TAURI_SIGNING_PRIVATE_KEY / UPDATER_PUBKEY hold the single-line base64 key
 # contents verbatim (do NOT base64 them again). The configure step validates
 # both formats and fails early with a hint instead of surfacing "Invalid
@@ -127,6 +130,16 @@ jobs:
         run: |
           node desktop/scripts/inject-updater-pubkey.mjs
           node desktop/scripts/prepare-updater-secrets.mjs
+
+      # The injector writes the secret into both files; this read-only check
+      # refuses to compile when only one was written or when the value cannot
+      # verify a download. `pubkey` is `false` for an unsigned release, which
+      # must leave both files empty.
+      - name: Assert updater pubkey contract
+        shell: bash
+        env:
+          EXPECT_UPDATER_PUBKEY: ${{ steps.updater.outputs.pubkey }}
+        run: node desktop/scripts/verify-updater-pubkey.mjs
 
       - name: Build desktop app
         working-directory: desktop

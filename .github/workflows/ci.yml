@@ -18,6 +18,11 @@
 # icons) before cargo can compile — otherwise even `cargo check` fails.
 # On Windows the Tauri native test entry cannot launch, so the matrix drops to
 # `cargo test --no-run` (compile-only), matching the AGENTS.md guidance.
+#
+# Both compile jobs first assert the updater public key's cross-file contract
+# (upgrade/mod.rs ↔ tauri.conf.json). The published summaries carry the run URL,
+# commit and attempt, so a "verified" claim in task.md can be traced back to the
+# exact job instead of being a claim of its own.
 
 name: ci
 
@@ -141,6 +146,13 @@ jobs:
           bun install --frozen-lockfile
           bun run build
 
+      # Cross-file contract: the release workflow writes the same key into both
+      # upgrade/mod.rs and tauri.conf.json. In the committed tree both must stay
+      # empty, so a change that touches only one of them fails before compiling.
+      - name: Assert updater pubkey contract
+        shell: bash
+        run: node desktop/scripts/verify-updater-pubkey.mjs
+
       # Linux really runs the suite; the log is kept so the summary below (and a
       # failed job) can be read without scrolling through the step output.
       - name: Cargo test (Linux, with log)
@@ -164,6 +176,11 @@ jobs:
         run: |
           {
             echo '### cargo test (Linux)'
+            echo
+            echo "run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (attempt ${GITHUB_RUN_ATTEMPT})"
+            echo "commit: ${GITHUB_SHA}"
+            echo "job: ${GITHUB_JOB}"
+            echo
             echo '```'
             grep -E '^(running [0-9]+ tests|test result:)' desktop-test.log || true
             echo '```'
@@ -226,6 +243,10 @@ jobs:
         shell: bash
         run: bun run build
 
+      - name: Assert updater pubkey contract
+        shell: bash
+        run: node desktop/scripts/verify-updater-pubkey.mjs
+
       - name: Build the debug desktop binary with the E2E isolation seam
         working-directory: desktop/src-tauri
         shell: bash
@@ -249,6 +270,11 @@ jobs:
         run: |
           {
             echo '### desktop E2E'
+            echo
+            echo "run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (attempt ${GITHUB_RUN_ATTEMPT})"
+            echo "commit: ${GITHUB_SHA}"
+            echo "job: ${GITHUB_JOB}"
+            echo
             echo '```'
             cat desktop/e2e/artifacts/run.json 2>/dev/null || echo 'no run.json produced'
             echo '```'

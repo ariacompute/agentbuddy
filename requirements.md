@@ -513,6 +513,11 @@
 49. 任务详情返回（F4.6）：从列表进入 `/tasks/:id` 后点击返回链接回到 `/tasks`；13 语下链接均为
    已本地化文案且 `ar` 为 RTL；`getTask` 未返回或返回失败时链接仍在且可跳转；
    `copy-fallback.spec.js` 与 v8 覆盖率四项 100% 保持全绿。
+50. 公钥跨文件契约（N11）：`upgrade/mod.rs` 的 `UPDATER_PUBKEY` 与 `tauri.conf.json` 的
+   `plugins.updater.pubkey` 必须一致；`desktop/scripts/verify-updater-pubkey.mjs` 在 CI 两个
+   编译 job 的编译前（要求两处为空）与 release 注入后、`tauri build` 前（按 `pubkey` 输出要求
+   非空同钥或仍为空）执行，缺声明 / 缺字段 / 坏 JSON / 不一致 / 非法公钥盒一律 `::error::` +
+   退出码 1；正常与异常路径均有用例，发布脚本闸门四项 100% 保持全绿。
 
 ## 7. 自动更新（F19）
 

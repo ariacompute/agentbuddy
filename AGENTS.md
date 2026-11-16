@@ -52,7 +52,7 @@ web/                        Vue 3 工作台（bun + vite）
                             api-usage 导出引用守卫、round4 六面接线回归；
                             smoke.e2e.spec.js 用真 socket + node:http 桩跑真客户端）
 desktop/
-  scripts/                  发布期 Node 脚本（stamp / make-icon / 签名 / latest-json）
+  scripts/                  发布期 Node 脚本（stamp / make-icon / 签名注入与校验 / latest-json）
   tests/                    Vitest：上述脚本的**进程内**用例 + cli.spec.js 的真子进程入口用例
   vitest.config.js          仅覆盖 scripts/**，与 web 的 src 闸门互不相干
   src-tauri/src/            Rust：config / session / single / proxy / executor / tray / notify / i18n
@@ -118,14 +118,24 @@ desktop/
 
 ### 发布脚本（desktop/scripts/）
 
-- **五个脚本，一个闸门**：`stamp.mjs`（版本号落到 `Cargo.toml` + `tauri.conf.json`）、
+- **六个脚本，一个闸门**：`stamp.mjs`（版本号落到 `Cargo.toml` + `tauri.conf.json`）、
   `make-icon.mjs`（纯 Node 生成单色图标集）、`inject-updater-pubkey.mjs`（公钥写进
-  `upgrade/mod.rs` 与 `tauri.conf.json` 两处）、`prepare-updater-secrets.mjs`（签名密钥规范化后
+  `upgrade/mod.rs` 与 `tauri.conf.json` 两处）、`verify-updater-pubkey.mjs`（只读校验两处一致，
+  编译前在 CI 与 release 各跑一次）、`prepare-updater-secrets.mjs`（签名密钥规范化后
   经 `GITHUB_ENV` 传递）、`latest-json.mjs`（三腿 collect → manifest → verify，产出恰好 9 个资产）。
   它们跑在三个 CI 主机与 release job 自己的文件上，**工作台测不到**，因此 `desktop/` 自成一个
   Vitest 工程：`vitest.config.js` 的 `coverage.include` 就是 `scripts/**/*.mjs`，四项 **100%**
-  （7 spec / **103** 用例、862 语句、267 分支、50 函数），`bun run test:coverage` 验，
+  （9 spec / **133** 用例、1015 语句、306 分支、56 函数），`bun run test:coverage` 验，
   CI 的 `scripts` job 不需要 Rust 工具链。
+- **公钥跨文件契约必须编译前断言**：`UPDATER_PUBKEY` 同时落在 `src/upgrade/mod.rs` 的常量与
+  `tauri.conf.json` 的 `plugins.updater.pubkey`，`verify-updater-pubkey.mjs` 是唯一比较点。
+  它只读两个文件：CI 的 desktop / e2e 两个编译 job 在 cargo 之前要求两处**都为空**（密钥不得
+  入库）；release 在注入之后、`tauri build` 之前按 `steps.updater.outputs.pubkey` 要求两处
+  非空同钥（合法 minisign box）或仍为空。失败 `::error::` + 退出码 1，消息不回显密钥。
+  M25–M28 的「只写一处」回归由这条闸门拦住，勿把校验内联进工作流。
+- **验证留痕**：Rust 侧以 CI 的 Linux job 实跑为准；`task.md` 的 M43 记录真实 run/job 直链、
+  提交与稳定入口，`ci.yml` 的 cargo / E2E summary 自带 run URL、attempt、commit 与 job 名。
+  不抄写看不到的测试行数，链接与 artifact 就是证据。
 - **进程内可测是脚本的形态要求**：每个脚本导出纯函数 + 一个 `main()`，末尾只有一句
   `runAsEntry(import.meta.url, main)`（`scripts/lib/entry.mjs`）。
   目录 / 根路径 / 环境变量 / argv 一律走 `main` 的**默认参数**注入

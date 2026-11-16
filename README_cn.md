@@ -267,6 +267,10 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
 
+发布 job 会把公钥同时写进 `src/upgrade/mod.rs` 与 `tauri.conf.json`，随后在 `tauri build` 之前运行
+`desktop/scripts/verify-updater-pubkey.mjs`；两处不一致（或公钥无法验签）会直接中止构建，而不是
+等到打包数分钟后才报错。CI 在每次编译前跑同一检查，并要求 git 里两处始终为空。
+
 <div align="right">
 
 [![][back-to-top]](#readme-top)

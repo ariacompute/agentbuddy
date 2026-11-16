@@ -1696,3 +1696,73 @@ F4.5 / F4.6。第一版「清理」只能在本机隐藏（agenthub 当时没有
 - `tests/api.spec.js`：`clearTasks` 打到 `/api/tasks` 且方法为 DELETE。
 - `bun run test`：**35 spec / 887 用例全绿**；`bun run test:coverage`：语句 / 行 / 分支 / 函数
   **四项 100%**（12039 语句、2074 分支、475 函数、12004 行）；`bun run build` 通过。
+
+## M43 — CI 验证留痕与公钥跨文件契约断言（2026-11-16）
+
+第七轮评估 §8.3 / §9 的两条 agentbuddy 建议。只动「发布期脚本 + 工作流 + 实施记录」，
+不改 `web/**`、Rust 源码与发布产物口径。
+
+### 1. 「已验证」改为可追溯的 CI 证据
+
+本机 `cargo` 仍无法运行（工具链所在卷被判定为不可信挂载），Rust 侧的编译与测试只能由 CI 的
+Linux job 实跑。从本节起，实施记录直接给出可点击的运行与 job 直链，而不是「已验证」三个字：
+
+| 证据 | 链接 | 结论 |
+|---|---|---|
+| ci #72（main） | https://github.com/ariacompute/agentbuddy/actions/runs/43601754081 | success |
+| 提交 | `7187b5ed38b47c373d3e3c4a8194c68380ec38e6`（`docs(readme): update README files`） | — |
+| desktop — cargo test（ubuntu-22.04） | https://github.com/ariacompute/agentbuddy/actions/runs/43601754081/job/132467790954 | 步骤 9 `Cargo test (Linux, with log)`、11 `Publish the desktop test summary`、12 `Upload the desktop test log` 全 success |
+| desktop — cargo test（windows-latest） | https://github.com/ariacompute/agentbuddy/actions/runs/43601754081/job/132467790909 | 步骤 10 `Cargo test (Windows, compile only)` success（该平台无法启动原生测试入口，只编译） |
+| desktop — user-journey E2E | https://github.com/ariacompute/agentbuddy/actions/runs/43601754081/job/132467790968 | 步骤 10 build / 11 isolation 单测 / 12 `Run the user journeys` / 13 `Publish the E2E summary` 全 success |
+| desktop scripts — vitest | https://github.com/ariacompute/agentbuddy/actions/runs/43601754081/job/132467790976 | 步骤 5/6 success |
+| web — vitest | https://github.com/ariacompute/agentbuddy/actions/runs/43601754081/job/132467790804 | 步骤 5/6 success |
+| 稳定入口 | https://github.com/ariacompute/agentbuddy/actions/workflows/ci.yml | 之后每个提交的运行都在这里 |
+
+- **不抄写 `running N tests` 的具体行数**：公开 API 不暴露 step summary 正文，可核对的结论是
+  run/job 的 `success`、具体步骤名，以及 `desktop-test-log` artifact 与 run 页面上的 summary；
+  要数字时点进 job 的 summary 或下载日志。
+- 佐证运行（同为 success）：ci #71
+  https://github.com/ariacompute/agentbuddy/actions/runs/43600592521（`7209b8b`）、ci #70
+  https://github.com/ariacompute/agentbuddy/actions/runs/43599831790（`6a3880b`）、release v1.7.1
+  https://github.com/ariacompute/agentbuddy/actions/runs/43600740060。
+- `ci.yml` 的两处 summary 此后自带溯源字段：`### cargo test (Linux)` 与 `### desktop E2E`
+  先写本次 run URL（含 attempt）、commit SHA 与 job 名，再贴原有的 `running N tests` /
+  `test result:` 行与 `run.json` 内容；E2E 摘要仍是 `if: always()`，失败运行也留痕。
+- 本机限制不变：第 552–553、810–811、996 行等历史条目里「本机无法运行测试二进制、留给 CI 实跑」
+  是当时的记录，不因本节改写；本节只补充「CI 跑过什么、在哪里可查」。
+
+### 2. 公钥跨文件契约的编译前断言
+
+M25–M28 连修四次，根因是公钥要同时写进 `src/upgrade/mod.rs` 的 `UPDATER_PUBKEY` 常量与
+`tauri.conf.json` 的 `plugins.updater.pubkey`，漏一处要到打包数分钟后才报
+`Missing comment in public key`。M28 的教训（历史条目按惯例不改写）从本轮起由 CI 断言守住：
+
+- 新增 `desktop/scripts/verify-updater-pubkey.mjs`：复用 `inject-updater-pubkey.mjs` 的
+  `MOD_RS` / `CONF` / `DECL` / `isPublicKeyBox`（注入器补导出 `DECL`，读取时用第三个捕获组），
+  导出 `readPubkeys({root})` / `verifyUpdaterPubkey({root, expectKey})` / `main(env, root)`，
+  末尾只有一句 `runAsEntry(import.meta.url, main)`；失败 `::error::` + 退出码 1，
+  错误消息只说明「哪个文件、哪种不一致」，不回显密钥。
+- 校验项：常量声明存在、`plugins.updater.pubkey` 存在且 JSON 可解析、去首尾空白后**严格相等**、
+  非空时必须是合法 minisign public key box、与期望模式相符。
+- 三种期望模式：`ci.yml` 的 desktop 与 e2e 两个编译 job 未设 `EXPECT_UPDATER_PUBKEY`，
+  要求**两处都为空**（密钥不得入库）；`release.yml` 在 `Configure updater signing` 之后、
+  `Build desktop app` 之前调用同一脚本，`EXPECT_UPDATER_PUBKEY` 取
+  `steps.updater.outputs.pubkey`——为 `true` 时要求两处非空、相同且格式合法，为 `false`
+  （未配置密钥的无签名发布）时要求两处仍为空。
+- 用例：`desktop/tests/verify-updater-pubkey.spec.js` 覆盖全空、同钥、单处被改（两个方向）、
+  两处非空但不同、缺声明、缺 `plugins.updater`、坏 JSON、非字符串取值、非法公钥盒、
+  期望模式不符、`main` 的 0/1 与默认 env/root、`GITHUB_STEP_SUMMARY` 有无；
+  `cli.spec.js` 追加真子进程用例（仓库根退出 0、临时目录不一致退出 1 且 stderr 含 `::error::`）。
+
+### 3. 验证
+
+- `cd desktop && bun run test`：**9 spec / 133 用例全绿**；`bun run test:coverage`：
+  语句 / 分支 / 函数 / 行 **四项 100%**（1015 语句、306 分支、56 函数、1015 行）。
+- 仓库根 `node desktop/scripts/verify-updater-pubkey.mjs`：退出 0，打印
+  `::notice::updater pubkey contract holds (both files empty; no key in the source tree)`。
+- 本机宿主提示：Windows 工作区以 CRLF 检出脚本时，Vite 5.4.21 的 SSR 转换会把 `#!` 留在
+  import 之后，带 shebang 的 4 个 spec 会误报 `SyntaxError: Invalid or unexpected token`；
+  把工作区脚本规范为 LF 后全绿（`core.autocrlf=true` 下 git 不产生内容 diff），与本次逻辑无关，
+  CI 的 Linux 检出本就是 LF。
+- YAML 结构经手工核对：断言 step 在 `ci.yml` 两个编译 job 的编译步骤之前、
+  `release.yml` 注入之后且 `tauri build` 之前。

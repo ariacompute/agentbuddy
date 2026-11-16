@@ -29,7 +29,7 @@ import { runAsEntry } from './lib/entry.mjs'
 
 const MOD_RS = 'desktop/src-tauri/src/upgrade/mod.rs'
 const CONF = 'desktop/src-tauri/tauri.conf.json'
-const DECL = /(pub const UPDATER_PUBKEY: &str = )"[^"]*"(;)/
+const DECL = /(pub const UPDATER_PUBKEY: &str = )"([^"]*)"(;)/
 const B64_LINE = /^[A-Za-z0-9+/]+={0,2}$/
 const SET_KEY_HINT = 'gh secret set UPDATER_PUBKEY < ~/.tauri/agentbuddy.key.pub'
 
@@ -80,7 +80,7 @@ function injectUpdaterPubkey({ root = process.cwd(), pubkey = '', signing = fals
     }
     const source = fs.readFileSync(modRs, 'utf8')
     if (!DECL.test(source)) throw new Error(`UPDATER_PUBKEY declaration not found in ${MOD_RS}`)
-    fs.writeFileSync(modRs, source.replace(DECL, `$1"${key}"$2`))
+    fs.writeFileSync(modRs, source.replace(DECL, `$1"${key}"$3`))
 
     const conf = JSON.parse(fs.readFileSync(confPath, 'utf8'))
     if (!conf.plugins?.updater) throw new Error(`plugins.updater not found in ${CONF}`)
@@ -125,4 +125,4 @@ function main(env = process.env, root = process.cwd()) {
 
 runAsEntry(import.meta.url, main)
 
-export { MOD_RS, CONF, isPublicKeyBox, injectUpdaterPubkey, main }
+export { MOD_RS, CONF, DECL, isPublicKeyBox, injectUpdaterPubkey, main }

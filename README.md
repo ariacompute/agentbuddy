@@ -290,6 +290,11 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/agentbuddy.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
 
+The release job writes the key into **both** `src/upgrade/mod.rs` and `tauri.conf.json`, then runs
+`desktop/scripts/verify-updater-pubkey.mjs` before `tauri build`. A mismatch (or a value that cannot
+verify a download) aborts the build instead of failing minutes into bundling. CI runs the same check
+before every compile and requires both files to stay empty in git.
+
 <div align="right">
 
 [![][back-to-top]](#readme-top)
