@@ -21,7 +21,7 @@ import {
   sandboxStats, listSandboxes, listSandboxProviders, listSandboxNodes,
   getSandbox, execSandbox, renewSandbox, terminateSandbox, refreshSandboxProviders,
   subscribeSandboxEvents,
-  subscribeTaskEvents, subscribeThreadEvents, retryDelivery,
+  subscribeTaskEvents, subscribeThreadEvents, retryDelivery, batchGetResources,
 } from '../src/lib/api.js'
 import { errorMessage } from '../src/lib/errors.js'
 
@@ -117,6 +117,60 @@ describe('TaskListView', () => {
     wb.tasks = [{ id: 't1', resourceId: 'A', status: { state: 'working' } }]
     await nextTick()
     expect(wrapper.findAllComponents(TaskCard).length).toBe(1)
+  })
+
+  // A task names its resource by id, and an id is not a name. The list resolves
+  // the visible ids in one batch read — the alternative is a GET per card.
+  it('resolves the agents of the visible rows in one batch read', async () => {
+    batchGetResources.mockResolvedValue({
+      resources: [{ id: 'A', name: 'mail-bot', kind: 'agent' }],
+      missing: ['B'],
+    })
+    listTasks.mockResolvedValue({
+      tasks: [
+        { id: 't1', resourceId: 'A', status: { state: 'working' } },
+        { id: 't2', resourceId: 'B', status: { state: 'working' } },
+        { id: 't3', resourceId: 'A', status: { state: 'working' } },
+      ],
+    })
+    const { wrapper } = mountWith(TaskListView)
+    await flushPromises()
+
+    // Deduped: two rows share one id, so the request names two.
+    expect(batchGetResources).toHaveBeenCalledWith(['A', 'B'])
+    expect(wrapper.text()).toContain('mail-bot')
+    // The id the registry could not answer for stands in on its own card.
+    expect(wrapper.text()).toContain('B')
+  })
+
+  it('asks for at most the batch ceiling the server enforces', async () => {
+    batchGetResources.mockResolvedValue({ resources: [], missing: [] })
+    listTasks.mockResolvedValue({
+      tasks: Array.from({ length: 101 }, (_, i) => ({
+        id: `t${i}`,
+        resourceId: `r${i}`,
+        status: { state: 'working' },
+      })),
+    })
+    mountWith(TaskListView)
+    await flushPromises()
+
+    // 101 distinct agents, 100 in the request: the server refuses a longer one,
+    // and the row past the ceiling keeps its id rather than failing the list.
+    const widths = batchGetResources.mock.calls.map(([ids]) => ids.length)
+    expect(widths).toContain(100)
+    expect(widths.every((width) => width <= 100)).toBe(true)
+  })
+
+  it('keeps the ids on the cards when the batch read fails', async () => {
+    batchGetResources.mockRejectedValue(new Error('down'))
+    listTasks.mockResolvedValue({
+      tasks: [{ id: 't1', resourceId: 'res-7', status: { state: 'working' } }],
+    })
+    const { wrapper } = mountWith(TaskListView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('res-7')
   })
 
   it('narrows the list by state, one filter at a time', async () => {
@@ -1221,6 +1275,163 @@ describe('OrgView', () => {
     expect(wrapper.text()).toContain('Organisation')
     expect(wrapper.findAll('.stat .v').map((v) => v.text())).toEqual(['0', '0', '0', '0 B', '0 ms'])
     consoleError.mockRestore()
+  })
+})
+
+// The catalogue is a server-side window: the screen asks for one page, the
+// answer carries the size of the whole filtered set, and the toolbar states both
+// instead of inferring them from the rows that happened to arrive.
+describe('OrgView catalogue paging', () => {
+  /** One page of `size` resources out of `total`, plus the kind-agnostic counts. */
+  function page(size, total, extra = {}) {
+    return {
+      resources: Array.from({ length: size }, (_, i) => ({ id: `r${i}`, name: `R${i}`, kind: 'model' })),
+      counts: { model: total },
+      health: { healthy: size },
+      total,
+      ...extra,
+    }
+  }
+
+  // The catalogue read answers with a page; the skills read is its own question
+  // and answers with nothing so the section stays out of these assertions.
+  function answerPage(responder) {
+    listResources.mockImplementation((requested) =>
+      requested === 'skill' ? Promise.resolve({ resources: [] }) : Promise.resolve(responder()),
+    )
+  }
+
+  it('asks for the first page and states the window the server reported', async () => {
+    answerPage(() => page(25, 137))
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+
+    expect(listResources).toHaveBeenCalledWith(undefined, { q: undefined, limit: 25, offset: 0 })
+    expect(wrapper.find('.pager-range').text()).toBe('1–25 of 137')
+    expect(wrapper.find('.org-health').text()).toContain('Reachable')
+    expect(wrapper.find('.org-health').text()).toContain('25')
+    // The "All" tab counts the whole filtered set, not the page.
+    expect(wrapper.findAll('button').find((b) => b.text().startsWith('All')).text()).toContain('137')
+  })
+
+  it('pages forward and back with the same window size', async () => {
+    answerPage(() => page(25, 137))
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Next').trigger('click')
+    await flushPromises()
+    expect(listResources).toHaveBeenLastCalledWith(undefined, { q: undefined, limit: 25, offset: 25 })
+    expect(wrapper.find('.pager-range').text()).toBe('26–50 of 137')
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Previous').trigger('click')
+    await flushPromises()
+    expect(listResources).toHaveBeenLastCalledWith(undefined, { q: undefined, limit: 25, offset: 0 })
+  })
+
+  it('refuses to step off either end of the window', async () => {
+    answerPage(() => page(25, 137))
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+    const calls = listResources.mock.calls.length
+
+    // Both buttons are disabled on the first page of the last page; calling the
+    // handlers directly covers the guards behind them too.
+    wrapper.vm.prevPage()
+    await flushPromises()
+    expect(listResources.mock.calls.length).toBe(calls)
+
+    // A single-page catalogue has nothing behind it either.
+    answerPage(() => page(2, 2))
+    const single = mountWith(OrgView).wrapper
+    await flushPromises()
+    const settled = listResources.mock.calls.length
+    single.vm.nextPage()
+    await flushPromises()
+    expect(listResources.mock.calls.length).toBe(settled)
+  })
+
+  it('narrows the query by kind and starts again at the first page', async () => {
+    answerPage(() => page(25, 137))
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Next').trigger('click')
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text().startsWith('Agent')).trigger('click')
+    await flushPromises()
+    expect(listResources).toHaveBeenLastCalledWith('agent', { q: undefined, limit: 25, offset: 0 })
+  })
+
+  it('changes the page size and restarts at the first page', async () => {
+    answerPage(() => page(25, 137))
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Next').trigger('click')
+    await flushPromises()
+
+    await wrapper.find('.pager-size select').setValue('50')
+    await flushPromises()
+    expect(listResources).toHaveBeenLastCalledWith(undefined, { q: undefined, limit: 50, offset: 0 })
+  })
+
+  it('debounces the search into one server-side query', async () => {
+    answerPage(() => page(1, 1))
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+    const before = listResources.mock.calls.length
+
+    // Typing must not turn into a request per keystroke.
+    await wrapper.find('input[type="search"]').setValue('  mail ')
+    expect(listResources.mock.calls.length).toBe(before)
+
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    await flushPromises()
+    expect(listResources).toHaveBeenLastCalledWith(undefined, { q: 'mail', limit: 25, offset: 0 })
+  })
+
+  it('drops a pending search when the screen goes away', async () => {
+    answerPage(() => page(1, 1))
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+    const before = listResources.mock.calls.length
+
+    await wrapper.find('input[type="search"]').setValue('orphan')
+    wrapper.unmount()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(listResources.mock.calls.length).toBe(before)
+  })
+
+  it('reads the skill manuals without the page window', async () => {
+    listResources.mockImplementation((requested) => Promise.resolve(requested === 'skill'
+      ? {
+        resources: [
+          { id: 's1', kind: 'skill', name: 'refund', capabilities: ['stripe'] },
+          // A manual that declares no capabilities still gets a card.
+          { id: 's2', kind: 'skill', name: 'triage' },
+        ],
+      }
+      : { resources: [], counts: {}, health: {}, total: 0 }))
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+
+    expect(listResources).toHaveBeenCalledWith('skill', { limit: 0 })
+    expect(wrapper.text()).toContain('refund')
+    expect(wrapper.text()).toContain('stripe')
+    expect(wrapper.text()).toContain('triage')
+  })
+
+  it('leaves the chart standing when only the skill read fails', async () => {
+    listResources.mockImplementation((requested) => (requested === 'skill'
+      ? Promise.reject(new Error('off'))
+      : Promise.resolve({ resources: [{ id: 'r1', kind: 'agent', name: 'Worker' }], total: 1 })))
+    const { wrapper } = mountWith(OrgView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Worker')
+    expect(wrapper.text()).toContain('No skill manuals are registered.')
   })
 })
 

@@ -108,8 +108,11 @@ describe('OrgView resource form', () => {
       expect.objectContaining({ kind: 'agent', name: 'my-agent' }),
     )
     expect(wrapper.text()).toContain('res-new')
-    // The chart is re-read after a create, so the new card appears without a reload.
-    expect(listResources).toHaveBeenCalledTimes(2)
+    // The chart is re-read after a create, so the new card appears without a
+    // reload. Two reads make one "load the screen": the catalogue page, then the
+    // unwindowed skill manuals; mount did the same pair.
+    expect(listResources).toHaveBeenCalledTimes(4)
+    expect(listResources).toHaveBeenLastCalledWith('skill', { limit: 0 })
   })
 
   it('keeps the form open and prints why the registration failed', async () => {

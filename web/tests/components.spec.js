@@ -287,6 +287,16 @@ describe('TaskCard', () => {
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/tasks/t42')
   })
+
+  it('shows a resolved label in place of the raw resource id', () => {
+    const { wrapper } = mountWith(TaskCard, {
+      props: {
+        task: { id: 't1', resourceId: 'res-9', status: { state: 'working' } },
+        label: 'Mail Bot',
+      },
+    })
+    expect(wrapper.find('strong').text()).toBe('Mail Bot')
+  })
 })
 
 describe('ThemeToggle', () => {

@@ -81,6 +81,12 @@ desktop/
 - **无障碍**：触控目标 ≥44px；焦点环 2px + 2px offset；`prefers-reduced-motion: reduce` 下禁全部动效。
 - **错误**：store 只存 `error.code`；文案经 `errors.js` + `copy/errors-copy.js` 本地化。
   新增错误码须登记三处（服务端 `httputil.Code*`、前端 `CODE_KEYS`、`errors-copy.js` 13 语）。
+- **目录分页**：`OrgView` 一页一个服务端窗口（`?limit=25/50/100&offset=`，`limit: 0` = 全量），
+  只陈述服务端回报的 `total`/`counts`/`health`，不在客户端重算；搜索走服务端 `q` 并 250ms 防抖，
+  改筛选或页大小回第一页，卸载清定时器。技能册是独立的一次 `kind=skill&limit=0` 读——按页的
+  混合集合里「本页没有技能」不等于「没有技能」。
+- **批量取名**：一页里引用的 `resourceId` 用一次 `POST /api/resources/batch`（≤100 id）解析成名字，
+  `missing` 与整个批量失败都回落显示原 id；`TaskCard` 的 `label` 是可选入参，不传即旧行为。
 - **测试**：`cd web && bun run test`（Vitest）。**勿用裸 `bun test`**（Bun 原生 runner 不加载
   `vitest.config.js`，无 jsdom 环境）。**vitest 必须由 Node 启动**：`bun run` 只是用 bun 起
   script，`node_modules/.bin/vitest` 的 shebang 是 `#!/usr/bin/env node`；PATH 里没有 node 时
@@ -88,8 +94,8 @@ desktop/
   `xxx.mockResolvedValue is not a function`，而同一份代码用 node 跑 773 条全绿）。
   新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线（35 个 spec、**887** 条用例）：
-  语句/行 **100%**、分支 **100%**、函数 **100%**（12039 条语句、2074 个分支、475 个函数、12004 行）；
+  `text-summary` + `text`，不写报告目录），当前基线（36 个 spec、**935** 条用例）：
+  语句/行 **100%**、分支 **100%**、函数 **100%**（12529 条语句、2189 个分支、487 个函数、12494 行）；
   `vitest` 与 `@vitest/coverage-v8` **版本必须完全一致**（当前同为 `2.1.9`，写死不用 `^`）：
   混版本会打印 "Running mixed versions is not supported"，且覆盖率数字不可信；
   **四项须保持 100%**，回落时先看报告里的未覆盖行再补用例，`test.coverage` **没有 exclude**，

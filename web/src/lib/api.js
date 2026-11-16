@@ -269,14 +269,36 @@ export function subscribeTaskEvents(id, since, handlers = {}) {
 // `discoverable` asks agenthub for its approved-only view. Consumer pickers
 // never re-filter statuses locally: the playground, /api/workspace and this
 // workbench then all read the same server-side gate.
+//
+// `limit` / `offset` are the server's page window (0..200, `limit: 0` means the
+// whole catalogue) and the answer reports `total`, so a screen can say "1–25 of
+// 137" without ever holding the catalogue. `q` spans name, display name and
+// capabilities server-side, which is why the search box sends it instead of
+// filtering what arrived.
 export const listResources = (kind, options) => {
   const params = []
   if (kind) params.push(`kind=${encodeURIComponent(kind)}`)
   if (options?.discoverable) params.push('discoverable=true')
+  if (options?.q) params.push(`q=${encodeURIComponent(options.q)}`)
+  if (options?.namespace) params.push(`namespace=${encodeURIComponent(options.namespace)}`)
+  if (options?.status) params.push(`status=${encodeURIComponent(options.status)}`)
+  if (options?.limit !== undefined) params.push(`limit=${encodeURIComponent(options.limit)}`)
+  if (options?.offset) params.push(`offset=${encodeURIComponent(options.offset)}`)
   return get(params.length ? `/api/resources?${params.join('&')}` : '/api/resources')
 }
 export const createResource = (body) => post('/api/resources', body)
 export const updateResource = (id, patch) => put(`/api/resources/${id}`, patch)
+
+/**
+ * Answers "give me these records" in one round trip: `{ resources, missing }`.
+ *
+ * A page is a window, so a row on screen can reference an id that lives on page
+ * seven (a task names its agent, a thread names a participant). The server
+ * answers in request order, dedupes, and puts absent ids — including ids the
+ * caller may not see — in `missing`, so the caller falls back to the raw id
+ * instead of inventing a name. The ceiling is 100 ids per call.
+ */
+export const batchGetResources = (ids) => post('/api/resources/batch', { ids })
 
 // ---- Channels ------------------------------------------------------------
 

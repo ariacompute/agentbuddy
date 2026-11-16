@@ -132,6 +132,8 @@
 | F9.1 | 组织图：`/api/resources` 按 kind 分组，灰度阶梯 + 文本标签区分状态与健康（禁止仅靠颜色） |
 | F9.2 | 技能册：`kind=skill` + capabilities |
 | F9.3 | 预算：由 `/api/tasks` 派生（任务数、状态分布、产物字节、span 时长），固定展示「派生估算，非真实计费」 |
+| F9.4 | **目录分页**：目录按服务端窗口读取（`?limit=25/50/100&offset=`，`limit=0` 为全量），翻页条只陈述服务端回报的 `total`（「x–y / 共 N」）；kind 页签用 `counts`（与 kind 过滤无关的全目录计数），健康汇总用 `health`；搜索走服务端 `q`，250ms 防抖，改筛选/页大小回第一页；空页（offset 越过结尾）照实显示 |
+| F9.5 | **批量读取**：`POST /api/resources/batch`（≤100 id，按请求顺序去重）把一页里引用的 `resourceId` 一次解析成名字（Tasks 列表），`missing` 中的 id 回落显示原 id；批量失败不影响列表 |
 
 ## 2B. 融合标杆项目的扩展特性（F10–F18）
 
@@ -281,6 +283,8 @@
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
+| GET | `/api/resources` | `resources:read` | 目录读：`kind`/`q`/`namespace`/`status`/`discoverable` + 分页窗口 `limit`（0..200，0=全量）、`offset`；回 `resources` / `counts` / `health` / `total` / `limit` / `offset`；无意义窗口 → 400 `bad_request`（F9.4） |
+| POST | `/api/resources/batch` | `resources:read` | 按 id 批量读（≤100，按请求顺序去重），回 `{resources, missing}`；不存在与不可见同落 `missing`（F9.5） |
 | GET | `/api/channels` | `tasks:read` | 通道列表 |
 | POST | `/api/channels` | `tasks:write` | 新建通道 |
 | GET | `/api/channels/{id}` | `tasks:read` | 单个通道（编辑回显） |

@@ -27,6 +27,7 @@ import {
   resumeTask,
   clearTasks,
   listResources,
+  batchGetResources,
   updateChannel,
   deleteChannel,
   retryDelivery,
@@ -369,6 +370,39 @@ describe('api endpoint helpers', () => {
     expect(lastCall()[0]).toBe('/api/resources?kind=agent')
     await listResources(undefined, {})
     expect(lastCall()[0]).toBe('/api/resources')
+  })
+
+  it('listResources asks for one server-side page and its filters', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ resources: [], total: 137 }))
+    await listResources('agent', {
+      q: 'mail bot',
+      namespace: 'ops',
+      status: 'approved',
+      limit: 25,
+      offset: 25,
+    })
+    expect(lastCall()[0]).toBe(
+      '/api/resources?kind=agent&q=mail%20bot&namespace=ops&status=approved&limit=25&offset=25',
+    )
+
+    // `limit: 0` is the server's "everything" window: a value, not an omission,
+    // so it has to survive into the query string.
+    await listResources('skill', { limit: 0 })
+    expect(lastCall()[0]).toBe('/api/resources?kind=skill&limit=0')
+
+    // Offset 0 is the first page and is the server's own default, so the URL
+    // stays the short one.
+    await listResources(undefined, { limit: 50, offset: 0 })
+    expect(lastCall()[0]).toBe('/api/resources?limit=50')
+  })
+
+  it('batchGetResources posts the ids once and answers with what it found', async () => {
+    const payload = { resources: [{ id: 'a', kind: 'agent' }], missing: ['b'] }
+    fetchMock.mockResolvedValue(jsonResponse(payload))
+    await expect(batchGetResources(['a', 'b'])).resolves.toEqual(payload)
+    expect(lastCall()[0]).toBe('/api/resources/batch')
+    expect(lastCall()[1].method).toBe('POST')
+    expect(JSON.parse(lastCall()[1].body)).toEqual({ ids: ['a', 'b'] })
   })
 
   it('channel mutation helpers and delivery retry', async () => {

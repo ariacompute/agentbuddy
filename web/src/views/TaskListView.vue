@@ -1,8 +1,10 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useWorkbenchStore } from '../lib/workbench-store.js'
 import { useCopy } from '../lib/use-copy.js'
 import { errorMessage } from '../lib/errors.js'
+import { batchGetResources } from '../lib/api.js'
+import { resourceLabel } from '../lib/format.js'
 import TaskCard from '../components/TaskCard.vue'
 import BaseDialog from '../components/BaseDialog.vue'
 import { Trash2 } from 'lucide-vue-next'
@@ -35,7 +37,45 @@ const shown = computed(() => {
   return list
 })
 
+// Names for the agents the visible rows point at, resolved through one batch
+// read rather than a GET per card. The server caps a batch at 100 ids, so the
+// set is sliced to that: rows past the ceiling keep their id, which is what the
+// card shows anyway when the registry cannot name one.
+const BATCH_LIMIT = 100
+const names = ref({})
+
+const resourceIds = computed(() => {
+  const ids = []
+  const seen = new Set()
+  for (const task of shown.value) {
+    if (!task.resourceId || seen.has(task.resourceId)) continue
+    seen.add(task.resourceId)
+    ids.push(task.resourceId)
+  }
+  return ids
+})
+
+async function resolveNames() {
+  const ids = resourceIds.value.slice(0, BATCH_LIMIT)
+  if (ids.length === 0) {
+    names.value = {}
+    return
+  }
+  try {
+    const data = await batchGetResources(ids)
+    const next = {}
+    for (const resource of data?.resources || []) next[resource.id] = resourceLabel(resource)
+    names.value = next
+  } catch {
+    // A failed lookup is not a failed list: the cards fall back to their ids.
+    names.value = {}
+  }
+}
+
+watch(resourceIds, resolveNames, { immediate: true })
+
 onMounted(() => workbench.refreshTasks())
+
 
 function askClear() {
   error.value = ''
@@ -100,7 +140,12 @@ async function confirmClear() {
       <p class="muted" style="font-size:12px">{{ t('listEmptyNote') }}</p>
     </div>
     <div v-else class="grid grid-2">
-      <TaskCard v-for="task in shown" :key="task.id" :task="task" />
+      <TaskCard
+        v-for="task in shown"
+        :key="task.id"
+        :task="task"
+        :label="names[task.resourceId]"
+      />
     </div>
 
     <BaseDialog

@@ -1766,3 +1766,60 @@ M25–M28 连修四次，根因是公钥要同时写进 `src/upgrade/mod.rs` 的
   CI 的 Linux 检出本就是 LF。
 - YAML 结构经手工核对：断言 step 在 `ci.yml` 两个编译 job 的编译步骤之前、
   `release.yml` 注入之后且 `tauri build` 之前。
+
+## M44 — 目录分页与批量读取（跟进 agenthub `92af548`，2026-11-16）
+
+agenthub 让 `GET /api/resources` 支持 `limit`（0..200，0=全量）/ `offset` 并回报 `total`，
+`counts` / `health` 改成与 kind 过滤无关的全目录统计；同时新增
+`POST /api/resources/batch`（≤100 id，按请求顺序去重）。客户端此前一次取全量目录、任务卡直接
+印 `resourceId`，本轮把这两条通道接到界面上，**API 与外壳零改动**（`/api` 前缀本来就覆盖）。
+
+### 1. API 封装
+
+- `lib/api.js`：`listResources(kind, options)` 增 `q` / `namespace` / `status` / `limit` / `offset`。
+  `limit: 0` **显式发送**（服务端语义是「全量」，是值不是省略）；`offset: 0` 省略（那就是默认值）。
+- 新增 `batchGetResources(ids)` → `POST /api/resources/batch`。包装仍是薄壳：不本地过滤、不自行
+  去重（服务端去重并保持请求顺序），空数组必然 400，由调用方守卫而不是在这里猜。
+
+### 2. 目录屏（`OrgView.vue`）
+
+- **一页一个窗口**：`pageSize` 25/50/100 + `pageIndex`，请求带 `limit`/`offset`；`applyPage()` 用
+  服务端 `total`，老服务端不回 `total` 时回落为当页长度（那时当页就是全量）。
+- **翻页条只说服务端说过的话**：范围按 `total` 与已回行数算（「1–25 of 137」），首/末页按钮
+  disabled，两个处理函数自身也带守卫（点不到的守卫分支用 `wrapper.vm` 直接调用覆盖）。
+- **kind 页签用 `counts`**：服务端在 kind 过滤之前算好，切到某一类时其他页签不会读成 0；
+  **健康汇总条用 `health`**，同样是可见集合上的全量统计。
+- **搜索走服务端 `q`**，250ms 防抖（一次按键不等于一次请求）；改筛选或页大小回第一页，
+  卸载时清掉待发定时器，避免离开后再打一次。
+- **技能册独立读**：`listResources('skill', { limit: 0 })`。目录是按页的混合集合，某一页没有技能
+  不等于没有技能；本地再按 `kind` 过滤一次，老服务端忽略 `kind=` 时也不会把别的条目摆进技能栏。
+- 建资源后重读「当前页 + 技能册」，列表永远来自服务端。
+
+### 3. Tasks 列表批量解析
+
+- `TaskListView` 把可见行的 `resourceId` 去重后**一次**批量读；服务端上限 100，超出部分保留原
+  id。`missing`（不存在与不可见同一处理）与整个批量失败都回落显示 id，列表不因取名失败而崩。
+- `TaskCard` 新增可选 `label`，未传入时行为与之前完全一致（工作台、会话侧栏里的卡片不受影响）。
+
+### 4. 文案与样式
+
+- `copy/org-copy.js` 新增 9 键 × 13 语：`kindAll` / `kindLabel` / `searchPlaceholder` /
+  `healthSummary` / `paginationLabel` / `pagePrev` / `pageNext` / `pageSize` /
+  `pageRange`（`{from}`–`{to}`–`{total}` 占位）。
+- `style.css` 新增 `.org-search` / `.pager` / `.pager-range` / `.pager-size`：只用既有令牌
+  （单色守卫照过），逻辑属性 + 44px 触控目标，窄卡片下换行不顶出。
+
+### 5. 用例与验证
+
+- `tests/api.spec.js`：分页参数编码（`q` 里空格编码、`limit: 0` 保留、`offset: 0` 省略）、
+  批量 POST 的路径与 body。
+- `tests/views.spec.js`：首屏窗口与「1–25 of 137」、前后翻页、首/末页守卫、kind 页签回第一页、
+  页大小重置到第一页、搜索防抖（到时前不下发、300ms 后只下发一次）、卸载丢弃待发搜索、
+  技能册独立读（含无 `capabilities` 的手册）、技能读失败不影响目录；Tasks 列表批量解析
+  （去重、缺失回落原 id、100 上限、批量失败回落）。
+- `tests/components.spec.js`：`TaskCard` 的 `label` 覆盖 `resourceId`。
+- `tests/round4.spec.js`：建资源后的读取次数 2 → 4（页 + 技能册各一次），并钉住最后一次是
+  `('skill', { limit: 0 })`。
+- `cd web && bun run test`：**36 spec / 935 用例全绿**；`bun run test:coverage`：
+  语句 / 分支 / 函数 / 行 **四项 100%**（12529 语句、2189 分支、487 函数、12494 行）。
+- `cd desktop` 未改动：9 spec / 133 用例、四项 100%（1015 语句、306 分支、56 函数）不变。

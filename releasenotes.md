@@ -119,6 +119,20 @@ over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known
   tickets expand into their body and verdict, live router frames refresh the lists,
   and a thread composer offers `@` mention candidates from the agents that have
   spoken and can stop delegating (`DELETE /api/router/subscriptions/{threadId}`).
+- **Paged catalogue**: the Org chart reads one server-side window at a time
+  (`GET /api/resources?limit=25|50|100&offset=`, `limit=0` for everything) and
+  states the window the server reported — "1–25 of 137" — instead of counting the
+  rows that happened to arrive. The kind tabs read the whole-catalogue `counts` the
+  server computes before the kind filter, so selecting one kind cannot make the
+  others read zero; the health strip reads `health`. Search is a server-side `q`
+  behind a 250ms debounce (one keystroke is not one request), any filter or
+  page-size change restarts at page one, unmounting drops a pending search, and the
+  skill manuals are their own unwindowed read — a mixed page holding no skill is
+  not "no skills registered".
+- **Agents named, not numbered**: a task row used to print the raw `resourceId`.
+  The task list now resolves the ids it can see in one `POST /api/resources/batch`
+  (deduped, capped at the server's 100). Ids the registry cannot answer for, and a
+  failed batch, both fall back to the id, so a lookup problem never empties a list.
 - **Deletes mean gone**: agenthub answers 404 — no longer 204 — when a delete targets an
   id the caller cannot see, so a goal, channel, computer or file removed on another
   machine comes back as `schedule_not_found` / `channel_not_found` / `computer_not_found` /
@@ -261,20 +275,26 @@ The node lives in the Rust process. The web view only reads its state through
   branches the happy paths never took, plus the shared-files screen and the
   connector approval queue, and a follow-up pass over the arms a happy path never
   takes: a failure with no machine code, a row missing its MIME type or name, an
-  approval without arguments, and the upgrade card with all three shell routes,
-  every status machine code and the no-shell path). A final pass calls the
-  handlers behind disabled controls directly (early returns, empty bodies,
-  unknown machine codes) and server-renders the no-`window` setup branch.
-  **32 spec files, 773 cases**, all offline.
+  approval without arguments, the upgrade card with all three shell routes,
+  every status machine code and the no-shell path, the catalogue's page window and
+  its range label, both page ends, the debounced search — nothing before the timer
+  and exactly one request after it — and a search dropped on unmount, the
+  unwindowed skill read and the path where only that read fails, and the batch
+  read's dedupe, missing ids, 100-id ceiling and failure fallback). A final pass
+  calls the handlers behind disabled controls directly (early returns, empty
+  bodies, unknown machine codes) and server-renders the no-`window` setup branch.
+  **36 spec files, 935 cases**, all offline.
 - `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements,
-  lines, branches and functions (10491 statements, 1808 branches, 433 functions).
-  No defensive arm is left untested and no file is excluded from the report.
+  lines, branches and functions (12529 statements, 2189 branches, 487 functions,
+  12494 lines). No defensive arm is left untested and no file is excluded from the
+  report.
 - `cd desktop && bun run test` (or `test:coverage`) covers the release-time scripts instead
-  of trusting them: **7 spec files, 103 cases** over the icon encoder, the version
-  stamp, both signing scripts, the `latest.json` assembly (collect / manifest /
-  verify, every rejection included) and the entry-point helper — **100%** of
-  statements, lines, branches and functions (862 / 862 / 267 / 50), again with no
-  exclusion. It needs no Rust toolchain, so CI runs it as its own job.
+  of trusting them: **9 spec files, 133 cases** over the icon encoder, the version
+  stamp, the three signing scripts (inject, verify, prepare), the `latest.json`
+  assembly (collect / manifest / verify, every rejection included) and the
+  entry-point helper — **100%** of statements, lines, branches and functions
+  (1015 / 1015 / 306 / 56), again with no exclusion. It needs no Rust toolchain, so
+  CI runs it as its own job.
 - The scripts are importable rather than shell-only: pure functions plus an
   argument-free `main()`, with directories, roots, environment and argv injected
   through defaulted parameters, failures turned into `::error::` and exit code 1.
