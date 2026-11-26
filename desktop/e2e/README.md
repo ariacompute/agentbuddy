@@ -3,8 +3,8 @@
 Test agentbuddy from the perspective of a real user: launch the packaged debug desktop
 client, inspect elements, click, type, and read visible text inside the WebView, and
 observe UI changes. We do not call Vue internals, do not read the Pinia store, and do not
-add any new IPC surface. Coverage spans the 15 workbench screens plus desktop-shell
-behaviors, across both happy and error paths, for a total of 13 specs / 115 cases.
+add any new IPC surface. Coverage spans the 16 workbench screens plus desktop-shell
+behaviors, across both happy and error paths, for a total of 15 specs / 126 cases.
 
 ## Architecture
 
@@ -132,7 +132,7 @@ false`.
 
 stub fixed credentials: `e2e@example.test` / `agentbuddy-e2e`.
 
-## Case matrix (13 specs / 115 cases)
+## Case matrix (15 specs / 126 cases)
 
 | spec | Coverage | Happy | Error |
 | --- | --- | --- | --- |
@@ -143,6 +143,7 @@ stub fixed credentials: `e2e@example.test` / `agentbuddy-e2e`.
 | `threads` | F3 list, create, @mention, SSE delta, batch delete, clear messages, back link | create / send / select-all delete / clear / back | cancel second confirm sends no request, list 5xx, `thread_not_found` |
 | `tasks` | F4 status filter, trace / spans / artifacts, clear all, resume / cancel | filter, `{deleted,kept}` banner, cancel, resume | old server 405 → `feature_unavailable`, task not found |
 | `org-channels` | F6/F16 resource create, channel CRUD toggle, delivery receipt retry | create resource / channel / toggle / retry | resource 5xx, `delivery_not_retryable` 409 |
+| `abilities` | F20 agent bindings (MCP / Skill), resolved package, delivery | list, select, whole-record PUT save, clear all, deliver → task link | `feature_unavailable` delivery, unresolvable binding kept and removable |
 | `connectors` | F7/F19 policy confirm, action catalog, execute, approval queue | native confirm, one-at-a-time fetch, execute park, approve | catalog read failure, approval 409, queue 5xx with retry entry |
 | `computers-schedules` | F11/F13/F17/F18 sandbox water level, dry run, terminate, schedule four blocks, kick / policy | refresh / create / dry-run / terminate / create target / run now | `sbOffTitle` / `routerOff` feature-off state, 5xx |
 | `persona-knowledge-files` | F8/F10/F14/F19 persona, knowledge read-only, shared files, voice fallback | edit save, filter, upload download delete | save failure, `files_disabled`, 16 MiB audio / file limit |
@@ -198,11 +199,12 @@ unchanged hash, process exit code, badge value).
 `shoot.mjs` runs only `specs/screenshots.spec.js`: it reuses the globalSetup live path
 (build → start tauri-driver → open desktop session → connect to the real server → log in),
 then re-attaches to the single logged-in session and captures one light-theme
-real-desktop screenshot for each of the 15 routes in English (en) and Chinese (zh) — 30
+real-desktop screenshot for each of the 16 routes in English (en) and Chinese (zh) — 32
 PNGs total — written to `agentbuddy/screenshots/<lang>/<NN>_<feature>.png`. Each file name
 is prefixed with a zero-padded index (`01_`, `02_`, …) following the route order
-Login, Workbench, Threads, Thread, Tasks, Task, Organisation, Channels, Connectors,
-Computers, Schedules, Knowledge, Files, Persona, Settings. The `<feature>` part uses the
+Login, Workbench, Threads, Thread, Tasks, Task, Organisation, Abilities, Channels,
+Connectors, Computers, Schedules, Knowledge, Files, Persona, Settings — the same
+order as the sidebar, so adding a screen renumbers the files after it. The `<feature>` part uses the
 feature's own language (English feature name / Chinese `navXxx` copy, e.g.
 `en/02_Workbench.png`, `zh/02_工作台.png`); the directory is separate from
 `desktop/e2e/artifacts`.

@@ -85,15 +85,15 @@
 | 05 | 任务 | [PNG](screenshots/en/05_Tasks.png) | [PNG](screenshots/zh/05_任务.png) |
 | 06 | 任务详情 | [PNG](screenshots/en/06_Task.png) | [PNG](screenshots/zh/06_任务详情.png) |
 | 07 | 组织 | [PNG](screenshots/en/07_Organisation.png) | [PNG](screenshots/zh/07_组织.png) |
-| 08 | 通道 | [PNG](screenshots/en/08_Channels.png) | [PNG](screenshots/zh/08_通道.png) |
-| 09 | 连接器 | [PNG](screenshots/en/09_Connectors.png) | [PNG](screenshots/zh/09_连接器.png) |
-| 10 | 计算机 | [PNG](screenshots/en/10_Computers.png) | [PNG](screenshots/zh/10_计算机.png) |
-| 11 | 目标调度 | [PNG](screenshots/en/11_Schedules.png) | [PNG](screenshots/zh/11_目标调度.png) |
-| 12 | 知识库 | [PNG](screenshots/en/12_Knowledge.png) | [PNG](screenshots/zh/12_知识库.png) |
-| 13 | 文件 | [PNG](screenshots/en/13_Files.png) | [PNG](screenshots/zh/13_文件.png) |
-| 14 | 人格 | [PNG](screenshots/en/14_Persona.png) | [PNG](screenshots/zh/14_人格.png) |
-| 15 | 设置 | [PNG](screenshots/en/15_Settings.png) | [PNG](screenshots/zh/15_设置.png) |
-| 16 | 能力下发 | [PNG](screenshots/en/16_Abilities.png) | [PNG](screenshots/zh/16_能力下发.png) |
+| 08 | 能力下发 | [PNG](screenshots/en/08_Abilities.png) | [PNG](screenshots/zh/08_能力下发.png) |
+| 09 | 通道 | [PNG](screenshots/en/09_Channels.png) | [PNG](screenshots/zh/09_通道.png) |
+| 10 | 连接器 | [PNG](screenshots/en/10_Connectors.png) | [PNG](screenshots/zh/10_连接器.png) |
+| 11 | 计算机 | [PNG](screenshots/en/11_Computers.png) | [PNG](screenshots/zh/11_计算机.png) |
+| 12 | 目标调度 | [PNG](screenshots/en/12_Schedules.png) | [PNG](screenshots/zh/12_目标调度.png) |
+| 13 | 知识库 | [PNG](screenshots/en/13_Knowledge.png) | [PNG](screenshots/zh/13_知识库.png) |
+| 14 | 文件 | [PNG](screenshots/en/14_Files.png) | [PNG](screenshots/zh/14_文件.png) |
+| 15 | 人格 | [PNG](screenshots/en/15_Persona.png) | [PNG](screenshots/zh/15_人格.png) |
+| 16 | 设置 | [PNG](screenshots/en/16_Settings.png) | [PNG](screenshots/zh/16_设置.png) |
 
 </details>
 

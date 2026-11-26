@@ -154,7 +154,7 @@ desktop/
 - **验证留痕**：Rust 侧以 CI 的 Linux job 实跑为准；`task.md` 的 M43 记录真实 run/job 直链、
   提交与稳定入口，`ci.yml` 的 cargo / E2E summary 自带 run URL、attempt、commit 与 job 名。
   不抄写看不到的测试行数，链接与 artifact 就是证据。
-- **桌面 E2E 只有 Linux 权威**：`desktop/e2e` 的 13 个桌面 spec 都写 `describe.skipIf(info.skipped)`，
+- **桌面 E2E 只有 Linux 权威**：`desktop/e2e` 的 14 个桌面 spec 都写 `describe.skipIf(info.skipped)`，
   于是「preflight 失败 → 全跳过」与「全绿」在退出码上无从区分。规则是：Linux（WebKitGTK + xvfb）
   跑出的结果是**权威**；其他平台默认跳过并给出 `E2E_ALLOW_BEST_EFFORT=1` 的开启方式，显式开启后
   `run.json` 记 `authoritative: false`（advisory）；CI 的 e2e job 带 `E2E_REQUIRE_DESKTOP=1`，

@@ -1,7 +1,7 @@
 // The stub's routing table: one entry per endpoint the workbench can call.
 // Handlers return a small descriptor; server.mjs owns the socket so that a
 // `drop` scenario can really cut the connection and an SSE handler can keep it.
-import { EMPTY_SHAPES, ISO, LATER } from './fixtures.mjs'
+import { EMPTY_SHAPES, ISO, LATER, makeTask } from './fixtures.mjs'
 import { nextId, recordRequest, resetState } from './state.mjs'
 import { pushEvent } from './sse.mjs'
 import { resolveScenario, setScenario } from './scenarios.mjs'
@@ -321,10 +321,63 @@ add('POST', /^\/api\/resources$/, (s, ctx) => {
   s.fixtures.resources.push(row)
   return json({ id: row.id })
 })
-add('PUT', /^\/api\/resources\/([^/]+)$/, (s, ctx, m) => {
+add('GET', /^\/api\/resources\/([^/]+)$/, (s, ctx, m) => {
   const row = find(s.fixtures.resources, m[1])
-  if (row) Object.assign(row, jsonBody(ctx))
-  return json(row || {})
+  return row ? json(row) : code('resource_not_found', 404)
+})
+add('PUT', /^\/api\/resources\/([^/]+)$/, (s, ctx, m) => {
+  const at = s.fixtures.resources.findIndex((r) => r.id === m[1] || r.ID === m[1])
+  if (at < 0) return code('resource_not_found', 404)
+  // Whole-record replacement, as agenthub's handler does it. Whatever the body
+  // omits is gone afterwards — including `status`, which is why the workbench
+  // must state it: an empty one would resolve to the namespace default and park
+  // an approved agent back in review.
+  s.fixtures.resources[at] = { ...jsonBody(ctx), id: m[1] }
+  return json(s.fixtures.resources[at])
+})
+
+// ---- Abilities (F20): bindings, the resolved package, delivery -------------
+
+/** Bound ids are looked up as the kind they were bound as. */
+function resolvePackage(s, agent) {
+  const bound = agent.kind_config?.agent || {}
+  const lookup = (ids, kind) => {
+    const rows = []
+    const unresolved = []
+    for (const id of ids || []) {
+      const row = s.fixtures.resources.find((r) => (r.id === id || r.ID === id) && r.kind === kind)
+      if (row) rows.push({ ...row })
+      // A id that is gone (or was bound as another kind) is reported, never
+      // silently dropped: the screen has to be able to show what it could not
+      // render, and the operator decides whether to remove it.
+      else unresolved.push(id)
+    }
+    return { rows, unresolved }
+  }
+  const mcp = lookup(bound.mcp, 'mcp')
+  const skills = lookup(bound.skills, 'skill')
+  return {
+    agent_id: agent.id,
+    agent_name: agent.name || '',
+    agent_display_name: agent.display_name || agent.name || '',
+    mcp: mcp.rows,
+    skills: skills.rows,
+    unresolved: [...mcp.unresolved, ...skills.unresolved],
+    missing: [],
+  }
+}
+
+add('GET', /^\/api\/resources\/([^/]+)\/distribution$/, (s, ctx, m) => {
+  const agent = s.fixtures.resources.find((r) => (r.id === m[1] || r.ID === m[1]) && r.kind === 'agent')
+  return agent ? json(resolvePackage(s, agent)) : code('resource_not_found', 404)
+})
+add('POST', /^\/api\/resources\/([^/]+)\/distribution$/, (s, ctx, m) => {
+  const row = find(s.fixtures.resources, m[1])
+  if (!row) return code('resource_not_found', 404)
+  if (row.kind !== 'agent') return code('bad_request', 409)
+  const created = makeTask(nextId(s, 'task'), 'completed', { resourceId: row.id })
+  s.fixtures.tasks.unshift(created)
+  return json({ id: created.id })
 })
 
 // ---- Channels ------------------------------------------------------------

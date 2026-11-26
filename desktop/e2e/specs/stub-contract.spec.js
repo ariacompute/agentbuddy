@@ -60,7 +60,7 @@ describe.skipIf(info.backend !== 'stub' || !base)('deterministic backend contrac
     expect(a2a.body).toHaveProperty('jsonrpc', '2.0')
   })
 
-  it('covers every endpoint the 15 screens call on mount', async () => {
+  it('covers every endpoint the 16 screens call on mount', async () => {
     const paths = [
       '/api/auth/config', '/api/auth/me', '/api/workspace', '/api/threads', '/api/tasks',
       '/api/channels', '/api/connectors', '/api/connectors/approvals', '/api/resources',
@@ -76,6 +76,61 @@ describe.skipIf(info.backend !== 'stub' || !base)('deterministic backend contrac
       if (path === '/api/auth/me') expect(answer.body).toBeNull()
       else expect(answer.body, `${path} should have a body`).not.toBeNull()
     }
+  })
+
+  it('resolves an agent’s bindings into a package and delivers it as a task', async () => {
+    const entry = await get('/api/resources/resource-1')
+    expect(entry.status).toBe(200)
+    expect(entry.body).toMatchObject({ id: 'resource-1', kind: 'agent', status: 'approved' })
+
+    const pkg = await get('/api/resources/resource-1/distribution')
+    expect(pkg.status).toBe(200)
+    expect(pkg.body).toMatchObject({ agent_id: 'resource-1' })
+    expect(pkg.body.mcp.map((r) => r.id)).toEqual(['connector-1'])
+    expect(pkg.body.mcp[0]).toMatchObject({ transport: 'streamable-http', auth_schemes: ['oauth2'] })
+    expect(pkg.body.skills.map((r) => r.id)).toEqual(['resource-2'])
+    expect(pkg.body.unresolved).toEqual([])
+    expect(pkg.body.missing).toEqual([])
+
+    const delivered = await post('/api/resources/resource-1/distribution', {})
+    expect(delivered.status).toBe(200)
+    const { id } = await delivered.json()
+    expect(id).toMatch(/^task-/)
+    expect((await get(`/api/tasks/${id}`)).body).toMatchObject({ id, resourceId: 'resource-1' })
+    expect((await get('/api/tasks')).body.tasks[0].id).toBe(id)
+
+    // A skill manual is not an agent (409), and an unknown record is a 404 —
+    // the two refusals the screen has to keep apart.
+    expect((await post('/api/resources/resource-2/distribution', {})).status).toBe(409)
+    expect((await post('/api/resources/nope/distribution', {})).status).toBe(404)
+  })
+
+  it('replaces the whole record on PUT, so an omitted status stays omitted', async () => {
+    const before = (await get('/api/resources/resource-1')).body
+    const saved = await get('/api/resources/resource-1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...before, status: 'approved', kind_config: { agent: { mcp: ['connector-1'] } },
+      }),
+    })
+    expect(saved.status).toBe(200)
+    expect(saved.body.status).toBe('approved')
+    // Replaced, not merged: the skill the body dropped is gone.
+    expect(saved.body.kind_config.agent).toEqual({ mcp: ['connector-1'] })
+    expect(saved.body.name).toBe(before.name)
+
+    const rest = { ...saved.body }
+    delete rest.status
+    const blank = await get('/api/resources/resource-1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rest),
+    })
+    // agenthub resolves an empty status to the namespace default, which parks an
+    // approved agent back in review. The stub must not invent one, so the
+    // workbench stating `status` is the only thing that keeps it approved.
+    expect(blank.body.status).toBeUndefined()
   })
 
   it('signs in with a cookie and refuses bad credentials with a machine code', async () => {

@@ -91,15 +91,15 @@ and what is waiting on you:
 | 05 | Tasks | [PNG](screenshots/en/05_Tasks.png) | [PNG](screenshots/zh/05_任务.png) |
 | 06 | Task | [PNG](screenshots/en/06_Task.png) | [PNG](screenshots/zh/06_任务详情.png) |
 | 07 | Organisation | [PNG](screenshots/en/07_Organisation.png) | [PNG](screenshots/zh/07_组织.png) |
-| 08 | Channels | [PNG](screenshots/en/08_Channels.png) | [PNG](screenshots/zh/08_通道.png) |
-| 09 | Connectors | [PNG](screenshots/en/09_Connectors.png) | [PNG](screenshots/zh/09_连接器.png) |
-| 10 | Computers | [PNG](screenshots/en/10_Computers.png) | [PNG](screenshots/zh/10_计算机.png) |
-| 11 | Schedules | [PNG](screenshots/en/11_Schedules.png) | [PNG](screenshots/zh/11_目标调度.png) |
-| 12 | Knowledge | [PNG](screenshots/en/12_Knowledge.png) | [PNG](screenshots/zh/12_知识库.png) |
-| 13 | Files | [PNG](screenshots/en/13_Files.png) | [PNG](screenshots/zh/13_文件.png) |
-| 14 | Persona | [PNG](screenshots/en/14_Persona.png) | [PNG](screenshots/zh/14_人格.png) |
-| 15 | Settings | [PNG](screenshots/en/15_Settings.png) | [PNG](screenshots/zh/15_设置.png) |
-| 16 | Abilities | [PNG](screenshots/en/16_Abilities.png) | [PNG](screenshots/zh/16_能力下发.png) |
+| 08 | Abilities | [PNG](screenshots/en/08_Abilities.png) | [PNG](screenshots/zh/08_能力下发.png) |
+| 09 | Channels | [PNG](screenshots/en/09_Channels.png) | [PNG](screenshots/zh/09_通道.png) |
+| 10 | Connectors | [PNG](screenshots/en/10_Connectors.png) | [PNG](screenshots/zh/10_连接器.png) |
+| 11 | Computers | [PNG](screenshots/en/11_Computers.png) | [PNG](screenshots/zh/11_计算机.png) |
+| 12 | Schedules | [PNG](screenshots/en/12_Schedules.png) | [PNG](screenshots/zh/12_目标调度.png) |
+| 13 | Knowledge | [PNG](screenshots/en/13_Knowledge.png) | [PNG](screenshots/zh/13_知识库.png) |
+| 14 | Files | [PNG](screenshots/en/14_Files.png) | [PNG](screenshots/zh/14_文件.png) |
+| 15 | Persona | [PNG](screenshots/en/15_Persona.png) | [PNG](screenshots/zh/15_人格.png) |
+| 16 | Settings | [PNG](screenshots/en/16_Settings.png) | [PNG](screenshots/zh/16_设置.png) |
 
 </details>
 

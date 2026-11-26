@@ -4,7 +4,8 @@
 export const ISO = '2026-11-11T09:00:00.000Z'
 export const LATER = '2026-11-11T09:05:00.000Z'
 
-const task = (id, state, extra = {}) => ({
+/** A task in the shape the workbench renders; exported so a route can mint one. */
+export const makeTask = (id, state, extra = {}) => ({
   id,
   contextId: 'thread-1',
   resourceId: 'agent-1',
@@ -48,12 +49,12 @@ export function makeFixtures() {
       'thread-2': [],
     },
     tasks: [
-      task('task-1', 'working'),
-      task('task-2', 'input-required'),
-      task('task-3', 'completed', {
+      makeTask('task-1', 'working'),
+      makeTask('task-2', 'input-required'),
+      makeTask('task-3', 'completed', {
         artifacts: [{ parts: [{ type: 'text', text: 'summary' }, { type: 'file', file: { name: 'report.txt', mimeType: 'text/plain', bytes: 'aGVsbG8=', uri: '' } }] }],
       }),
-      task('task-4', 'failed'),
+      makeTask('task-4', 'failed'),
     ],
     channels: [
       { id: 'channel-1', name: 'Ops Slack', kind: 'slack', enabled: true, threadId: 'thread-1', signingKeyEnv: 'SLACK_SIGNING', destination: '', participants: ['agent-1'] },
@@ -78,10 +79,24 @@ export function makeFixtures() {
     approvals: [
       { taskId: 'approval-1', resourceId: 'connector-1', connectorId: 'connector-1', connectorName: 'Jira MCP', action: 'create_issue', args: { project: 'OPS' }, requestedBy: 'user-e2e', asked: 'Approve create_issue', createdAt: ISO },
     ],
+    // The agent carries bindings so the abilities screen has a package to show;
+    // the mcp/skill rows carry the fields that package renders from.
     resources: [
-      { id: 'resource-1', name: 'planner', kind: 'agent', display_name: 'Planner', health: 'healthy', capabilities: ['plan'], persona: { displayName: 'Planner', jobTitle: 'Planner', role: 'Coordinator', mbti: 'INTJ', instruction: 'Be concise', avatar: '' } },
-      { id: 'resource-2', name: 'refund-skill', kind: 'skill', display_name: 'Refund skill', health: 'healthy', capabilities: ['refund'] },
-      { id: 'connector-1', name: 'Jira MCP', kind: 'mcp', display_name: 'Jira MCP', health: 'healthy', capabilities: ['create_issue'] },
+      {
+        id: 'resource-1', name: 'planner', kind: 'agent', display_name: 'Planner', endpoint: 'https://agent.invalid',
+        health: 'healthy', status: 'approved', capabilities: ['plan'],
+        persona: { displayName: 'Planner', jobTitle: 'Planner', role: 'Coordinator', mbti: 'INTJ', instruction: 'Be concise', avatar: '' },
+        kind_config: { agent: { mcp: ['connector-1'], skills: ['resource-2'], card_url: 'https://agent.invalid/card' } },
+      },
+      {
+        id: 'resource-2', name: 'refund-skill', kind: 'skill', display_name: 'Refund skill', health: 'healthy',
+        capabilities: ['refund'], triggers: ['refund'], steps: ['look up the order', 'issue the refund'],
+      },
+      {
+        id: 'connector-1', name: 'Jira MCP', kind: 'mcp', display_name: 'Jira MCP', health: 'healthy',
+        capabilities: ['create_issue'], transport: 'streamable-http', url: 'https://example.invalid/mcp',
+        auth_schemes: ['oauth2'], tool_allowlist: ['create_issue'],
+      },
     ],
     computers: [
       { id: 'computer-1', kind: 'shell', status: 'idle', agentId: 'agent-1', lastAction: 'attached' },

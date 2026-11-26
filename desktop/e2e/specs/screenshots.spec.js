@@ -2,8 +2,8 @@
 // through every screen, in English and Chinese (light theme), and writes one PNG
 // per screen to agentbuddy/screenshots/<lang>/<feature>.png. It does NOT assert
 // on app behaviour — a failed shot is logged (events.jsonl + failure screenshot)
-// and skipped so the remaining 29 still land.
-import { beforeAll, describe, expect, it } from 'vitest'
+// and skipped so the remaining 31 still land.
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { e2eContext } from '../harness/context.mjs'
 import {
   CSS, navigateHash, pageFetch, scrollToTop, selectLanguage, step, waitForElement,
@@ -15,13 +15,15 @@ const { info, cfg, wd } = e2eContext()
 
 const LANGS = ['en', 'zh']
 // ROUTES order also defines the zero-padded file prefix (01_, 02_, …):
-// Login, Workbench, Threads, Thread, Tasks, Task, Organisation, Channels,
-// Connectors, Computers, Schedules, Knowledge, Files, Persona, Settings,
-// Abilities. New screens are appended so earlier file names stay stable.
+// Login, Workbench, Threads, Thread, Tasks, Task, Organisation, Abilities,
+// Channels, Connectors, Computers, Schedules, Knowledge, Files, Persona,
+// Settings. Abilities sits next to Organisation because that is where the
+// sidebar puts it; the numbering follows the nav, not the order screens landed
+// in, so a new screen shifts the files after it.
 const ROUTES = [
   '/login', '/', '/threads', '/threads/:id', '/tasks', '/tasks/:id',
-  '/org', '/channels', '/connectors', '/computers', '/schedules',
-  '/knowledge', '/files', '/persona', '/settings', '/abilities',
+  '/org', '/abilities', '/channels', '/connectors', '/computers', '/schedules',
+  '/knowledge', '/files', '/persona', '/settings',
 ]
 // File names use the feature's own language, matching the sidebar navXxx copy.
 const ROUTE_NAMES = {
@@ -93,7 +95,15 @@ describe.skipIf(info.skipped)('agentbuddy screenshots (en / zh)', () => {
     await waitForElement(wd, CSS, '.shell', info.timeoutMs)
   })
 
-  it('captures all 15 screens in English and Chinese', async () => {
+  // One WebView is shared by every spec file and the language is persisted, so
+  // the last shot's language would be inherited by whichever file runs next and
+  // its English copy lookups would fail. Leave the session in English.
+  afterAll(async () => {
+    await selectLanguage(wd, 'en').catch(() => {})
+  })
+
+  // Derived from ROUTES so the title cannot drift from what is captured.
+  it(`captures all ${ROUTES.length} screens in English and Chinese`, async () => {
     // Walk en then zh. The login screen needs an anonymous session, so each
     // language's login shot signs out, captures, then signs back in.
     const order = []

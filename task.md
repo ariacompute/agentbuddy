@@ -1939,8 +1939,9 @@ Windows 路线又是「best effort」，于是「绿」到底证明了什么取�
   （`streamable-http` + `auth_schemes`）与 1 个 Skill（无触发词/工具，走可选字段分支）→ `POST distribution`
   返回 `task-e17e3b04202ef7e9`（`completed`，mock provider，`mcp=1 skills=1`）且 `GET /api/tasks/{id}` 为 200
   → 清空绑定后包重新为空、记录已恢复原状。
-- 未验证：`screenshots/{en,zh}/16_Abilities.png` 需在有 `E2E_SERVER_URL` 的机器上跑
-  `node desktop/e2e/shoot.mjs` 重新生成（`screenshots.spec.js` 的 ROUTES 已追加 `/abilities`）。
+- 未验证：`screenshots/{en,zh}/08_Abilities.png` 需在有 `E2E_SERVER_URL` 的机器上跑
+  `node desktop/e2e/shoot.mjs` 重新生成（`screenshots.spec.js` 的 ROUTES 已在 Organisation 之后
+  插入 `/abilities`；M48 已补齐这两张图并按下标重排）。
 - 观察到一次偶发：全量并发跑覆盖率时 `files.spec.js` 的拖拽上传用例偶发未触发（单独重跑 20 条
   全绿，随后全量重跑亦全绿），与本轮改动无关。
 
@@ -1985,3 +1986,59 @@ Windows 路线又是「best effort」，于是「绿」到底证明了什么取�
 
 - 仍需注意：这台机器的 `load average` 会因外部任务飙到 12+，覆盖率全量约 20s；超时抬到 20s 后
   再没有出现「负载导致的红」。真正慢的用例（`main-bootstrap`）不值得再拆——它跑的是入口本身。
+
+## M48 — 能力屏的桌面 E2E 与截图（2026-11-26）
+
+M46 给截图 spec 追加了 `/abilities`，但 stub 没有 `GET /api/resources/{id}` 与 `/distribution`
+两条路由，能力屏在桌面 journey 里其实一进就是错误态。本轮把 stub、契约与 journey 补齐，并真的
+跑通了整套桌面 E2E（Linux 权威）。
+
+### 1. stub 与契约
+
+- `stub/fixtures.mjs`：`resource-1` 带上 `status: 'approved'` 与
+  `kind_config.agent = {mcp:['connector-1'], skills:['resource-2'], card_url}`；mcp 条目补
+  `transport` / `url` / `auth_schemes` / `tool_allowlist`，skill 补 `triggers` / `steps`——正是
+  能力包要渲染的那些字段。任务工厂导出为 `makeTask`，路由要造任务时复用。
+- `stub/routes.mjs`：新增 `GET /api/resources/{id}`、`GET /api/resources/{id}/distribution`
+  （按绑定 id 逐个按「当初绑定的 kind」查找，查不到的进 `unresolved`，不静默丢弃）、
+  `POST /api/resources/{id}/distribution`（非 agent 409、未知 404，成功则插一条
+  `completed` 任务并回 `{id}`）。
+- `PUT /api/resources/{id}` 从 `Object.assign` 改成**整体替换**，与 agenthub 一致：请求体没写的
+  字段就是没了——这正是 `withBindings` 必须回填 `status` 的原因，契约用例把它钉死
+  （省略 `status` 后服务端不会有 `approved`）。
+- `stub-contract.spec.js`：新增两条用例（能力包解析 + 下发任务、PUT 整体替换语义），
+  「16 屏挂载端点」标题同步。
+
+### 2. journey
+
+- `driver/selectors.mjs`：`COPIES` 增加 `abilities`，`ERROR_KEYS` 增加 `resource_not_found`，
+  `NAV` 增加 `/abilities`。
+- 新增 `specs/abilities.spec.js`（7 条）：列表与提示、能力包预览（1 MCP + 1 Skill、两个复选框
+  都勾上）、解绑后保存（断言 PUT + 包重新拉取、只剩一张卡）、清空后保存（包为空、两个都是未勾）、
+  下发并点开任务（链接里的 task id 与 `/tasks/{id}` 路由、任务页能读回）、503
+  `feature_unavailable` 的下发失败、以及「绑定但解析不到」的虚线 chip 可见且可移除。
+- **踩到的坑**：能力屏是缓存的——`navigateHash('/abilities')` 在已经停在该路由时不会产生
+  `hashchange`，组件不重挂也不重读，于是上一个用例缓存的绑定把新种下的 `mcp_gone` 盖住了
+  （截图里只剩 `connector-1`）。`open()` 改成先 `remount()`（离开再回来），与 README 里
+  multi-view 的约定一致。
+- **另一个坑**：`screenshots.spec.js` 拍完 zh 就结束，语言是持久化的、整个 suite 共用一个
+  WebView，于是排在后面的 `workbench.spec.js` 全中文、按英文文案找元素全部超时。补 `afterAll`
+  把语言复位到 `en`；截图标题改成 `${ROUTES.length}` 派生，避免与路由数漂移。
+
+### 3. 验证
+
+| 项 | 结果 |
+| --- | --- |
+| `E2E_CONTRACT_ONLY=1 node e2e/run.mjs` | 11 条契约全绿（新增 2 条） |
+| `node node_modules/vitest/vitest.mjs run --config e2e/vitest.config.js abilities` | 7 条能力屏 journey 全绿 |
+| `node e2e/run.mjs`（stub 后端，真 `AgentBuddy` + `WebKitWebDriver`） | **15 spec / 126 用例全绿**，107s |
+| `cargo build --features e2e-isolation` | 2m27s，产出 `target/debug/AgentBuddy`（首次构建） |
+
+- 截图：本轮用真桌面客户端拍出能力屏的图（README 里那行链接至此才算指得着）。其余 30 张在本机
+  重拍后与原图仅有渲染差异，已 `git checkout` 还原，避免把 30 个二进制文件的无意义 diff 混进来。
+- 编号：能力屏最终落在**侧栏顺序**上的第 8 位，因此两张新图是 `08_Abilities.png` /
+  `08_能力下发.png`，其后的通道…设置整体后移一位（09…16）。`screenshots.spec.js` 的 `ROUTES`
+  也把 `/abilities` 挪到 `/org` 之后——文件名前缀由 `ROUTES` 下标派生，所以下一次拍摄会自然
+  产出同一套编号；`README.md` / `README_cn.md` 的表格与 `desktop/e2e/README.md` 的路由顺序说明
+  同步改过。
+- 环境记录：本机 `DISPLAY=:0` 可直接跑，无需 `xvfb-run`；`tauri-driver` 与 `WebKitWebDriver` 已装。

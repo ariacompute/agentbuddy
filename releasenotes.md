@@ -1,9 +1,10 @@
 # agentbuddy Release Notes
 
 agentbuddy is the Tauri v2 desktop client for agenthub. It opens the agenthub
-workbench — Workspace, Threads, Tasks, Org, Channels, Connectors, Computers,
-Schedules, Persona and Settings — against whichever server the user points it at,
-over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known`.
+workbench — Workspace, Threads, Tasks, Org, Abilities, Channels, Connectors,
+Computers, Schedules, Persona and Settings — against whichever server the user
+points it at, over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and
+`/.well-known`.
 
 ## 1. Platform Overview
 
@@ -103,7 +104,8 @@ over a loopback proxy that rewrites `/api`, `/a2a`, `/healthz` and `/.well-known
   views, and Schedules growing from a goal list into a scheduler console. Persona
   and Knowledge now have sidebar entries: both had a route and a screen, but only
   `/persona` was reachable by typing the URL and the knowledge screen did not
-  exist at all.
+  exist at all. The sixteenth screen, Abilities, binds MCP servers and skill
+  manuals to an agent and hands the resolved package over as a task (see §5).
 - **No orphan wrappers**: every named export of `lib/api.js` must be referenced by
   at least one screen, enforced by `tests/api-usage.spec.js` with an empty
   allow-list. `tests/round4.spec.js` pins each screen→endpoint pairing with both a
@@ -183,6 +185,28 @@ server side:
 - **Persona editor**: edits an agent's persona profile — role, instruction, MBTI,
   avatar and title — and persists it to agenthub through the resource update
   endpoint.
+- **Ability delivery**: binds MCP servers and skill manuals to an agent and
+  delivers the package agenthub resolves from them. The left column is a
+  searchable agent list (health dot, bound count, an edge bar on the selected
+  row); the right one edits the two binding groups and previews the result — for
+  each MCP server its transport, endpoint or command, tool allow-list, required
+  environment variables and auth schemes, for each manual its triggers, steps,
+  tools and a truncated instruction. Saving is a **whole-record** `PUT`
+  (`GET /api/resources/{id}` first, only `kind_config.agent.mcp/skills`
+  changed, everything else returned as received) and it re-reads the package
+  afterwards, because the package is derived from the bindings. `status` is
+  stated explicitly: an empty one would resolve to the namespace default and
+  send an approved agent back to review. Ids that are bound but invisible stay
+  in the draft as dashed "unresolved" chips and can only be removed on purpose —
+  "you may not see it" must not become "it was never bound". "Clear all" is
+  offered on a freshly opened record too (withdrawing every ability is itself
+  the edit), and delivery (`POST /api/resources/{id}/distribution`) works on an
+  empty package on purpose, since an empty package is how an agent is told its
+  abilities were withdrawn. The answer is the task id, with a link straight into
+  `/tasks/{id}`; refusals keep their machine code (`forbidden`,
+  `feature_unavailable`, "not an agent") and are localized. Without
+  `resources:write` the save, clear, checkbox and deliver controls are disabled
+  and say why.
 
 ## 6. Execution Node (BYOM)
 
@@ -282,19 +306,35 @@ The node lives in the Rust process. The web view only reads its state through
   unwindowed skill read and the path where only that read fails, and the batch
   read's dedupe, missing ids, 100-id ceiling and failure fallback). A final pass
   calls the handlers behind disabled controls directly (early returns, empty
-  bodies, unknown machine codes) and server-renders the no-`window` setup branch.
-  **36 spec files, 935 cases**, all offline.
+  bodies, unknown machine codes) and server-renders the no-`window` setup branch;
+  the abilities screen adds two suites of its own — the merge rules (a whole
+  record out, only two arrays changed, `status` filled in, unresolved ids kept)
+  and the screen (catalogue read, package preview with skills-only and
+  nothing-but-an-id shapes, save carrying the complete entry, a stale answer for
+  a merely-previous agent dropped, clear on an untouched record, 403/503 and the
+  codeless-message fallback, and every write guard reached by calling the
+  handler). **38 spec files, 1005 cases**, all offline.
 - `bun run test:coverage` (v8, `make web-coverage`) reports **100%** of statements,
-  lines, branches and functions (12529 statements, 2189 branches, 487 functions,
-  12494 lines). No defensive arm is left untested and no file is excluded from the
+  lines, branches and functions (13069 statements, 2361 branches, 513 functions,
+  13069 lines). No defensive arm is left untested and no file is excluded from the
   report.
+- **Assertions wait for effects, not for a tick.** One `flushPromises` after a
+  click is a race the moment the machine is busy: the click's promise chain can
+  settle after the assertion. `testTimeout`/`hookTimeout` are 20s (booting the
+  whole app under jsdom is the slowest case, and v8 instrumentation roughly
+  doubles it) and every "acted, then assert the request/route/state" site waits
+  with `vi.waitFor`. That turned a suite that failed one or two random cases per
+  instrumented run into one that passes five runs in a row.
 - `cd desktop && bun run test` (or `test:coverage`) covers the release-time scripts instead
-  of trusting them: **9 spec files, 133 cases** over the icon encoder, the version
+  of trusting them: **10 spec files, 146 cases** over the icon encoder, the version
   stamp, the three signing scripts (inject, verify, prepare), the `latest.json`
   assembly (collect / manifest / verify, every rejection included) and the
   entry-point helper — **100%** of statements, lines, branches and functions
-  (1015 / 1015 / 306 / 56), again with no exclusion. It needs no Rust toolchain, so
-  CI runs it as its own job.
+  (965 / 965 / 306 / 56), again with no exclusion. It needs no Rust toolchain, so
+  CI runs it as its own job. The icon case asserts which five files were written
+  and that files it does not own survive, rather than that the checkout's
+  `src-tauri/icons` holds exactly five entries: `tauri icon` leaves android/,
+  ios/ and the Square*Logo set in the same directory.
 - The scripts are importable rather than shell-only: pure functions plus an
   argument-free `main()`, with directories, roots, environment and argv injected
   through defaulted parameters, failures turned into `::error::` and exit code 1.
@@ -317,3 +357,19 @@ The node lives in the Rust process. The web view only reads its state through
   so there they are compile-verified only. CI now writes the Linux run into
   `GITHUB_STEP_SUMMARY` and uploads `desktop-test.log`, and
   `make desktop-test-report` produces the same summary locally.
+- **The desktop lane drives the real client**: `desktop/e2e` launches the debug
+  binary through `tauri-driver` and `WebKitWebDriver`, reads visible text and
+  clicks elements, and asserts through the request log rather than through the
+  store — **15 spec files / 126 cases**, Linux is the authoritative platform and
+  any other host records itself as advisory. The stub behind it answers every
+  endpoint the screens call, including the three this round added for abilities
+  (one record, the resolved package, the delivery that answers a task id), and
+  replaces a resource wholesale on `PUT` exactly like agenthub, so the contract
+  case can prove that an omitted `status` stays omitted. Eleven of those cases
+  need no Rust toolchain at all, which is what CI runs first. Two isolation
+  faults surfaced here and are fixed: navigating to the hash the screen already
+  sits on fires no `hashchange`, so the new journey remounts before asserting
+  (otherwise the previous case's cached entry wins), and the screenshot run left
+  the one shared WebView in Chinese, which made whichever file ran next look for
+  English labels and time out — it now restores English in `afterAll`. The
+  screenshots cover 16 routes in both languages, 32 PNGs.

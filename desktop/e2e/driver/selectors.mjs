@@ -14,6 +14,7 @@ import { withCopy } from '../../../web/src/lib/copy/scheduler-copy.js'
 import { hubCopy } from '../../../web/src/lib/copy/hub-copy.js'
 import { opsCopy } from '../../../web/src/lib/copy/ops-copy.js'
 import { filesCopy } from '../../../web/src/lib/copy/files-copy.js'
+import { abilitiesCopy } from '../../../web/src/lib/copy/abilities-copy.js'
 import { errorsCopy } from '../../../web/src/lib/copy/errors-copy.js'
 import { enumsCopy } from '../../../web/src/lib/copy/enums-copy.js'
 
@@ -30,6 +31,7 @@ const COPIES = {
   hub: hubCopy,
   ops: opsCopy,
   files: filesCopy,
+  abilities: abilitiesCopy,
 }
 
 /** Same shallow-merge + English fallback as web/src/lib/use-copy.js. */
@@ -74,6 +76,7 @@ const ERROR_KEYS = {
   file_store_error: 'fileStoreError',
   audio_too_large: 'audioTooLarge',
   computer_not_found: 'computerNotFound',
+  resource_not_found: 'resourceNotFound',
   schedule_not_found: 'scheduleNotFound',
   router_policy_invalid: 'routerPolicyInvalid',
   sandbox_lease_lost: 'sandboxLeaseLost',
@@ -122,6 +125,7 @@ export const NAV = [
   ['shell', 'navThreads', '/threads'],
   ['shell', 'navTasks', '/tasks'],
   ['shell', 'navOrg', '/org'],
+  ['shell', 'navAbilities', '/abilities'],
   ['shell', 'navChannels', '/channels'],
   ['shell', 'navConnectors', '/connectors'],
   ['shell', 'navSettings', '/settings'],
