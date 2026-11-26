@@ -5,6 +5,7 @@
 // desktop journey relies on.
 import { describe, expect, it, beforeEach } from 'vitest'
 import { e2eContext } from '../harness/context.mjs'
+import { ERROR_CONTRACT } from '../contract/error-contract.mjs'
 
 const { info } = e2eContext()
 const base = info.stubUrl
@@ -99,10 +100,29 @@ describe.skipIf(info.backend !== 'stub' || !base)('deterministic backend contrac
     expect((await get(`/api/tasks/${id}`)).body).toMatchObject({ id, resourceId: 'resource-1' })
     expect((await get('/api/tasks')).body.tasks[0].id).toBe(id)
 
-    // A skill manual is not an agent (409), and an unknown record is a 404 —
-    // the two refusals the screen has to keep apart.
-    expect((await post('/api/resources/resource-2/distribution', {})).status).toBe(409)
-    expect((await post('/api/resources/nope/distribution', {})).status).toBe(404)
+    // A skill manual is not an agent (`invalid_kind`), and an unknown record is
+    // a `not_found` — the two refusals the screen has to keep apart, on both
+    // verbs. The table is shared with the live cross-repo contract, so the stub
+    // cannot quietly disagree with agenthub again.
+    const distribution = (method, id) => get(`/api/resources/${id}/distribution`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: method === 'POST' ? '{}' : undefined,
+    })
+    for (const answer of [
+      await distribution('GET', 'resource-2'),
+      await distribution('POST', 'resource-2'),
+    ]) {
+      expect(answer.status).toBe(ERROR_CONTRACT.invalidKind.status)
+      expect(answer.body.code).toBe(ERROR_CONTRACT.invalidKind.code)
+    }
+    for (const answer of [
+      await distribution('GET', 'nope'),
+      await distribution('POST', 'nope'),
+    ]) {
+      expect(answer.status).toBe(ERROR_CONTRACT.notFound.status)
+      expect(answer.body.code).toBe(ERROR_CONTRACT.notFound.code)
+    }
   })
 
   it('replaces the whole record on PUT, so an omitted status stays omitted', async () => {

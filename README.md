@@ -198,10 +198,12 @@ deterministic `node:http` stub stands in for the server; set
 `E2E_BACKEND=live` to point the same journeys at a real agenthub:
 
 ```bash
-make e2e-contract                                       # server contract only, no Rust toolchain or WebDriver
+make e2e-contract                                       # stub contract + cross-repo contract, no Rust toolchain or WebDriver
 make e2e                                                # build the debug client + full journeys (stub mode)
 E2E_SERVER_URL=http://127.0.0.1:3500 \
-E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # real agenthub
+E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-contract-live  # error contract against a real agenthub, no WebDriver
+E2E_SERVER_URL=http://127.0.0.1:3500 \
+E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # real agenthub, full journeys
 ```
 
 See `desktop/e2e/README.md` for prerequisites, environment variables and the

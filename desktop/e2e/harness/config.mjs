@@ -125,6 +125,9 @@ export function readE2eConfig(env = process.env, platform = process.platform) {
     timeoutMs: Number(env.E2E_TIMEOUT_MS || 30_000),
     startupMs: Number(env.E2E_STARTUP_MS || 120_000),
     headed: truthy(env.E2E_HEADED),
+    // Contract-only means "no WebDriver": the stub contract and the cross-repo
+    // contract run, every desktop journey and every desktop prerequisite is out
+    // of scope. Live contract-only is how CI checks a real agenthub.
     skipWebdriver: truthy(env.E2E_CONTRACT_ONLY),
     // The platform policy, resolved once: `authoritative` is what the report
     // publishes, `bestEffortAllowed` is what the preflight can refuse on.
@@ -139,14 +142,43 @@ export function readE2eConfig(env = process.env, platform = process.platform) {
 /**
  * Checks everything a desktop run needs before we spawn a single process.
  * A failed check does not fail the suite: the orchestrator marks the run
- * skipped with a human-readable reason, while the stub's own contract specs
- * (which need no toolchain) still run and stay meaningful on a bare Windows box.
+ * skipped with a human-readable reason, while the contract specs (which need no
+ * toolchain) still run and stay meaningful on a bare Windows box.
+ *
+ * Contract-only runs skip the desktop half entirely, so they only require a
+ * reachable server (plus live credentials); asking for a binary or a driver
+ * there would report failures that have nothing to do with the contract.
  */
 export async function preflight(cfg, serverUrl) {
   const checks = []
   const add = (name, ok, detail) => checks.push({ name, ok, detail })
+  const summarize = () => {
+    const failed = checks.filter((c) => !c.ok)
+    return {
+      ok: failed.length === 0,
+      checks,
+      reason: failed.map((c) => `${c.name}: ${c.detail}`).join('; '),
+    }
+  }
 
   add('server URL', /^https?:\/\/\S+$/i.test(serverUrl), serverUrl)
+
+  // Contract-only runs drive the API with plain fetch: no WebView, no binary,
+  // no driver. Checking those would turn a green cross-repo contract into a
+  // page of red preflight lines that say nothing about the contract.
+  if (cfg.skipWebdriver) {
+    if (cfg.backend === 'live') {
+      add('live credentials', !!cfg.credentials.email && !!cfg.credentials.password, cfg.credentials.email || 'E2E_LIVE_EMAIL missing')
+      let reachable = false
+      try {
+        const res = await fetch(`${serverUrl.replace(/\/$/, '')}/healthz`, { signal: AbortSignal.timeout(5000) })
+        reachable = res.ok
+      } catch { /* the check below reports it */ }
+      add('live /healthz', reachable, `${serverUrl}/healthz`)
+    }
+    return summarize()
+  }
+
   add('web bundle', fs.existsSync(cfg.webDist), cfg.webDist)
   add('desktop binary', fs.existsSync(cfg.appBinary), cfg.appBinary)
   add('tauri-driver', fs.existsSync(cfg.driverBin) || !!which('tauri-driver'), cfg.driverBin)
@@ -177,10 +209,5 @@ export async function preflight(cfg, serverUrl) {
     add('live /healthz', reachable, `${serverUrl}/healthz`)
   }
 
-  const failed = checks.filter((c) => !c.ok)
-  return {
-    ok: failed.length === 0,
-    checks,
-    reason: failed.map((c) => `${c.name}: ${c.detail}`).join('; '),
-  }
+  return summarize()
 }

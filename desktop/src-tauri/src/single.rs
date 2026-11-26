@@ -473,6 +473,55 @@ mod tests {
     }
 
     #[test]
+    fn a_tampered_record_cannot_raise_the_running_copy() {
+        let dir = temp_dir("tampered-token");
+        let raised = primary(&dir);
+        let mut record = stored(&dir);
+
+        // A hand-edited (or partially restored) record still points at the real
+        // listener, but the token on disk is not the one it published. The owner
+        // must answer "no" — a modified file must not become a way to pop the
+        // window on its own.
+        record.token = "not-the-published-token".to_string();
+        fs::write(record_path(&dir), serde_json::to_string(&record).unwrap()).unwrap();
+        assert!(!ask_to_show(&record), "a token the record did not publish must be refused");
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(raised.load(Ordering::SeqCst), 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_record_pointing_at_a_foreign_listener_is_taken_over() {
+        let dir = temp_dir("foreign");
+        fs::create_dir_all(&dir).unwrap();
+        let foreign = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = foreign.local_addr().unwrap().port();
+        let responder = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = foreign.accept() {
+                let mut line = String::new();
+                let _ = BufReader::new(stream.try_clone().unwrap()).take(LINE_LIMIT).read_line(&mut line);
+                let _ = stream.write_all(b"no\n");
+            }
+        });
+        fs::write(
+            record_path(&dir),
+            format!(r#"{{"pid":1,"port":{port},"token":"tampered"}}"#),
+        )
+        .unwrap();
+
+        // The file was edited to point at a service that refuses every caller.
+        // That is a stale record, not an owner: the launch must take over.
+        let Claim::Primary(_instance) = claim(&dir) else {
+            panic!("a foreign listener that answers `no` must not own the app");
+        };
+        responder.join().unwrap();
+        let record = stored(&dir);
+        assert_eq!(record.pid, std::process::id());
+        assert_ne!(record.token, "tampered");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_directory_that_cannot_be_written_still_starts_the_app() {
         // A file where the config directory should be: nothing can be published,
         // so arbitration is impossible. Starting without it beats not starting.

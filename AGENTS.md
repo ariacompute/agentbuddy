@@ -100,11 +100,12 @@ desktop/
   新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
   `text-summary` + `text`，不写报告目录），当前基线（38 个 spec、**1005** 条用例）：
-  语句/行 **100%**、分支 **100%**、函数 **100%**（13069 条语句、2361 个分支、513 个函数、13069 行）；
+  语句/行 **100%**、分支 **100%**、函数 **100%**（13069 条语句、2360 个分支、513 个函数、13069 行）；
   `vitest` 与 `@vitest/coverage-v8` **版本必须完全一致**（当前同为 `2.1.9`，写死不用 `^`）：
   混版本会打印 "Running mixed versions is not supported"，且覆盖率数字不可信；
   **四项须保持 100%**，回落时先看报告里的未覆盖行再补用例，`test.coverage` **没有 exclude**，
-  统计范围就是整个 `src/**`（含入口 `src/main.js`，由 `tests/main-bootstrap.spec.js` 覆盖）。
+  统计范围就是整个 `src/**`（含入口 `src/main.js`，由 `tests/main-bootstrap.spec.js` 覆盖）；
+  `coverage.thresholds` 已把四项钉在 100，跌破即让 `test:coverage` 失败，而不是只打印报告。
   界面上按钮 disabled 因而点不到的守卫，用 `wrapper.vm` 直接调用处理函数覆盖；
   无 `window` 的 setup 分支用 `createSSRApp` + `renderToString` 覆盖。
 - **异步断言用 `vi.waitFor`，不要「一次 `flushPromises` + 断言」**：`testTimeout` 虽是 20s
@@ -141,7 +142,8 @@ desktop/
   经 `GITHUB_ENV` 传递）、`latest-json.mjs`（三腿 collect → manifest → verify，产出恰好 9 个资产）。
   它们跑在三个 CI 主机与 release job 自己的文件上，**工作台测不到**，因此 `desktop/` 自成一个
   Vitest 工程：`vitest.config.js` 的 `coverage.include` 就是 `scripts/**/*.mjs`，四项 **100%**
-  （10 spec / **146** 用例、965 语句、306 分支、56 函数），`bun run test:coverage` 验，
+  并带 `thresholds`（跌破即失败；10 spec / **149** 用例、965 语句、306 分支、56 函数），
+  `bun run test:coverage` 验，
   CI 的 `scripts` job 不需要 Rust 工具链。注意 `make-icon` 的用例会**真的写**
   `src-tauri/icons/`（该目录 git-ignored），所以那里只能断言「这五个文件写下去了」，
   不能断言目录里恰好只有五个——`tauri icon` 留下的 android/ios/Square*Logo 也在同一目录。
@@ -161,6 +163,15 @@ desktop/
   跳过即 setup 失败。三条判定都在 `harness/config.mjs` 的纯函数里（`desktopPlatformDecision` /
   `preflight` / `requireDesktopOrThrow`），由 `desktop/tests/e2e-platform.spec.js` 钉住——
   不要让这段逻辑只活在 orchestrator 的分支里。
+  `specs/cross-repo-contract.spec.js` 是唯一在 stub 与真 agenthub 上跑同一份断言的 spec
+  （`E2E_BACKEND=live E2E_CONTRACT_ONLY=1`，无需 WebDriver/二进制），错误码表在
+  `e2e/contract/error-contract.mjs`；CI 的 `contract-live` job 检出 `ariacompute/agenthub@main`
+  并跑这一组，跨仓库状态码/机器码漂移在 CI 就红，而不是等人工对照。
+- **测试不得留下全局状态**：任何 spec / 用例结束时必须复原它改过的东西——文件与目录、语言与主题、
+  配置与环境变量、stub fixtures、WebView 路由与滚动位置、真实服务端写入的行。stub 用
+  `POST /__e2e/reset` / `afterEach` 清理，live 用唯一 id 并在 `afterAll` 删除，失败路径也要清。
+  这是跨仓库硬约定：agenthub M28（自家测试污染审计链锚点）与 agentbuddy M48（截图 spec 留在
+  中文、整个 suite 共用一个 WebView）是同一类问题，排查成本极高；agenthub 的 AGENTS.md 同步记录。
 - **进程内可测是脚本的形态要求**：每个脚本导出纯函数 + 一个 `main()`，末尾只有一句
   `runAsEntry(import.meta.url, main)`（`scripts/lib/entry.mjs`）。
   目录 / 根路径 / 环境变量 / argv 一律走 `main` 的**默认参数**注入

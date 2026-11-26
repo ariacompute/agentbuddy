@@ -141,7 +141,7 @@ export async function setup() {
     const check = await preflight(cfg, serverUrl)
     const skipped = cfg.skipWebdriver || !check.ok
     const reason = cfg.skipWebdriver
-      ? 'E2E_CONTRACT_ONLY=1 (stub contract specs only)'
+      ? 'E2E_CONTRACT_ONLY=1 (contract specs only)'
       : check.reason
     publish(baseInfo(serverUrl, check, skipped, reason))
     if (skipped) {
@@ -156,7 +156,7 @@ export async function setup() {
         : '\n  (no preflight failure; skipped by request)'
       console.warn(
         `\nagentbuddy e2e: desktop journeys skipped — ${headline}${detail}\n` +
-        'The stub contract specs still run. See desktop/e2e/README.md and artifacts/run.json for the full checklist.\n'
+        'The contract specs still run (stub contract + cross-repo contract). See desktop/e2e/README.md and artifacts/run.json for the full checklist.\n'
       )
       // The stub stays up: its own contract specs need no Rust toolchain and are
       // genuinely useful on a machine that cannot run the desktop binary.

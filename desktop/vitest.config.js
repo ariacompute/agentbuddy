@@ -10,6 +10,10 @@
 // import the real modules in-process — the `isMain` guard each script carries is
 // what makes that safe. The CLI surface itself is pinned by a couple of
 // subprocess cases so the guard cannot rot unnoticed.
+//
+// The thresholds are part of the gate: a printed v8 report is a map, not a
+// gate, and without them deleting a spec would leave CI green while the
+// published "100% across four metrics" became stale.
 export default {
   test: {
     environment: 'node',
@@ -19,6 +23,7 @@ export default {
       provider: 'v8',
       reporter: ['text-summary', 'text'],
       include: ['scripts/**/*.mjs'],
+      thresholds: { statements: 100, branches: 100, functions: 100, lines: 100 },
     },
   },
 }

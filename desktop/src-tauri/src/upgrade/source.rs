@@ -371,6 +371,33 @@ mod tests {
     }
 
     #[test]
+    fn a_mirror_that_hit_the_probe_budget_is_absent_but_the_other_still_answers() {
+        // The timeout is the boundary the client enforces; treating an outcome
+        // that consumed the whole budget as a failure keeps a slow mirror from
+        // being chosen just because it was the only one that eventually replied.
+        let budget = PROBE_TIMEOUT.as_millis() as u64;
+        let both = [
+            outcome(Upstream::Github, budget, Err("network_failed")),
+            outcome(Upstream::Gitee, 120, Ok("https://gitee.com/o/r/releases/download/v1/latest.json")),
+        ];
+        assert_eq!(fastest(&both).unwrap().upstream, Upstream::Gitee);
+        let urls = ordered_endpoints(&both);
+        assert_eq!(urls[0], "https://gitee.com/o/r/releases/download/v1/latest.json");
+        assert_eq!(urls[1], GITHUB_MANIFEST, "the timed-out mirror stays as the static fallback");
+    }
+
+    #[test]
+    fn when_both_mirrors_hit_the_probe_budget_only_the_static_fallback_remains() {
+        let budget = PROBE_TIMEOUT.as_millis() as u64;
+        let both = [
+            outcome(Upstream::Github, budget, Err("network_failed")),
+            outcome(Upstream::Gitee, budget, Err("network_failed")),
+        ];
+        assert!(fastest(&both).is_none());
+        assert_eq!(ordered_endpoints(&both), vec![GITHUB_MANIFEST.to_string()]);
+    }
+
+    #[test]
     fn endpoints_are_deduplicated_and_never_include_a_host_we_do_not_trust() {
         let both = [
             outcome(Upstream::Github, 10, Ok("https://evil.test/latest.json")),

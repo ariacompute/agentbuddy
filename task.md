@@ -2042,3 +2042,87 @@ M46 给截图 spec 追加了 `/abilities`，但 stub 没有 `GET /api/resources/
   产出同一套编号；`README.md` / `README_cn.md` 的表格与 `desktop/e2e/README.md` 的路由顺序说明
   同步改过。
 - 环境记录：本机 `DISPLAY=:0` 可直接跑，无需 `xvfb-run`；`tauri-driver` 与 `WebKitWebDriver` 已装。
+
+## M49 — 第十二轮完整度收口（2026-11-26）
+
+落实 `agentbuddy-completeness-round12.md` 的 §9 建议 1–5 与跨仓库建议 6。本轮不新增界面，
+只把「覆盖率」「stub 契约」「真实 agenthub E2E」「测试隔离」从口头约定变成可失败的闸门。
+
+### 1. 覆盖率真闸门
+
+- `web/vite.config.js` 与 `desktop/vitest.config.js` 的 `test.coverage` 增加
+  `thresholds: { statements: 100, branches: 100, functions: 100, lines: 100 }`。
+  两处注释同步改成「配置里已钉住」，不再只靠口头声明；统计范围（web `src/**`、
+  desktop `scripts/**/*.mjs`）与 exclude 策略不变。
+- `AGENTS.md` 的 web / desktop 覆盖率口径补上 thresholds，并用实测值校正
+  （web 分支 2360、desktop 149 用例）。
+
+### 2. stub 与真实 agenthub 的错误契约
+
+- 新增 `desktop/e2e/contract/error-contract.mjs`：`invalidKind` = 400 `invalid_kind`、
+  `notFound` = 404 `not_found`，带 why 说明。
+- `stub/routes.mjs` 的 distribution GET/POST 改为先查 id：不存在 → `not_found`；
+  存在但非 agent → `invalid_kind`；成功分支不变。GET 侧不再把两种拒绝混成
+  `404 resource_not_found`，POST 侧不再回 `409 bad_request`。
+- `stub-contract.spec.js` 的 409 断言改成 400 `invalid_kind`，并同时断言 GET/POST 与
+  未知 id 的 404 `not_found`、机器码。
+- `driver/selectors.mjs` 的 `ERROR_KEYS` 补 `invalid_kind`，与 `web/src/lib/errors.js` 对齐。
+
+### 3. 可执行的跨仓库对照清单
+
+- 新增 `specs/cross-repo-contract.spec.js`（2 条）：不依赖 WebView，用
+  `info.serverUrl` + `readE2eConfig().credentials` 直接 HTTP 登录；创建一条唯一 id 的
+  skill，断言非 agent 的 GET/POST distribution 为 400 `invalid_kind`、未知 id 为
+  404 `not_found`；stub 模式用 `/__e2e/reset` 复原 fixtures，live 模式
+  `DELETE /api/resources/{id}` 删除自己的行。
+- `harness/config.mjs`：`preflight` 在 `skipWebdriver`（即 `E2E_CONTRACT_ONLY=1`）时只检查
+  server URL；live 再检查凭据与 `/healthz`，不再要求桌面二进制 / tauri-driver / 平台门禁。
+  `orchestrator.mjs` 的跳过文案同步为 “contract specs only”。
+- `desktop/tests/e2e-contract.spec.js` 新增静态守卫：stub 路由与两个契约 spec 必须引用
+  `error-contract.mjs` 的 `invalidKind` / `notFound`；`desktop/tests/e2e-platform.spec.js`
+  新增 2 条 contract-only preflight 用例（stub 不查桌面依赖；live 仍查凭据与可达性）。
+- `desktop/e2e/README.md`：16 specs / 128 cases；`E2E_CONTRACT_ONLY` 语义、Case matrix、
+  dual-mode、验收第 1/6 条同步；`README.md` / `README_cn.md` 补 `make e2e-contract-live`。
+
+### 4. 真 agenthub 的 CI 契约 job
+
+- `.github/workflows/ci.yml` 新增 `contract-live`：postgres:16 service；checkout
+  `ariacompute/agenthub@main` 到 `agenthub/`；Go 1.27 构建 `cmd/agenthub-server`；
+  bootstrap admin 与 `E2E_LIVE_EMAIL/PASSWORD` 同一组测试凭据；后台启动并轮询
+  `/healthz`；`desktop` 下 `bun install --frozen-lockfile` 后以
+  `E2E_BACKEND=live E2E_SERVER_URL=http://127.0.0.1:3500 E2E_CONTRACT_ONLY=1` 跑契约；
+  始终发布 `run.json` 摘要、上传 artifacts、停止服务。
+- `Makefile` 增加 `e2e-contract-live`，本地可用同一组环境变量复现，无需 WebDriver。
+
+### 5. Rust 负向测试
+
+- `upgrade/mod.rs`：新增 `install_refuses_before_downloading_without_a_key_or_a_window`，
+  驱动 `install()` 在无公钥 / 无窗口时返回 `NotConfigured`，证明未验签不会开始下载。
+- `upgrade/source.rs`：新增 2 条用 `PROBE_TIMEOUT` 作为失败镜像 `elapsed_ms` 的用例——
+  超时镜像不参与 `fastest`、另一镜像仍胜出且 GitHub 静态 fallback 保留；两侧都超时则
+  `fastest` 为 `None`、只剩静态 fallback。
+- `single.rs`：新增 2 条——篡改 `instance.json` 的 token 后 `ask_to_show` 必须为 false 且
+  raise 计数为 0；记录指向只回 `no` 的外来监听器时 `claim` 必须接管并发布自己的新记录。
+  manifest 层已有的空签名 / 跨镜像 / 非 HTTPS 用例继续作为签名来源不匹配的负向覆盖。
+
+### 6. 跨仓库测试隔离约定
+
+- `AGENTS.md`（agentbuddy）与 `agenthub/AGENTS.md` 同时新增硬性约定：任何测试结束时必须
+  复原文件 / 语言 / 主题 / 配置 / fixtures / WebView 路由 / 真实数据库行；stub 用 reset、
+  live 用唯一 id + `afterAll` 删除；`t.Setenv` 自动复原、手写 `os.Setenv` 不会。两处都引用
+  M28（审计链锚点污染）与 M48（截图 spec 留在中文）作为同类问题来源。
+
+### 7. 验证
+
+| 项 | 结果 |
+| --- | --- |
+| `web`：`node node_modules/vitest/vitest.mjs run --coverage` | **38 spec / 1005 用例全绿**，四项 **100%**（13069 语句、2360 分支、513 函数、13069 行），thresholds 通过 |
+| `desktop`：`node node_modules/vitest/vitest.mjs run --coverage` | **10 spec / 149 用例全绿**，四项 **100%**（965 语句、306 分支、56 函数、965 行），thresholds 通过 |
+| `make e2e-contract` | **16 spec / 128 用例中 13 条契约全绿**（stub-contract 11 + cross-repo 2），其余 115 条按 `E2E_CONTRACT_ONLY` 跳过 |
+| live：本机 agenthub `127.0.0.1:3500` + `E2E_CONTRACT_ONLY=1` | **2 条跨仓库契约全绿**（stub-contract 与桌面 journey 按 live 规则跳过）；临时 skill 已删除 |
+| `cargo test`（desktop/src-tauri） | **258 条全绿**，含新增 5 条负向用例 |
+| CI YAML | 新增 `contract-live` job；文件头 jobs 说明同步为 5 个 |
+| 文档 | `README.md` / `README_cn.md` / `requirements.md` / `desktop/e2e/README.md` / `AGENTS.md` 计数、错误码与验收条目已同步 |
+
+- 本机 live 验证使用 `agenthub/.env` 的 bootstrap admin（未打印），写操作只有一条唯一 id 的
+  skill，spec 的 `afterAll` 已删除；符合本轮新增的测试隔离约定。

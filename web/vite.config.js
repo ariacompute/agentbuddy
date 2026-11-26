@@ -34,10 +34,15 @@ export default defineConfig({
     // specs actually exercise, not what happened to be imported. Nothing is
     // excluded: `src/main.js` is the browser entry point and is covered by
     // tests/main-bootstrap.spec.js, so the 100% gate really covers all of `src`.
+    //
+    // The thresholds are what make the word "gate" true: without them the v8
+    // report is printed and a drop to 92% still exits 0. Keep all four at 100 —
+    // when one falls, the uncovered lines in the same report say what to test.
     coverage: {
       provider: 'v8',
       reporter: ['text-summary', 'text'],
       include: ['src/**/*.{js,vue}'],
+      thresholds: { statements: 100, branches: 100, functions: 100, lines: 100 },
     },
   },
 })

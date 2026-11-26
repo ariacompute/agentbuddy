@@ -104,3 +104,27 @@ describe('preflight platform gate', () => {
     expect(result.checks.some((c) => c.name === 'authoritative platform')).toBe(false)
   })
 })
+
+describe('preflight in contract-only mode', () => {
+  it('asks for nothing desktop-shaped when only the contract specs run', async () => {
+    // A Windows box without a binary, a driver or an authoritative platform can
+    // still prove the stub/live error contract; demanding those prerequisites
+    // would turn a green contract into a wall of unrelated red checks.
+    const cfg = readE2eConfig({ E2E_CONTRACT_ONLY: '1' }, 'win32')
+    const result = await preflight(cfg, 'http://127.0.0.1:1')
+    expect(result.checks.map((c) => c.name)).toEqual(['server URL'])
+    expect(result.ok).toBe(true)
+  })
+
+  it('still requires live credentials and a reachable server', async () => {
+    const cfg = readE2eConfig(
+      { E2E_CONTRACT_ONLY: '1', E2E_BACKEND: 'live', E2E_SERVER_URL: 'http://127.0.0.1:1' },
+      'linux',
+    )
+    const result = await preflight(cfg, 'http://127.0.0.1:1')
+    expect(result.checks.map((c) => c.name)).toEqual(['server URL', 'live credentials', 'live /healthz'])
+    expect(result.checks.find((c) => c.name === 'live credentials').ok).toBe(false)
+    expect(result.checks.find((c) => c.name === 'live /healthz').ok).toBe(false)
+    expect(result.ok).toBe(false)
+  })
+})

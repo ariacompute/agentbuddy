@@ -4,7 +4,7 @@ Test agentbuddy from the perspective of a real user: launch the packaged debug d
 client, inspect elements, click, type, and read visible text inside the WebView, and
 observe UI changes. We do not call Vue internals, do not read the Pinia store, and do not
 add any new IPC surface. Coverage spans the 16 workbench screens plus desktop-shell
-behaviors, across both happy and error paths, for a total of 15 specs / 126 cases.
+behaviors, across both happy and error paths, for a total of 16 specs / 128 cases.
 
 ## Architecture
 
@@ -44,7 +44,12 @@ The happy and error paths of this seam are covered by `src-tauri/src/lib.rs`'s
 > refers to `cargo test`'s test-harness binary, **not** the dev-built desktop application
 > process. But if the WebDriver components above are missing on this machine, the
 > orchestrator marks the desktop cases as skipped and prints the specific missing items;
-> `stub-contract.spec.js` is unaffected and always runs for real.
+> the contract specs are unaffected: `stub-contract.spec.js` still runs for real in stub
+> mode, and `cross-repo-contract.spec.js` runs against whichever server is configured.
+>
+> `E2E_CONTRACT_ONLY=1` needs only bun/Node plus a reachable server (and live credentials
+> when `E2E_BACKEND=live`); the desktop binary, `web/dist`, `tauri-driver` and the
+> authoritative-platform gate are deliberately out of scope.
 
 ### Which platform's result counts
 
@@ -58,8 +63,8 @@ mean two different things depending on who ran it. So:
   suites skip, **unless** `E2E_ALLOW_BEST_EFFORT=1` is set; then they run with
   `authoritative: false` (advisory) and the reason says so.
 - `E2E_REQUIRE_DESKTOP=1` (CI) turns "the desktop journeys were skipped" into a setup
-  failure. Without it a missing WebDriver would skip eleven suites and still exit 0 — a
-  green run that proves nothing.
+  failure. Without it a missing WebDriver would skip fourteen desktop suites and still
+  exit 0 — a green run that proves nothing. The two contract specs still run.
 
 **Linux build dependencies (Ubuntu / Debian / WSL2)** — the Tauri v2 crate links
 WebKitGTK, GTK, D-Bus, appindicator and friends, so install these *before*
@@ -88,10 +93,17 @@ make e2e
 make e2e-tools  # skips if already installed; no repeated network
 make e2e-build
 
-# Server-contract only (no Rust toolchain / WebDriver needed)
+# Server-contract only (no Rust toolchain / WebDriver needed):
+# stub-contract + cross-repo-contract, 13 cases.
 make e2e-contract
 
-# Real agenthub (same set of cases; fixture-only journeys explicitly skip)
+# Real agenthub, error contract only (no desktop binary / WebDriver needed):
+E2E_SERVER_URL=http://127.0.0.1:3500 \
+E2E_LIVE_EMAIL=ops@example.test \
+E2E_LIVE_PASSWORD=... \
+make e2e-contract-live
+
+# Real agenthub (same set of desktop cases; fixture-only journeys explicitly skip)
 E2E_SERVER_URL=http://127.0.0.1:3500 \
 E2E_LIVE_EMAIL=ops@example.test \
 E2E_LIVE_PASSWORD=... \
@@ -127,16 +139,17 @@ false`.
 | `E2E_HEADED` | `0` | On Linux, do not use `xvfb-run` |
 | `E2E_ALLOW_BEST_EFFORT` | `0` | On a non-Linux platform, run the advisory desktop journeys; the report is still `authoritative: false` |
 | `E2E_REQUIRE_DESKTOP` | `0` | Turn a skipped desktop run into a failure (CI sets it; a skip there is a red job) |
-| `E2E_CONTRACT_ONLY` | `0` | Run only the stub contract cases |
+| `E2E_CONTRACT_ONLY` | `0` | Run only the contract specs (`stub-contract` in stub mode + `cross-repo-contract` in both modes); no WebDriver, desktop binary or authoritative-platform gate |
 | `E2E_SCREENSHOTS_DIR` | `agentbuddy/screenshots` (repo root) | screenshot output directory for `shoot.mjs` |
 
 stub fixed credentials: `e2e@example.test` / `agentbuddy-e2e`.
 
-## Case matrix (15 specs / 126 cases)
+## Case matrix (16 specs / 128 cases)
 
 | spec | Coverage | Happy | Error |
 | --- | --- | --- | --- |
 | `stub-contract` | endpoints, auth, SSE `since` replay, multipart, fault injection, redacted logs | all endpoints 200, login swaps Cookie, CRUD, `{deleted,kept}`, delete approvals by `taskId` | 401/403/405/503 `feature_off`/500/empty/down, second decision 409, error field names, limits |
+| `cross-repo-contract` | the error codes the abilities screen tells apart, against the stub **and** a real agenthub | a temporary skill is created and deleted, both verbs answer | non-agent GET/POST → 400 `invalid_kind`; unknown GET/POST → 404 `not_found`; both read `contract/error-contract.mjs` |
 | `connect` | F1 connect page, healthz probe, cert toggle, 13 languages / RTL, preferences | successful probe and saved address, 13-language table, `ar` sets `dir=rtl` | empty / invalid / unreachable address each with localized message |
 | `auth` | login, registration, OAuth config render, route guard `?next=` | return to workbench after login, deep-link bounce-back | wrong password, `email_taken`, 401 auth failure must not misreport offline vs disconnected offline banner |
 | `workbench` | F2/F15 agent cards, activity feed, pending approvals | approve / reject / view / new thread | empty state, 5xx banner |
@@ -193,6 +206,11 @@ unchanged hash, process exit code, badge value).
   avoid polluting the real PostgreSQL. The file-upload case uses a unique temp filename
   each time and best-effort cleans up in `finally` to avoid an `EPERM` from a lingering
   Windows handle that would make the next journey falsely fail.
+- live contract-only (`E2E_BACKEND=live E2E_CONTRACT_ONLY=1`): no stub, no WebView, no
+  desktop binary. `cross-repo-contract.spec.js` logs in over HTTP with
+  `E2E_LIVE_EMAIL` / `E2E_LIVE_PASSWORD`, creates one uniquely named skill, asserts the
+  `invalid_kind` / `not_found` refusals on both verbs, then deletes the row. This is what
+  CI's `contract-live` job runs against `ariacompute/agenthub@main`.
 
 ## Screenshot generation (live mode only)
 
@@ -294,7 +312,8 @@ hanging until the 120s startup timeout). Set `E2E_DRIVER_URL` to manage the driv
 
 ## Acceptance
 
-1. `make e2e-contract` is green on any machine (8 contract cases run for real).
+1. `make e2e-contract` is green on any machine (13 contract cases run for real: 11 in
+   `stub-contract` + 2 in `cross-repo-contract`).
 2. The Linux CI `e2e` job passes all cases; `run.json`'s `status` is `finished` with
    `authoritative: true`. Because the job sets `E2E_REQUIRE_DESKTOP=1`, a preflight failure
    fails the job instead of skipping every desktop suite.
@@ -303,4 +322,12 @@ hanging until the 120s startup timeout). Set `E2E_DRIVER_URL` to manage the driv
 4. On Windows the journeys run only with `E2E_ALLOW_BEST_EFFORT=1`, and the report says
    `authoritative: false`: nothing local can be mistaken for the Linux result.
 5. `make test`, `cd web && bun run test:coverage`, and `cd desktop && bun run
-   test:coverage` all remain unchanged (statement / line / branch / function 100%).
+   test:coverage` all remain unchanged (statement / line / branch / function 100%),
+   and the two coverage configs enforce those four numbers with `thresholds`.
+6. The stub's machine codes are an executable contract, not a comment. A non-agent
+   distribution is `400 invalid_kind`, an unknown record is `404 not_found`, on GET and
+   POST alike. `contract/error-contract.mjs` is the single table the stub routes and both
+   contract specs read; `cross-repo-contract.spec.js` asserts it against the stub and a
+   real agenthub, and CI's `contract-live` job runs exactly that against
+   `ariacompute/agenthub@main`. A cross-repo drift fails in CI instead of waiting for a
+   manual audit.

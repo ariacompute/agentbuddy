@@ -161,4 +161,21 @@ describe('desktop E2E driver contract', () => {
       expect(contract).toContain(`'${mode}'`)
     }
   })
+
+  it('keeps the distribution error table as the one source for stub and contracts', () => {
+    // The stub and the live contract must not each write their own 400/404:
+    // that is exactly how the 409 `bad_request` drifted from agenthub's
+    // `invalid_kind` while both sides looked self-consistent.
+    const table = readFileSync(join(E2E_ROOT, 'contract', 'error-contract.mjs'), 'utf8')
+    const routes = readFileSync(join(E2E_ROOT, 'stub', 'routes.mjs'), 'utf8')
+    const stubContract = readFileSync(join(specDir, 'stub-contract.spec.js'), 'utf8')
+    const liveContract = readFileSync(join(specDir, 'cross-repo-contract.spec.js'), 'utf8')
+    expect(routes).toContain("from '../contract/error-contract.mjs'")
+    for (const key of ['invalidKind', 'notFound']) {
+      expect(table).toContain(`${key}:`)
+      expect(routes).toContain(`ERROR_CONTRACT.${key}`)
+      expect(stubContract).toContain(`ERROR_CONTRACT.${key}`)
+      expect(liveContract).toContain(`ERROR_CONTRACT.${key}`)
+    }
+  })
 })

@@ -184,10 +184,12 @@ make smoke                          # 两条跨进程冒烟（见下）
 改打真实 agenthub：
 
 ```bash
-make e2e-contract                                       # 只跑服务端契约，无需 Rust 工具链 / WebDriver
+make e2e-contract                                       # stub 契约 + 跨仓库契约，无需 Rust 工具链 / WebDriver
 make e2e                                                # 构建 debug 桌面端 + 全量用户旅程（stub 模式）
 E2E_SERVER_URL=http://127.0.0.1:3500 \
-E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # 真实 agenthub
+E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-contract-live  # 只跑真实 agenthub 的错误契约，无需 WebDriver
+E2E_SERVER_URL=http://127.0.0.1:3500 \
+E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # 真实 agenthub 全量旅程
 ```
 
 前置条件、环境变量、Windows 本机差异与产物说明见 `desktop/e2e/README.md`。

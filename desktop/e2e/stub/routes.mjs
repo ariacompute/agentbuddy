@@ -1,6 +1,7 @@
 // The stub's routing table: one entry per endpoint the workbench can call.
 // Handlers return a small descriptor; server.mjs owns the socket so that a
 // `drop` scenario can really cut the connection and an SSE handler can keep it.
+import { ERROR_CONTRACT } from '../contract/error-contract.mjs'
 import { EMPTY_SHAPES, ISO, LATER, makeTask } from './fixtures.mjs'
 import { nextId, recordRequest, resetState } from './state.mjs'
 import { pushEvent } from './sse.mjs'
@@ -368,13 +369,15 @@ function resolvePackage(s, agent) {
 }
 
 add('GET', /^\/api\/resources\/([^/]+)\/distribution$/, (s, ctx, m) => {
-  const agent = s.fixtures.resources.find((r) => (r.id === m[1] || r.ID === m[1]) && r.kind === 'agent')
-  return agent ? json(resolvePackage(s, agent)) : code('resource_not_found', 404)
+  const row = find(s.fixtures.resources, m[1])
+  if (!row) return code(ERROR_CONTRACT.notFound.code, ERROR_CONTRACT.notFound.status)
+  if (row.kind !== 'agent') return code(ERROR_CONTRACT.invalidKind.code, ERROR_CONTRACT.invalidKind.status)
+  return json(resolvePackage(s, row))
 })
 add('POST', /^\/api\/resources\/([^/]+)\/distribution$/, (s, ctx, m) => {
   const row = find(s.fixtures.resources, m[1])
-  if (!row) return code('resource_not_found', 404)
-  if (row.kind !== 'agent') return code('bad_request', 409)
+  if (!row) return code(ERROR_CONTRACT.notFound.code, ERROR_CONTRACT.notFound.status)
+  if (row.kind !== 'agent') return code(ERROR_CONTRACT.invalidKind.code, ERROR_CONTRACT.invalidKind.status)
   const created = makeTask(nextId(s, 'task'), 'completed', { resourceId: row.id })
   s.fixtures.tasks.unshift(created)
   return json({ id: created.id })

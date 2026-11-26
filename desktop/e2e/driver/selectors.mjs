@@ -77,6 +77,7 @@ const ERROR_KEYS = {
   audio_too_large: 'audioTooLarge',
   computer_not_found: 'computerNotFound',
   resource_not_found: 'resourceNotFound',
+  invalid_kind: 'invalidKind',
   schedule_not_found: 'scheduleNotFound',
   router_policy_invalid: 'routerPolicyInvalid',
   sandbox_lease_lost: 'sandboxLeaseLost',

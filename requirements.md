@@ -306,8 +306,8 @@
 | GET | `/api/resources` | `resources:read` | 目录读：`kind`/`q`/`namespace`/`status`/`discoverable` + 分页窗口 `limit`（0..200，0=全量）、`offset`；回 `resources` / `counts` / `health` / `total` / `limit` / `offset`；无意义窗口 → 400 `bad_request`（F9.4） |
 | POST | `/api/resources/batch` | `resources:read` | 按 id 批量读（≤100，按请求顺序去重），回 `{resources, missing}`；不存在与不可见同落 `missing`（F9.5） |
 | GET | `/api/resources/{id}` | `resources:read` | 单个资源完整 Entry（F20 保存基准：`PUT` 是整体替换，必须先读） |
-| GET | `/api/resources/{id}/distribution` | `resources:read` | 服务端按 `kind_config.agent.mcp/skills` 解析出的能力包：`mcp` / `skills` / `unresolved` / `missing`（F20） |
-| POST | `/api/resources/{id}/distribution` | `resources:write` | 把能力包作为一条任务投给该智能体，回 `{id}`；未接线 503 `feature_unavailable`，非 agent 409（F20） |
+| GET | `/api/resources/{id}/distribution` | `resources:read` | 服务端按 `kind_config.agent.mcp/skills` 解析出的能力包：`mcp` / `skills` / `unresolved` / `missing`；非 agent 400 `invalid_kind`，未知 / 不可见 404 `not_found`（F20） |
+| POST | `/api/resources/{id}/distribution` | `resources:write` | 把能力包作为一条任务投给该智能体，回 `{id}`；未接线 503 `feature_unavailable`，非 agent 400 `invalid_kind`，未知 / 不可见 404 `not_found`（F20） |
 | GET | `/api/channels` | `tasks:read` | 通道列表 |
 | POST | `/api/channels` | `tasks:write` | 新建通道 |
 | GET | `/api/channels/{id}` | `tasks:read` | 单个通道（编辑回显） |
@@ -494,9 +494,11 @@
     签名内嵌清单，发布集合钉住 9 个 assets；未配置签名密钥时同样发布 9 个文件，
     仅 `platforms`/`signatures` 为空。
 35. 未配置公钥时「立即升级」返回 `not_configured` 且不下载任何包；WebView 未获得 updater 权限。
-36. v8 覆盖率四项（语句 / 行 / 分支 / 函数）均 **100%**。界面上按钮 disabled 因而点不到的
-   守卫分支须通过直接调用处理函数、服务端渲染等手段真实覆盖，**不得**用 `exclude` / ignore
-   注释绕过；`api-usage.spec.js` 白名单仍为空。
+36. v8 覆盖率四项（语句 / 行 / 分支 / 函数）均 **100%**，且 `web/vite.config.js` 与
+   `desktop/vitest.config.js` 的 `coverage.thresholds` 已把四项都钉在 100，跌破即让
+   `test:coverage` 失败。界面上按钮 disabled 因而点不到的守卫分支须通过直接调用处理函数、
+   服务端渲染等手段真实覆盖，**不得**用 `exclude` / ignore 注释绕过；`api-usage.spec.js`
+   白名单仍为空。
 37. 代理 Cookie 归属（F18.8）：上游回 `ab_proxy=…`、`__Host-sid=…`、`__Secure-sid=…` 或无名 Cookie 时，
    响应里不出现该 `Set-Cookie`，窗口仍以原 token 通过准入；普通会话 Cookie 照常重写。
 38. 重定向按源比对（F18.9）：`https://hub.example.com.evil.test/steal`、`https://hub.example.com@evil.test/steal`、
@@ -550,6 +552,12 @@
    刚打开（未改动）的记录「清空」可用，清空后保存两组数组为空；没有写权限时保存 / 清空 / 勾选 / 下发
    全部禁用并给出原因；下发成功显示任务编号且 `/tasks/{id}` 可跳，403 / 503 落到机器码文案；
    包不完整（`unresolved` / `missing`）只提示、不禁用下发。
+52. 跨仓库错误契约（F20 / F18）：e2e stub 与真实 agenthub 对同一拒绝给同一状态码与机器码——
+   非 agent 的 `GET/POST /api/resources/{id}/distribution` 回 400 `invalid_kind`，未知 / 不可见回
+   404 `not_found`；`desktop/e2e/contract/error-contract.mjs` 是唯一错误码表，stub 路由与
+   `stub-contract` / `cross-repo-contract` 两个 spec 共同引用；`make e2e-contract` 在 stub 上跑
+   13 条，CI 的 `contract-live` job 检出 `ariacompute/agenthub@main`、起 PostgreSQL 并以
+   `E2E_BACKEND=live E2E_CONTRACT_ONLY=1` 跑同一组 live 断言，漂移即红。
 
 ## 7. 自动更新（F19）
 

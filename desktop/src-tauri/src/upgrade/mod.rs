@@ -628,4 +628,16 @@ mod tests {
             assert!(UPDATER_PUBKEY.len() > 40, "a minisign public key is much longer");
         }
     }
+
+    #[tokio::test]
+    async fn install_refuses_before_downloading_without_a_key_or_a_window() {
+        // The previous test pins the constant; this one drives the function. A
+        // headless upgrader has no window, so even a build with a key must refuse
+        // instead of starting a download whose signature it cannot verify.
+        let dir = std::env::temp_dir().join(format!("agentbuddy-upgrade-{}", std::process::id()));
+        let store = Arc::new(ConfigStore::new(dir));
+        let config: SharedConfig = Arc::new(RwLock::new(AppConfig::default()));
+        let upgrader = Upgrader::new(config, store, None);
+        assert_eq!(upgrader.install().await.unwrap_err(), UpgradeCode::NotConfigured);
+    }
 }

@@ -120,6 +120,10 @@ e2e-live: e2e-tools e2e-build ## Same journeys against a real agenthub (E2E_SERV
 e2e-contract: desktop-install ## Backend contract only; no Rust toolchain or WebDriver needed.
 	cd $(DESK) && E2E_CONTRACT_ONLY=1 $(BUN) run test:e2e
 
+.PHONY: e2e-contract-live
+e2e-contract-live: desktop-install ## Cross-repo error contract against a running agenthub; no WebDriver needed.
+	cd $(DESK) && E2E_BACKEND=live E2E_CONTRACT_ONLY=1 $(BUN) run test:e2e
+
 .PHONY: stamp
 stamp: desktop-install ## Write $(VERSION) into Cargo.toml + tauri.conf.json.
 	cd $(DESK) && $(BUN) run stamp $(VERSION)
