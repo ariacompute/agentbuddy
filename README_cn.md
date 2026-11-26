@@ -184,8 +184,8 @@ make smoke                          # 两条跨进程冒烟（见下）
 改打真实 agenthub：
 
 ```bash
-make e2e-contract                                       # stub 契约 + 跨仓库契约，无需 Rust 工具链 / WebDriver
-make e2e                                                # 构建 debug 桌面端 + 全量用户旅程（stub 模式）
+make e2e-contract  # stub 契约 + 跨仓库契约，无需 Rust 工具链 / WebDriver
+make e2e  # 构建 debug 桌面端 + 全量用户旅程（stub 模式）
 E2E_SERVER_URL=http://127.0.0.1:3500 \
 E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-contract-live  # 只跑真实 agenthub 的错误契约，无需 WebDriver
 E2E_SERVER_URL=http://127.0.0.1:3500 \
@@ -216,7 +216,7 @@ E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # 真实 agenthub 全量
 
 ```bash
 curl -LO https://msedgedriver.microsoft.com/157.0.4341.46/edgedriver_win64.zip
-unzip edgedriver_win64.zip -d ~/tools      # 得到 msedgedriver.exe
+unzip edgedriver_win64.zip -d ~/tools  # 得到 msedgedriver.exe
 # 下载页：https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver
 # 完整构建目录：https://msedgedriver.microsoft.com/catalog/index.html
 export E2E_NATIVE_DRIVER='C:/Users/USERNAME/tools/msedgedriver.exe'

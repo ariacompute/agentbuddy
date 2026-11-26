@@ -198,8 +198,8 @@ deterministic `node:http` stub stands in for the server; set
 `E2E_BACKEND=live` to point the same journeys at a real agenthub:
 
 ```bash
-make e2e-contract                                       # stub contract + cross-repo contract, no Rust toolchain or WebDriver
-make e2e                                                # build the debug client + full journeys (stub mode)
+make e2e-contract  # stub contract + cross-repo contract, no Rust toolchain or WebDriver
+make e2e  # build the debug client + full journeys (stub mode)
 E2E_SERVER_URL=http://127.0.0.1:3500 \
 E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-contract-live  # error contract against a real agenthub, no WebDriver
 E2E_SERVER_URL=http://127.0.0.1:3500 \
@@ -234,7 +234,7 @@ For runtime `157.0.4341.46`, for example:
 
 ```bash
 curl -LO https://msedgedriver.microsoft.com/157.0.4341.46/edgedriver_win64.zip
-unzip edgedriver_win64.zip -d ~/tools      # yields msedgedriver.exe
+unzip edgedriver_win64.zip -d ~/tools  # yields msedgedriver.exe
 # download page: https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver
 # full build directory: https://msedgedriver.microsoft.com/catalog/index.html
 export E2E_NATIVE_DRIVER='C:/Users/USERNAME/tools/msedgedriver.exe'
