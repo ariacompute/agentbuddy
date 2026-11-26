@@ -45,6 +45,9 @@ import {
   listKnowledge,
   createResource,
   updateResource,
+  getResource,
+  getResourceDistribution,
+  pushResourceDistribution,
   isAuthError,
   runSchedule,
   routerStats,
@@ -954,5 +957,37 @@ describe('api client: uploadFile', () => {
     xhr.responseText = ''
     xhr.onload()
     await expect(pending).rejects.toMatchObject({ code: '502', status: 502 })
+  })
+})
+describe('resource distribution', () => {
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('reads one resource in full for a whole-record save', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'agent_1' }))
+    await expect(getResource('agent_1')).resolves.toEqual({ id: 'agent_1' })
+    expect(lastCall()[0]).toBe('/api/resources/agent_1')
+  })
+
+  it('reads the package agenthub resolves for an agent', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ agent_id: 'agent_1', mcp: [], skills: [] }))
+    await getResourceDistribution('agent_1')
+    expect(lastCall()[0]).toBe('/api/resources/agent_1/distribution')
+  })
+
+  it('delivers the package as a POST with no body', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'task_1' }))
+    await expect(pushResourceDistribution('agent_1')).resolves.toEqual({ id: 'task_1' })
+    expect(lastCall()[0]).toBe('/api/resources/agent_1/distribution')
+    // No body on purpose: the package is whatever the agent is bound to right
+    // now, and the server is the one that resolves it. Sending a copy would let
+    // the two disagree.
+    expect(lastCall()[1].method).toBe('POST')
+    expect(lastCall()[1].body).toBeUndefined()
   })
 })

@@ -16,11 +16,12 @@ const { info, cfg, wd } = e2eContext()
 const LANGS = ['en', 'zh']
 // ROUTES order also defines the zero-padded file prefix (01_, 02_, …):
 // Login, Workbench, Threads, Thread, Tasks, Task, Organisation, Channels,
-// Connectors, Computers, Schedules, Knowledge, Files, Persona, Settings.
+// Connectors, Computers, Schedules, Knowledge, Files, Persona, Settings,
+// Abilities. New screens are appended so earlier file names stay stable.
 const ROUTES = [
   '/login', '/', '/threads', '/threads/:id', '/tasks', '/tasks/:id',
   '/org', '/channels', '/connectors', '/computers', '/schedules',
-  '/knowledge', '/files', '/persona', '/settings',
+  '/knowledge', '/files', '/persona', '/settings', '/abilities',
 ]
 // File names use the feature's own language, matching the sidebar navXxx copy.
 const ROUTE_NAMES = {
@@ -39,6 +40,7 @@ const ROUTE_NAMES = {
   '/persona': { en: 'Persona', zh: '人格' },
   '/knowledge': { en: 'Knowledge', zh: '知识库' },
   '/files': { en: 'Files', zh: '文件' },
+  '/abilities': { en: 'Abilities', zh: '能力下发' },
 }
 
 // Zero-padded display index for the file name (01_, 02_, …), from ROUTES order.

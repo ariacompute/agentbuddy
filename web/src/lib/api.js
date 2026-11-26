@@ -300,6 +300,35 @@ export const updateResource = (id, patch) => put(`/api/resources/${id}`, patch)
  */
 export const batchGetResources = (ids) => post('/api/resources/batch', { ids })
 
+/**
+ * One record in full, straight from the server.
+ *
+ * `PUT /api/resources/{id}` replaces the record instead of merging into it, so
+ * anything that edits a resource has to start from the newest copy. A row cached
+ * from a listing is fine to render and wrong to save: another operator may have
+ * changed the persona or the endpoint since that page was fetched.
+ */
+export const getResource = (id) => get(`/api/resources/${id}`)
+
+/**
+ * The ability package agenthub resolves for one agent: the MCP servers and skill
+ * manuals it is bound to, plus the references that did not resolve (`unresolved`
+ * — no such record or wrong kind) or that the caller may not read (`missing`).
+ *
+ * Nothing secret travels: credentials appear only as the names of environment
+ * variables the agent is expected to hold.
+ */
+export const getResourceDistribution = (id) => get(`/api/resources/${id}/distribution`)
+
+/**
+ * Delivers the package to the agent as a task and answers with the task record.
+ *
+ * There is no body on purpose: the package is whatever the agent is bound to at
+ * this moment, and the server is the one that resolves it. An empty package is a
+ * valid delivery — it tells the agent its abilities were withdrawn.
+ */
+export const pushResourceDistribution = (id) => post(`/api/resources/${id}/distribution`)
+
 // ---- Channels ------------------------------------------------------------
 
 export const listChannels = () => get('/api/channels')

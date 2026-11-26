@@ -260,6 +260,26 @@
 | F19.6 | 决策后**重新拉取队列**而不是本地猜测：批准 = 服务端 resume 真跑一次，拒绝 = cancel；失败的决策保留该行并在行上方给出本地化原因（`connector_approval_closed` / `connector_approval_not_found`），不做乐观删除 |
 | F19.7 | 无待审批时整块只留一行说明；有内容时列表内部滚动，不撑高页面 |
 
+### F20 能力下发（`/abilities`）
+
+把注册中心里的 MCP 服务与 Skill 手册绑定到某个智能体，并把服务端解析出的能力包作为一条任务下发。
+取数口径与目录屏一致（列出调用者可见的全部智能体与候选），真正下发时再受写权限约束。
+
+| 编号 | 需求 |
+|---|---|
+| F20.1 | **双列**：左列是可搜索的智能体列表（名称、健康圆点、已绑定数量徽标、选中行左侧边条）；右列是所选智能体的三个区块（绑定 / 能力包 / 下发）。搜索在本地过滤，不逐键发请求 |
+| F20.2 | 候选 MCP 与 Skill 各用一次 `limit=0` 全量拉取并在屏幕生命周期内缓存；切换智能体只发 `GET /api/resources/{id}` 与 `GET .../distribution` 两个请求 |
+| F20.3 | **保存以「先读再改」为前提**：`PUT` 是整体替换，保存前必须读最新 Entry，只替换 `kind_config.agent.mcp/skills`，其余字段（`persona`/`visibility`/`namespace`/`metadata`/`kind_config.agent` 的其他键）原样回传，不新增未知键 |
+| F20.4 | **必须回填 `status`**：字段为空时服务端会按命名空间默认状态解析（非自动审批即 `pending`），因此合并时取 `entry.status \|\| 'approved'`，避免把已批准的智能体打回待审 |
+| F20.5 | **引用无损**：已选但候选列表里没有的 id（无权查看或早于选择器存在的自由文本）保留在草稿里，渲染为虚线「未解析」chip，只能由操作者显式移除；保存不得静默丢弃 |
+| F20.6 | 「清空」把两组绑定一起置空，等价于撤销全部能力；可用性取决于**草稿是否非空**，不是「是否有改动」——刚打开的记录也能一键清空 |
+| F20.7 | **能力包预览**：MCP 条目显示传输方式、地址或命令、工具白名单、所需环境变量名、认证方式；Skill 条目显示触发词、步骤、工具与被截断的说明书；另列 `unresolved` / `missing` 两份提示 |
+| F20.8 | **下发**：把当前包投给该智能体，成功显示任务编号与跳转 `/tasks/{id}` 的链接；失败按机器码显示可读原因（`forbidden` / `feature_unavailable` / `bad_request` 等） |
+| F20.9 | 下发**不因包不完整而禁用**：服务端允许空包下发（用于告知智能体能力被撤销），`unresolved` / `missing` 只做提示 |
+| F20.10 | 无 `resources:write` 时保存、清空、勾选与下发全部禁用并说明原因；服务端 403 / 503 仍落到本地化文案 |
+| F20.11 | 保存成功后以服务端返回值替换本地行与草稿，并**重新拉取** distribution（包由绑定派生，不能新旧混显） |
+| F20.12 | 空态分离：没有智能体 / 搜索无匹配 / 没有候选 / 包为空 / 未选智能体各有独立文案，不共用一个「暂无数据」 |
+
 ---
 
 ## 3. 非功能需求
@@ -285,6 +305,9 @@
 |---|---|---|---|
 | GET | `/api/resources` | `resources:read` | 目录读：`kind`/`q`/`namespace`/`status`/`discoverable` + 分页窗口 `limit`（0..200，0=全量）、`offset`；回 `resources` / `counts` / `health` / `total` / `limit` / `offset`；无意义窗口 → 400 `bad_request`（F9.4） |
 | POST | `/api/resources/batch` | `resources:read` | 按 id 批量读（≤100，按请求顺序去重），回 `{resources, missing}`；不存在与不可见同落 `missing`（F9.5） |
+| GET | `/api/resources/{id}` | `resources:read` | 单个资源完整 Entry（F20 保存基准：`PUT` 是整体替换，必须先读） |
+| GET | `/api/resources/{id}/distribution` | `resources:read` | 服务端按 `kind_config.agent.mcp/skills` 解析出的能力包：`mcp` / `skills` / `unresolved` / `missing`（F20） |
+| POST | `/api/resources/{id}/distribution` | `resources:write` | 把能力包作为一条任务投给该智能体，回 `{id}`；未接线 503 `feature_unavailable`，非 agent 409（F20） |
 | GET | `/api/channels` | `tasks:read` | 通道列表 |
 | POST | `/api/channels` | `tasks:write` | 新建通道 |
 | GET | `/api/channels/{id}` | `tasks:read` | 单个通道（编辑回显） |
@@ -522,6 +545,11 @@
    编译 job 的编译前（要求两处为空）与 release 注入后、`tauri build` 前（按 `pubkey` 输出要求
    非空同钥或仍为空）执行，缺声明 / 缺字段 / 坏 JSON / 不一致 / 非法公钥盒一律 `::error::` +
    退出码 1；正常与异常路径均有用例，发布脚本闸门四项 100% 保持全绿。
+51. 能力下发（F20）：保存提交的是**完整 Entry** 且只改 `kind_config.agent.mcp/skills`，`status` 回填为
+   `approved` 时不会被服务端打回 `pending`；已选但不可见的 id 保存后仍在数组里，只有显式移除才消失；
+   刚打开（未改动）的记录「清空」可用，清空后保存两组数组为空；没有写权限时保存 / 清空 / 勾选 / 下发
+   全部禁用并给出原因；下发成功显示任务编号且 `/tasks/{id}` 可跳，403 / 503 落到机器码文案；
+   包不完整（`unresolved` / `missing`）只提示、不禁用下发。
 
 ## 7. 自动更新（F19）
 

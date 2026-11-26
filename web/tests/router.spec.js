@@ -30,6 +30,17 @@ describe('router guard', () => {
     expect(router.currentRoute.value.name).toBe('schedules')
   })
 
+  it('guards the ability delivery screen like every other screen', async () => {
+    whoami.mockResolvedValue(null)
+    await router.push('/abilities')
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.next).toBe('/abilities')
+
+    whoami.mockResolvedValue({ id: 'u1', name: 'Me', permissions: ['resources:write'] })
+    await router.push('/abilities')
+    expect(router.currentRoute.value.name).toBe('abilities')
+  })
+
   it('bounces a signed-in visitor away from the login page', async () => {
     whoami.mockResolvedValue({ id: 'u1', name: 'Me', permissions: [] })
     await router.push('/login')

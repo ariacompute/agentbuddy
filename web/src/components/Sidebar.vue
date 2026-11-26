@@ -8,7 +8,7 @@ import { getUpgrade } from '../lib/api.js'
 import {
   LayoutDashboard, MessagesSquare, ListChecks, Network, Radio, Plug,
   Settings as Cog, Monitor, CalendarClock, BookOpen, UserRound, FolderOpen,
-  ArrowUpRight,
+  PackageCheck, ArrowUpRight,
 } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
 
@@ -41,6 +41,9 @@ const links = computed(() => [
   { to: '/threads', label: t('navThreads'), icon: MessagesSquare, badge: workbench.threads.length },
   { to: '/tasks', label: t('navTasks'), icon: ListChecks, badge: workbench.activeTasks.length },
   { to: '/org', label: t('navOrg'), icon: Network, badge: 0 },
+  // Registering an agent and handing it its abilities are two steps of one
+  // journey, so the entry sits next to the catalogue it reads from.
+  { to: '/abilities', label: t('navAbilities'), icon: PackageCheck, badge: 0 },
   { to: '/channels', label: t('navChannels'), icon: Radio, badge: workbench.channels.length },
   { to: '/connectors', label: t('navConnectors'), icon: Plug, badge: workbench.connectors.length },
   { to: '/computers', label: th('navComputers'), icon: Monitor, badge: 0 },

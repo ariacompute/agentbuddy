@@ -55,7 +55,8 @@
 - Agent、会话线程（单选 / 多选删除并二次确认、详情页可返回会话列表、二次确认后清空全部消息
   并保留线程与任务，13 语全量文案）、
   任务追踪、审批（HITL 挂起/恢复）、通道（Slack / Teams / Telegram / SMS webhook）、
-  连接器（按策略放行的动作），以及语音（录音 → 转写 → 委派）。
+  连接器（按策略放行的动作）、能力下发（把 MCP 服务与 Skill 手册绑定到智能体，预览解析出的
+  能力包并作为一条任务下发），以及语音（录音 → 转写 → 委派）。
 - 自动更新：并发探测 GitHub 与 Gitee，取可用且最快的一源，失败自动切到另一源；启动即查、
   此后每天一次，按本地操作系统与 CPU 架构匹配签名安装包，一键验签升级后重启。设置里可关闭
   自动检查，也可跳过某个版本。
@@ -73,7 +74,7 @@
 ![agentbuddy 工作台](screenshots/zh/02_工作台.png)
 
 <details>
-<summary><kbd>全部 15 个界面 · English / 简体中文</kbd></summary>
+<summary><kbd>全部 16 个界面 · English / 简体中文</kbd></summary>
 
 | # | 界面 | English | 简体中文 |
 | --- | --- | --- | --- |
@@ -92,6 +93,7 @@
 | 13 | 文件 | [PNG](screenshots/en/13_Files.png) | [PNG](screenshots/zh/13_文件.png) |
 | 14 | 人格 | [PNG](screenshots/en/14_Persona.png) | [PNG](screenshots/zh/14_人格.png) |
 | 15 | 设置 | [PNG](screenshots/en/15_Settings.png) | [PNG](screenshots/zh/15_设置.png) |
+| 16 | 能力下发 | [PNG](screenshots/en/16_Abilities.png) | [PNG](screenshots/zh/16_能力下发.png) |
 
 </details>
 
@@ -190,7 +192,7 @@ E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # 真实 agenthub
 
 前置条件、环境变量、Windows 本机差异与产物说明见 `desktop/e2e/README.md`。
 
-如需对真实桌面客户端批量生成截图（15 屏 × 英文 / 中文），见 `desktop/e2e/README.md`
+如需对真实桌面客户端批量生成截图（16 屏 × 英文 / 中文），见 `desktop/e2e/README.md`
 中的[截图生成](desktop/e2e/README.md#screenshot-generation-live-mode-only)。
 
 #### Windows 本机：从 skipped 到全量

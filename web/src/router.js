@@ -15,6 +15,7 @@ import SchedulesView from './views/SchedulesView.vue'
 import PersonaEditor from './views/PersonaEditor.vue'
 import KnowledgeView from './views/KnowledgeView.vue'
 import FilesView from './views/FilesView.vue'
+import AbilitiesView from './views/AbilitiesView.vue'
 
 const routes = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
@@ -24,6 +25,7 @@ const routes = [
   { path: '/tasks', name: 'tasks', component: TaskListView },
   { path: '/tasks/:id', name: 'task', component: TaskTraceView, props: true },
   { path: '/org', name: 'org', component: OrgView },
+  { path: '/abilities', name: 'abilities', component: AbilitiesView },
   { path: '/channels', name: 'channels', component: ChannelsView },
   { path: '/connectors', name: 'connectors', component: ConnectorsView },
   { path: '/settings', name: 'settings', component: SettingsView },

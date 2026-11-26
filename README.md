@@ -58,7 +58,8 @@ interconnection platform.
   action that keeps the thread and its tasks, in all 13 languages),
   task tracing, approvals (HITL park/resume), channels
   (Slack / Teams / Telegram / SMS webhooks), connectors (policy-gated actions),
-  and voice (record → transcribe → delegate).
+  abilities (bind MCP servers and skill manuals to an agent, preview the resolved
+  package and deliver it as a task), and voice (record → transcribe → delegate).
 - Automatic updates: GitHub and Gitee are probed in parallel and the fastest
   reachable mirror wins, with failover to the other. Checks run on startup and
   daily; the signed installer is matched to the local OS/CPU and a one-click
@@ -79,7 +80,7 @@ and what is waiting on you:
 ![agentbuddy workbench](screenshots/en/02_Workbench.png)
 
 <details>
-<summary><kbd>All 15 screens · English / 简体中文</kbd></summary>
+<summary><kbd>All 16 screens · English / 简体中文</kbd></summary>
 
 | # | Screen | English | 简体中文 |
 | --- | --- | --- | --- |
@@ -98,6 +99,7 @@ and what is waiting on you:
 | 13 | Files | [PNG](screenshots/en/13_Files.png) | [PNG](screenshots/zh/13_文件.png) |
 | 14 | Persona | [PNG](screenshots/en/14_Persona.png) | [PNG](screenshots/zh/14_人格.png) |
 | 15 | Settings | [PNG](screenshots/en/15_Settings.png) | [PNG](screenshots/zh/15_设置.png) |
+| 16 | Abilities | [PNG](screenshots/en/16_Abilities.png) | [PNG](screenshots/zh/16_能力下发.png) |
 
 </details>
 
@@ -205,7 +207,7 @@ E2E_LIVE_EMAIL=... E2E_LIVE_PASSWORD=... make e2e-live  # real agenthub
 See `desktop/e2e/README.md` for prerequisites, environment variables and the
 artefacts.
 
-To capture ready-made screenshots of the real desktop client (15 screens × English /
+To capture ready-made screenshots of the real desktop client (16 screens × English /
 Chinese), see [Screenshot generation](desktop/e2e/README.md#screenshot-generation-live-mode-only)
 in `desktop/e2e/README.md`.
 

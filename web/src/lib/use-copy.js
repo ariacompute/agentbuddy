@@ -20,6 +20,7 @@ import { withCopy } from './copy/scheduler-copy.js'
 import { hubCopy } from './copy/hub-copy.js'
 import { opsCopy } from './copy/ops-copy.js'
 import { filesCopy } from './copy/files-copy.js'
+import { abilitiesCopy } from './copy/abilities-copy.js'
 
 export const STORAGE_KEY = 'agentbuddy.lang'
 
@@ -38,6 +39,7 @@ const COPIES = {
   hub: hubCopy,
   ops: opsCopy,
   files: filesCopy,
+  abilities: abilitiesCopy,
 }
 
 /** Shallow merge with English fallback. */

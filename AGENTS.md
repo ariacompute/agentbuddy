@@ -10,7 +10,7 @@
 `agenthub` 服务端，从而复用 agenthub 的认证、A2A 编排、注册中心与任务状态机。
 
 - 后端（别人的）：`agenthub`（Go 1.27 + PostgreSQL）。本仓库 **不 import** agenthub，只经 HTTP 对话。
-- 前端：Vue 3.5 + Vite 5（**bun 1.4.4+** 运行时，弃用 npm/Node）；15 屏工作台；**13 种语言**；
+- 前端：Vue 3.5 + Vite 5（**bun 1.4.4+** 运行时，弃用 npm/Node）；16 屏工作台；**13 种语言**；
   **纯黑/白/灰单色**；无 UI 组件库、无 CSS 框架，样式全部手写于单个 `web/src/style.css`。
 - 桌面外壳：`desktop/src-tauri`（**Rust + Tauri v2**，出向 TLS 由 rustls + webpki-roots ≥1.0.10 校验），**不含后端、不含数据库**，用环回反向代理把
   同一份工作台对着用户指定的服务端打开；外壳自有文案同样 13 语。
@@ -40,13 +40,14 @@
 ```
 web/                        Vue 3 工作台（bun + vite）
   src/App.vue               全局壳：镜像 <html lang|dir>、启动 ActivityMonitor
-  src/router.js             16 条路由 + 登录守卫
+  src/router.js             17 条路由 + 登录守卫
   src/style.css             唯一全局样式表（单色令牌 + 全站样式）
   src/lib/                  语言、copy、api、stores、monitor、notifications、voice
   src/lib/copy/scheduler-copy.js  调度器文案（13 语，合并进 hub / errors 命名空间）
-  src/views/                15 屏（SchedulesView 含调度水位 / 运行历史 / 触发流 / 策略四区块；
+  src/views/                16 屏（SchedulesView 含调度水位 / 运行历史 / 触发流 / 策略四区块；
                             FilesView 为共享文件（上传 / 列表 / 下载 / 删除）；
-                            KnowledgeView 为只读知识片段列表）
+                            KnowledgeView 为只读知识片段列表；
+                            AbilitiesView 把 MCP / Skill 绑定到 agent 并下发能力包）
   src/components/           共享组件
   tests/                    Vitest（含 style 单色守卫、copy-fallback 13 语完整性、
                             api-usage 导出引用守卫、round4 六面接线回归；
@@ -93,10 +94,13 @@ desktop/
   script，`node_modules/.bin/vitest` 的 shebang 是 `#!/usr/bin/env node`；PATH 里没有 node 时
   bun 会退用自己的 runtime 跑 vitest，`vi.mock` 的自动 mock 全部失效（本地实测 424 条报
   `xxx.mockResolvedValue is not a function`，而同一份代码用 node 跑 773 条全绿）。
+  **Node 需 ≥ 22.15**：jsdom 30 依赖的 undici 在 `decompress.js` 里对
+  `zlib.createZstdDecompress` 直接 `.bind`，Node 20 上该符号不存在，整轮测试会以
+  `Cannot read properties of undefined (reading 'bind')` 的 unhandled error 结束（0 用例被执行）。
   新增功能须补**正常 + 异常**双路径用例。
   覆盖率走 `bun run test:coverage`（v8，配置在 `vite.config.js` 的 `test.coverage`，只输出
-  `text-summary` + `text`，不写报告目录），当前基线（36 个 spec、**936** 条用例）：
-  语句/行 **100%**、分支 **100%**、函数 **100%**（12566 条语句、2194 个分支、488 个函数、12531 行）；
+  `text-summary` + `text`，不写报告目录），当前基线（38 个 spec、**1005** 条用例）：
+  语句/行 **100%**、分支 **100%**、函数 **100%**（13069 条语句、2361 个分支、513 个函数、13069 行）；
   `vitest` 与 `@vitest/coverage-v8` **版本必须完全一致**（当前同为 `2.1.9`，写死不用 `^`）：
   混版本会打印 "Running mixed versions is not supported"，且覆盖率数字不可信；
   **四项须保持 100%**，回落时先看报告里的未覆盖行再补用例，`test.coverage` **没有 exclude**，

@@ -1880,3 +1880,66 @@ Windows 路线又是「best effort」，于是「绿」到底证明了什么取�
   （重试成功 → 显示名字且无提示；两次失败 → 保留 id + 提示 + 手动重试后恢复）。
 - 未验证：真 Linux 上的权威结果（本机无 `webkit2gtk-driver`/xvfb），本轮只钉住判定与退出码；
   CI 的 e2e job 实跑结果不在本机可见范围。
+
+## M46 — 能力下发屏（F20，2026-11-26）
+
+第 16 屏：把注册中心里的 MCP 服务与 Skill 手册绑定到某个智能体，并把服务端解析出的能力包作为一条
+任务下发。取数口径与目录屏一致（`listResources(kind, { limit: 0 })`，列全部可见条目），写操作再受
+`resources:write` 约束；桌面外壳与 agenthub 均零改动（全部落在既有 `/api` 前缀内）。
+
+### 1. API 封装与合并规则
+
+- `lib/api.js` 新增三个封装：`getResource(id)`、`getResourceDistribution(id)`、
+  `pushResourceDistribution(id)`（POST 无 body）。
+- `lib/bindings.js`（纯函数，不依赖 Vue）：`normalizeRefs`（去空/去重/保序）、`toggleRef`、
+  `unresolvedRefs`、`bindingsOf`、`bindingsDiffer`、`withBindings`。
+- **保存必须「先读再改」**：agenthub 的 `PUT /api/resources/{id}` 是整体替换，所以屏幕上先
+  `GET` 完整 Entry，`withBindings` 只改 `kind_config.agent.mcp/skills`，其余字段（`persona` /
+  `visibility` / `namespace` / `metadata` / `health` / `kind_config.agent` 的 card_url、
+  credential_env、egress_allowlist 等）原样回传，不新增未知键（服务端 `DisallowUnknownFields`）。
+- **`status` 回填**：空状态会被服务端解析成命名空间默认值（非自动审批即 `pending`），因此合并时取
+  `entry.status || 'approved'`，避免把已批准的智能体打回待审。
+- 空数组是「删除键」而不是写 `[]`——`kind_config` 按 union 序列化，「没有绑定」就是字段不存在。
+
+### 2. 视图与接线
+
+- `views/AbilitiesView.vue`：左列可搜索智能体（名称/健康圆点/已绑定数徽标/选中边条，本地过滤），
+  右列三区块（绑定编辑 + 未解析 chip、能力包预览、下发结果）。
+- 候选 MCP/Skill 各一次 `limit=0` 全量拉取并在屏幕内缓存；切换智能体只发
+  `getResource` + `getResourceDistribution`。迟到的旧响应按 `selectedId` 丢弃。
+- 已选但候选里没有的 id 保留在草稿里并渲染为虚线「未解析」chip，只能显式移除；下发不因
+  `unresolved` / `missing` 禁用（服务端允许空包下发＝告知智能体能力已撤销）。
+- 保存成功后以服务端返回值替换本地行与草稿，并**重新拉取** distribution。
+- **「清空」的可用性改为草稿是否非空**（`hasDraft`），不再挂在 `dirty` 上：刚打开的记录没有改动，
+  但操作者仍需要一键撤销全部能力；`saving` 与 `writeAllowed` 照旧参与禁用。
+- 路由 `/abilities`（名字 `abilities`）+ 侧栏 `PackageCheck` 入口（`/org` 之后）；`navAbilities` 13 语。
+
+### 3. 文案与样式
+
+- `copy/abilities-copy.js` 13 语（含新增 `agentsNoMatch`：搜索无匹配不再与「没有智能体」共用文案）；
+  `use-copy.js` 注册 `abilities` 命名空间，`copy-fallback.spec.js` 的 `NAMESPACES` 同步。
+- 空态区分：加载失败 / 没有任何智能体（含登记提示）/ 搜索无匹配 / 没有候选 / 包为空 / 未选智能体。
+- `style.css` 新增双列（左 300–320px、右自适应）、窄屏纵向堆叠、绑定列表滚动、未解析 chip 虚线、
+  `pkg-fields` 标签值两列；只用既有单色令牌，逻辑属性 + `min-width: 0`。
+
+### 4. 验证
+
+| 项 | 结果 |
+| --- | --- |
+| `cd web && bun run test`（Node 26 起 Vitest） | **38 spec / 1005 用例全绿**（+1 spec，能力屏 37 条） |
+| `cd web && bun run test:coverage` | 语句 / 分支 / 函数 / 行 **四项 100%**（13069 语句、2361 分支、513 函数、13069 行） |
+| `cd web && bun run build` | 通过，产出 `dist/index.html`（612 kB js / 37.7 kB css） |
+
+- 新增用例：`tests/bindings.spec.js`（合并/去重/未解析边界）、`tests/abilities.spec.js`
+  （目录取数、包预览、保存回传完整 Entry、未解析保留与移除、清空、403/503/无码回落、
+  迟到响应丢弃、写权限禁用、直接调用守卫、保存/下发去重）；`api.spec.js` 三个封装、
+  `copy-fallback.spec.js` 命名空间、`router.spec.js` 守卫、`components.spec.js` 侧栏计数同步。
+- 真实服务端走通（本机 `127.0.0.1:3500` 的 agenthub）：`demo-agent` 绑定 `demo-mcp` + `demo-skill` →
+  `PUT` 回 200 且 `status` 仍为 `approved`（未被打回 `pending`）→ `distribution` 解析出 1 个 MCP
+  （`streamable-http` + `auth_schemes`）与 1 个 Skill（无触发词/工具，走可选字段分支）→ `POST distribution`
+  返回 `task-e17e3b04202ef7e9`（`completed`，mock provider，`mcp=1 skills=1`）且 `GET /api/tasks/{id}` 为 200
+  → 清空绑定后包重新为空、记录已恢复原状。
+- 未验证：`screenshots/{en,zh}/16_Abilities.png` 需在有 `E2E_SERVER_URL` 的机器上跑
+  `node desktop/e2e/shoot.mjs` 重新生成（`screenshots.spec.js` 的 ROUTES 已追加 `/abilities`）。
+- 观察到一次偶发：全量并发跑覆盖率时 `files.spec.js` 的拖拽上传用例偶发未触发（单独重跑 20 条
+  全绿，随后全量重跑亦全绿），与本轮改动无关。

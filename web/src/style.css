@@ -2368,3 +2368,229 @@ audio {
 .persona-value.is-empty {
   color: var(--text-3);
 }
+
+/* ---- Ability delivery ---------------------------------------------------- */
+/* One list, one workspace: the left column stays quiet so the right column is
+   where the work happens. Tokens only, so light and dark share one declaration
+   and Arabic mirrors for free (every offset below is logical). */
+.abilities-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.abilities-agents,
+.abilities-work {
+  min-width: 0;
+}
+
+.abilities-head {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stack.tight {
+  gap: 8px;
+}
+
+.small {
+  font-size: 12px;
+}
+
+/* A dashed frame reads as "this is a statement, not a control" without asking
+   for a second colour. */
+.notice {
+  border: 1px dashed var(--stroke-2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 460px;
+  overflow: auto;
+}
+
+.agent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  inline-size: 100%;
+  min-block-size: var(--touch-min);
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-inline-start: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-1);
+  text-align: start;
+  cursor: pointer;
+}
+
+.agent-item:hover {
+  background: var(--bg-overlay);
+}
+
+.agent-item.is-active {
+  background: var(--accent-softer);
+  border-color: var(--stroke-1);
+  border-inline-start-color: var(--accent);
+}
+
+.agent-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+/* Health rides the same luminance ladder as everything else: filled is healthy,
+   half is degraded, hollow is unknown. */
+.health-dot {
+  flex: none;
+  inline-size: 8px;
+  block-size: 8px;
+  border: 1px solid var(--stroke-3);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.health-dot[data-health='healthy'] {
+  border-color: var(--text-1);
+  background: var(--text-1);
+}
+
+.health-dot[data-health='degraded'] {
+  border-color: var(--text-2);
+  background: var(--text-2);
+}
+
+.ability-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid var(--stroke-1);
+  border-radius: var(--radius-sm);
+}
+
+.ability-list li + li {
+  border-block-start: 1px solid var(--stroke-1);
+}
+
+.ability-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-block-size: var(--touch-min);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.ability-row input {
+  flex: none;
+  inline-size: 16px;
+  block-size: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.ability-row input:disabled {
+  cursor: not-allowed;
+}
+
+.ability-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ability-meta strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ability-meta .mono {
+  font-size: 11px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+/* Selected but unofferable: the dashed edge is the same "not a normal control"
+   signal as `.notice`, and removing is the only action it accepts. */
+.ability-chip {
+  border-style: dashed;
+  cursor: pointer;
+}
+
+.ability-chip.is-unresolved {
+  color: var(--text-2);
+}
+
+.ability-chip:disabled {
+  cursor: not-allowed;
+}
+
+.pkg-card {
+  padding: 10px 12px;
+  border: 1px solid var(--stroke-1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-overlay);
+}
+
+.pkg-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.pkg-fields dt {
+  color: var(--text-3);
+}
+
+.pkg-fields dd {
+  margin: 0;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.agent-item:focus-visible,
+.ability-row input:focus-visible,
+.ability-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Below a laptop the two columns become one, and the agent list turns into a
+   horizontal strip so the workspace stays the first thing in view. */
+@media (max-width: 900px) {
+  .abilities-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agent-list {
+    flex-direction: row;
+    max-height: none;
+    overflow-x: auto;
+  }
+
+  .agent-item {
+    inline-size: auto;
+    max-inline-size: 240px;
+  }
+}
