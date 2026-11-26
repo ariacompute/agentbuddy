@@ -24,6 +24,12 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.spec.js'],
     setupFiles: ['tests/setup.js'],
+    // Booting the whole app under jsdom (`tests/main-bootstrap.spec.js`) is the
+    // slowest case, and v8 instrumentation roughly doubles it. Under a shared CI
+    // box the default 5s budget was occasionally missed, which fails the run on
+    // wall-clock alone and says nothing about the code.
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
     // The report is the map for the next round of tests: it counts what the
     // specs actually exercise, not what happened to be imported. Nothing is
     // excluded: `src/main.js` is the browser entry point and is covered by

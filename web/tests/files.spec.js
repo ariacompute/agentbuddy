@@ -129,9 +129,10 @@ describe('FilesView', () => {
     })
     const file = new File(['hello'], 'notes.txt', { type: 'text/plain' })
     await wrapper.find('.files-drop').trigger('drop', { dataTransfer: { files: [file] } })
-    await flushPromises()
+    // The drop handler starts the upload and the reload from its own promise
+    // chain, so wait for the effects rather than for one macrotask.
+    await vi.waitFor(() => expect(uploadFile).toHaveBeenCalledTimes(1))
 
-    expect(uploadFile).toHaveBeenCalledTimes(1)
     expect(uploadFile.mock.calls[0][0]).toBe(file)
     // A successful upload refreshes: the row comes from the server, not from the
     // response body, so the list is the single source of truth.

@@ -107,6 +107,11 @@ desktop/
   统计范围就是整个 `src/**`（含入口 `src/main.js`，由 `tests/main-bootstrap.spec.js` 覆盖）。
   界面上按钮 disabled 因而点不到的守卫，用 `wrapper.vm` 直接调用处理函数覆盖；
   无 `window` 的 setup 分支用 `createSSRApp` + `renderToString` 覆盖。
+- **异步断言用 `vi.waitFor`，不要「一次 `flushPromises` + 断言」**：`testTimeout` 虽是 20s
+  （jsdom 里整包 bootstrap 最慢，v8 插桩再翻倍），但「点了按钮 / 改了输入框，再断言某个调用或
+  路由已经发生」必须等**效果**而不是等一拍——机器负载高时，单次 `flushPromises` 会在效果落地前
+  放行，全量并发跑覆盖率就会出现随机红点（`updateResource` 未调用、路由仍是 `/`、POST 没出现在
+  录制的 calls 里）。断言 JSON 时先 `waitFor` 到对象存在，再读 `body`，别在 `find()` 之后直接取属性。
 - **接线守卫**：`api.js` 的每个具名导出至少要被 `web/src/**`（除 `api.js` 自身）引用一处，
   `tests/api-usage.spec.js` 强制这条且白名单必须为空；新增封装却忘了接界面会直接红。
   `tests/round4.spec.js` 按「界面 → 端点」逐面钉住正常与异常双路径（知识库、资源新建、
@@ -136,8 +141,10 @@ desktop/
   经 `GITHUB_ENV` 传递）、`latest-json.mjs`（三腿 collect → manifest → verify，产出恰好 9 个资产）。
   它们跑在三个 CI 主机与 release job 自己的文件上，**工作台测不到**，因此 `desktop/` 自成一个
   Vitest 工程：`vitest.config.js` 的 `coverage.include` 就是 `scripts/**/*.mjs`，四项 **100%**
-  （10 spec / **145** 用例、1015 语句、306 分支、56 函数），`bun run test:coverage` 验，
-  CI 的 `scripts` job 不需要 Rust 工具链。
+  （10 spec / **146** 用例、965 语句、306 分支、56 函数），`bun run test:coverage` 验，
+  CI 的 `scripts` job 不需要 Rust 工具链。注意 `make-icon` 的用例会**真的写**
+  `src-tauri/icons/`（该目录 git-ignored），所以那里只能断言「这五个文件写下去了」，
+  不能断言目录里恰好只有五个——`tauri icon` 留下的 android/ios/Square*Logo 也在同一目录。
 - **公钥跨文件契约必须编译前断言**：`UPDATER_PUBKEY` 同时落在 `src/upgrade/mod.rs` 的常量与
   `tauri.conf.json` 的 `plugins.updater.pubkey`，`verify-updater-pubkey.mjs` 是唯一比较点。
   它只读两个文件：CI 的 desktop / e2e 两个编译 job 在 cargo 之前要求两处**都为空**（密钥不得

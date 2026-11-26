@@ -205,7 +205,7 @@ describe('AbilitiesView bindings', () => {
     await flushPromises()
     expect(wrapper.findAll('.ability-chip.is-unresolved')).toHaveLength(0)
     await button(wrapper, 'Save bindings').trigger('click')
-    await flushPromises()
+    await vi.waitFor(() => expect(updateResource).toHaveBeenCalledTimes(1))
     expect(updateResource.mock.calls[0][1].kind_config.agent.mcp).toEqual(['mcp_1'])
   })
 

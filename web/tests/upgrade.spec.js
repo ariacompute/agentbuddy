@@ -159,10 +159,9 @@ describe('settings update card', () => {
   it('runs a manual check and renders the returned state', async () => {
     const { wrapper, card, calls } = await mountSettings({ checked: AVAILABLE })
     await button(card, 'Check for updates').trigger('click')
-    await flushPromises()
-    expect(calls).toContainEqual({
+    await vi.waitFor(() => expect(calls).toContainEqual({
       url: '/__shell/upgrade/check', method: 'POST', body: '{}',
-    })
+    }))
     expect(wrapper.find('[data-testid="upgrade-card"]').text()).toContain('Version 0.3.0')
   })
 
@@ -174,8 +173,7 @@ describe('settings update card', () => {
       },
     })
     await button(card, 'Upgrade now').trigger('click')
-    await flushPromises()
-    expect(calls.map((c) => c.url)).toContain('/__shell/upgrade/install')
+    await vi.waitFor(() => expect(calls.map((c) => c.url)).toContain('/__shell/upgrade/install'))
     expect(card.text()).toContain('Downloading and installing…')
   })
 
@@ -205,9 +203,9 @@ describe('settings update card', () => {
     const { card, calls } = await mountSettings()
     const boxes = card.findAll('input[type="checkbox"]')
     await boxes[boxes.length - 1].setValue(false)
-    await flushPromises()
-    const post = calls.find((c) => c.url === '/__shell/config' && c.method === 'POST')
-    expect(JSON.parse(post.body)).toMatchObject({ upgrade_auto_check: false })
+    const configPost = () => calls.find((c) => c.url === '/__shell/config' && c.method === 'POST')
+    await vi.waitFor(() => expect(configPost()).toBeTruthy())
+    expect(JSON.parse(configPost().body)).toMatchObject({ upgrade_auto_check: false })
   })
 
   it('shows the machine code when a manual check fails', async () => {

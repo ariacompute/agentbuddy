@@ -73,8 +73,9 @@ describe('KnowledgeView', () => {
     await flushPromises()
     await wrapper.find('input[type="text"]').setValue('agent-9')
     await wrapper.findAll('button').find((b) => b.text() === 'Refresh').trigger('click')
-    await flushPromises()
-    expect(listKnowledge).toHaveBeenLastCalledWith('agent-9')
+    // The reload is dispatched by the click handler, so wait for the call
+    // instead of assuming one macrotask was enough.
+    await vi.waitFor(() => expect(listKnowledge).toHaveBeenLastCalledWith('agent-9'))
   })
 
   it('says the feature is off instead of showing an empty list', async () => {

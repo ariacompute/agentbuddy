@@ -2,7 +2,7 @@
 // ICNS containers are themselves testable: a regression here ships a coloured or
 // malformed icon that no reviewer looks at (the files are git-ignored and
 // regenerated on every build).
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { inflateSync } from 'node:zlib'
@@ -231,6 +231,25 @@ describe('writeIconSet', () => {
     expect(readdirSync(iconsDir)).toHaveLength(5)
     expect(readdirSync(assetsDir)).toEqual(['app-icon.png'])
   })
+
+  it('leaves the files it does not own in the icons directory alone', () => {
+    const iconsDir = join(tempDir(), 'icons')
+    const assetsDir = join(tempDir(), 'assets')
+    mkdirSync(iconsDir, { recursive: true })
+    writeFileSync(join(iconsDir, 'icon.png'), 'derived by tauri icon')
+    writeFileSync(join(iconsDir, 'Square44x44Logo.png'), 'windows store logo')
+
+    writeIconSet({ iconsDir, assetsDir })
+
+    // The writer only creates the five bundler files: everything `tauri icon`
+    // derived (android/, ios/, the Square*Logo set, icon.png) must survive, or a
+    // build would quietly lose the artwork it never regenerates.
+    expect(readdirSync(iconsDir).sort()).toEqual([
+      '128x128.png', '128x128@2x.png', '32x32.png', 'Square44x44Logo.png',
+      'icon.icns', 'icon.ico', 'icon.png',
+    ].sort())
+    expect(readFileSync(join(iconsDir, 'icon.png'), 'utf8')).toBe('derived by tauri icon')
+  })
 })
 
 describe('main', () => {
@@ -241,7 +260,14 @@ describe('main', () => {
     // `src-tauri/icons/` is git-ignored and regenerated on every build, so
     // writing it here proves the default without touching a tracked file.
     expect(log).toHaveBeenCalledWith('wrote monochrome icon set to', DEFAULT_ICONS_DIR)
-    expect(readdirSync(DEFAULT_ICONS_DIR)).toHaveLength(5)
+    // The checkout directory also holds whatever `tauri icon` left behind
+    // (android/, ios/, the Square*Logo set), so the case can only assert the
+    // five bundler files landed — not that the directory holds nothing else.
+    expect(readdirSync(DEFAULT_ICONS_DIR).sort()).toEqual(
+      expect.arrayContaining(
+        ['128x128.png', '128x128@2x.png', '32x32.png', 'icon.icns', 'icon.ico'].sort(),
+      ),
+    )
     expect(readdirSync(assetsDir)).toEqual(['app-icon.png'])
   })
 

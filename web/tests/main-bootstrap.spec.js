@@ -41,8 +41,10 @@ async function boot() {
   const app = document.getElementById('app')
   // The router's first navigation is asynchronous, so wait for the screen the
   // anonymous guard lands on rather than for "some HTML" (the first paint is an
-  // empty <router-view> placeholder, which would satisfy that).
-  await vi.waitFor(() => expect(app.querySelector('form')).not.toBeNull())
+  // empty <router-view> placeholder, which would satisfy that). The explicit
+  // budget is the waitFor default (1s) times five: this boot mounts the whole
+  // app, and on an instrumented run that comfortably exceeds a second.
+  await vi.waitFor(() => expect(app.querySelector('form')).not.toBeNull(), { timeout: 5000 })
   return { call, app }
 }
 

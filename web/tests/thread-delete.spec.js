@@ -130,8 +130,9 @@ describe('ThreadListView — selection', () => {
     expect(deleteThread).not.toHaveBeenCalled()
 
     await wrapper.find('.thread-card').trigger('click')
-    await flushPromises()
-    expect(router.currentRoute.value.fullPath).toBe('/threads/th-1')
+    // The view fires the push without awaiting it, so wait for the route the
+    // navigation lands on instead of for a single macrotask.
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/threads/th-1'))
   })
 
   it('selects all, shows the count and clears the selection again', async () => {

@@ -1943,3 +1943,45 @@ Windows 路线又是「best effort」，于是「绿」到底证明了什么取�
   `node desktop/e2e/shoot.mjs` 重新生成（`screenshots.spec.js` 的 ROUTES 已追加 `/abilities`）。
 - 观察到一次偶发：全量并发跑覆盖率时 `files.spec.js` 的拖拽上传用例偶发未触发（单独重跑 20 条
   全绿，随后全量重跑亦全绿），与本轮改动无关。
+
+## M47 — 两端覆盖率闸门除抖（2026-11-26）
+
+上一轮的「偶发」不是个例：带 `--coverage` 全量并跑时，随机有一两个用例红，且每次位置不同
+（`thread-delete` 的卡片路由、`upgrade` 的两条 POST、`abilities` 的保存、`round4` 的知识库筛选、
+`files` 的拖拽上传、`main-bootstrap` 的整包启动）。本轮只改测试与闸门配置，不动业务代码。
+
+### 1. 定位
+
+- 同一份代码**串行**（`--no-file-parallelism`）跑 1005 条全绿；不带覆盖率并跑连跑 3 轮也全绿；
+  带覆盖率并跑在机器负载高时（`tests` 阶段从 42s 涨到 78s，`load average` 12+）才出现。
+- 其中一次是明确的 **`Test timed out in 5000ms`**（`main-bootstrap` 要真启动整个应用）；
+  其余是「动作的效果还没落地就断言」：`updateResource` 没被调用、路由仍是 `/`、录制的 `calls`
+  里没有 POST、`uploadFile` 没触发。
+- 结论：**默认 5s 预算 + 单次 `flushPromises`** 这两件事在插桩与高负载下都不成立，不是业务缺陷。
+
+### 2. 改动
+
+- `web/vite.config.js`：`testTimeout` / `hookTimeout` 20s，并注明原因（jsdom 整包 bootstrap 最慢，
+  v8 插桩再翻倍）。
+- `tests/main-bootstrap.spec.js`：`vi.waitFor` 显式 5s 预算（默认 1s 在插桩下不够）。
+- 六处「点一下 + `flushPromises` + 断言效果」改为 `vi.waitFor(...)`（等效果，不等一拍）：
+  `thread-delete`（路由）、`upgrade`（手动检查 / 自动检查开关 / 安装）、`round4`（知识库筛选）、
+  `files`（拖拽上传）、`abilities`（保存调用）。JSON 断言先 `waitFor` 到对象存在再读 `body`。
+- `desktop/tests/make-icon.spec.js`：**真缺陷在用例本身**。该用例调用 `main()` 把五个文件写进
+  真实的 `src-tauri/icons/`，然后断言目录恰好 5 项；但 `tauri icon` 会在同一目录留下
+  `android/`、`ios/`、`Square*Logo` 等 19 项，于是任何跑过 `bun run icons` 的机器上必红。
+  现在改为断言五个文件都在（`arrayContaining`），并新增一条：「不属于自己的文件不得被动」——
+  预置 `icon.png` / `Square44x44Logo.png` 后写入，二者内容原样保留。
+- `AGENTS.md`：desktop 闸门计数改成实测值；新增两条约定（异步断言用 `vi.waitFor`；
+  `make-icon` 用例只能断言「写下了什么」）；`desktop/` 依赖用 `bun install --frozen-lockfile` 装齐。
+
+### 3. 验证
+
+| 项 | 结果 |
+| --- | --- |
+| `cd web && node node_modules/vitest/vitest.mjs run --coverage`（连跑 5 轮，最后两轮为改后） | **38 spec / 1005 用例全绿**，四项 **100%**（13069 语句、2361 分支、513 函数、13069 行），0 超时 |
+| `cd desktop && node node_modules/vitest/vitest.mjs run --coverage` | **10 spec / 146 用例全绿**，四项 **100%**（965 语句、306 分支、56 函数、965 行） |
+| 不带覆盖率并跑 3 轮 / 串行 1 轮 | 均 1005 条全绿（作为对照组） |
+
+- 仍需注意：这台机器的 `load average` 会因外部任务飙到 12+，覆盖率全量约 20s；超时抬到 20s 后
+  再没有出现「负载导致的红」。真正慢的用例（`main-bootstrap`）不值得再拆——它跑的是入口本身。
